@@ -1,0 +1,44 @@
+{
+  "name": "nest-cloud",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start:system": "pnpm --dir ./apps/system-service start:dev",
+    "build": "pnpm --dir ./apps/common-service build",
+    "format": "oxfmt --write \"apps/**/*.ts\" \"web/**/*.{ts,tsx}\" \"scripts/**/*.{mjs,ts}\"",
+    "lint": "node ./scripts/run-oxlint.mjs",
+    "test": "node ./scripts/run-tests.mjs",
+    "tsgo": "node ./scripts/run-tsgo.mjs",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@bull-board/api": "^7.1.5",
+    "@bull-board/express": "^7.1.5",
+    "@nest-cloud/common": "workspace:*",
+    "@nestjs/common": "^11.1.23",
+    "@nestjs/serve-static": "^5.0.5",
+    "@nestjs/typeorm": "^11.0.1",
+    "bullmq": "^5.77.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "express": "^5.2.1",
+    "pg": "^8.16.3",
+    "redis": "^5.12.1",
+    "typeorm": "^0.3.30"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260522.1",
+    "@vitest/coverage-v8": "4.1.9",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
+    "oxfmt": "0.54.0",
+    "oxlint": "1.69.0",
+    "typescript": "^6.0.3",
+    "vite-tsconfig-paths": "6.1.1",
+    "vitest": "4.1.9"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"
+}

@@ -1,0 +1,19 @@
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit"
+  },
+  "chat.tools.terminal.autoApprove": {
+    "npm.cmd": true,
+    "pnpm.cmd": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.next": true,
+    "**/coverage": true,
+    "**/build": true,
+    "**/.git": true
+  },
+  "cSpell.words": ["headimgurl", "unionid", "Wechat"],
+  "git.ignoreLimitWarning": true
+}

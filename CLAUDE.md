@@ -1,0 +1,86 @@
+# CLAUDE
+
+## 1. 适用范围与优先级
+
+- 本文件约束 `apps/*` 下所有子项目的通用工程实践。
+- 子项目根目录的 `CLAUDE.md` 只补充该子项目的专属规则；与本文件冲突时，以更具体的子项目规则为准。
+- 涉及共享能力时，同时遵守 `apps/common-service/CLAUDE.md`。
+- 所有代码、文档、测试和脚本操作仅限当前项目；禁止主动扫描、修改项目外文件，禁止提交或推送代码。
+- Windows 环境默认使用 `pnpm`。
+
+## 2. 协作与变更流程
+
+- 收到需求后先评审范围、现状和潜在影响；存在不理解或明显不合理之处时，先提出问题再实施。
+- 跨服务、跨模块、架构调整、新增接口或配置、缓存与权限模型调整、数据库结构调整，以及超过 3 个文件的业务变更，先在 `docs/plan/` 建立计划。
+  - 跨服务或项目级变更：使用仓库根目录 `docs/plan/`。
+  - 单一子项目内部变更：使用该子项目的 `docs/plan/`。
+- 计划至少记录背景、任务清单、开始时间、结束时间、耗时和当前状态；执行过程中及时更新，完成后仅保留过程记录，不以计划代替正式文档。
+- 功能完成后，将实现方式、核心逻辑和接口变化同步到对应子项目的 `docs/<模块>/` 正式 Markdown 文档；文档按职责拆分，`README.md` 只做导航。
+- 遇到错误先定位根因；确认具有复用价值后，将问题、触发条件和解决方式记录到 `docs/experience/`。
+- 新增、修改或删除接口时，按项目流程同步更新 ApiFox 接口文档。
+
+## 3. 项目目录与代码组织
+
+- 子项目 `src` 根目录只保留启动入口和配置校验入口，例如 `main.ts`、`app.module.ts`、`validate.config.ts`；业务代码按职责放在 `src/constants`、`src/modules`、`src/client`、`src/utils` 等目录。
+- `AppModule` 只作为启动入口；不新增业务聚合 Module 类，业务组件通过既有自动注册机制或约定目录注册。
+- 代码优先使用职责清晰的类和对象协作组织：业务编排类使用 `*Service`，外部访问类使用 `*ClientService`、`*FetchService` 或 `*GatewayService`，纯辅助类使用 `*Util`。
+- `controller` 负责入参解析、协议转换和响应封装；`service` 负责业务编排；`utils` 只负责无状态、无副作用的纯辅助逻辑，不访问仓储、不发起远程调用。
+- 单个类不得同时堆叠远程拉取、业务筛选、缓存管理和结果组装等不相关职责；代码文件不超过 2000 行，超出时拆分或重构。
+- 自定义业务方法和工具方法参数原则上不超过三个；超过时使用 DTO 或 options 对象。禁止实现空函数并以 Todo 跳过功能。
+
+## 4. 跨服务调用
+
+- 子项目调用其他子项目接口时，必须在调用方 `src/client` 中定义对应的 `*ClientService`，并继承 `RemoteClientBase`。
+- 统一使用 `@RemoteCall` 发起调用，路径直接写字符串；业务代码禁止直接使用 `fetch` 或 `axios`（`common-service` 内部实现除外）。
+
+## 5. 数据库与实体访问
+
+- 数据库表设计遵守第三范式；表名和字段名统一使用下划线命名，例如 `permission_code`，禁止使用驼峰命名。
+- 数据库实体继承 `BaseEntity`；实体对应的 service 继承 `BaseService`；实体对应的 controller 继承 `BaseController`。
+- 对本实体的增删改优先使用 `BaseService` 的 `create`、`update`、`delete`，查询优先使用 `findAll`、`findOne`、`paginate`；仅在多表关联、聚合或复杂条件等特殊查询时直接使用本实体 Repository。
+- 操作其他实体时，必须注入并使用该实体对应的 Service，禁止跨实体直接注入 Repository 做 CRUD。
+
+## 6. 配置、缓存与运行时治理
+
+- 配置只能通过 `getConfig` 和 `ConfigKey` 获取，禁止使用 `process.env` 或其他绕过方式。
+- 新增配置必须同步补充 `validate.config.ts` 校验、默认值来源和对应模块文档。
+- 有限状态集合、类型和分组优先使用数据字典，避免在业务代码、配置或页面中重复硬编码。
+- 可复用的字符串、数值、默认配置、路径和枚举统一提取到 `src/constants`；Controller 装饰器中的路由地址及协议处理中的固定 header 名称可直接书写。
+- 新增缓存必须明确键组成、TTL、失效方式、手动刷新入口和降级策略；Redis 必须配置认证和隔离，支持独立账号、密码、DB 或 key prefix。Redis Cluster 或云 Redis 不支持 DB 隔离时，以 key prefix 为主要隔离手段。
+- 批处理、远程抓取、轮询、重试和超时等参数不得散落硬编码，应通过配置或常量统一管理。
+- 外部依赖默认不执行真实网络测试，优先使用可控输入；必须保留降级路径，不默认假设外部基础设施可用。
+- 启动、日志、配置和通用中间件等已有公共能力优先复用 `common-service`；新能力默认先在业务服务实现，确认是无业务私有逻辑的通用能力后再沉淀到公共层。
+- 业务代码禁止使用 `console`，统一使用项目 logger。
+
+## 7. 接口与异常处理
+
+- Controller 接口参数必须使用对应的 form 对象和 `class-validator` 校验，禁止直接以 `Record<string, string | undefined>` 等非约束对象接收参数。
+- 业务查询条件和资源标识统一使用 query 参数，不使用 RESTful 路径参数；分页入参使用 `PageCommon` 或子类，字段为 `pageNum`、`pageSize`，返回数组字段统一为 `list`。
+- 分页查询优先使用 `paginate`。
+- Controller 返回值统一使用 `ResponseUtil.success` 或 `ResponseUtil.error` 包裹；业务异常使用 `ProjectException` 或其子类。
+- 获取当前登录人使用 `ContextService.getCurrentAccount<T>`；请求上下文使用 `ContextService.getReq` 和 `ContextService.getRes`。
+
+## 8. 文档组织
+
+- `docs/project/` 只存放项目级架构设计文档；架构变化时同步更新。
+- `docs/experience/` 只存放执行过程中具有复用价值的失败经验。
+- `apps/` 下除 `common-service` 外的子项目视为独立 Nest 项目，各自在根目录维护 `docs/<模块>/`；文档按模块和职责拆分，不将同类正文全部堆在一个 Markdown 文件中。
+- 修改接口时同步更新模块文档的接口清单或交互说明；影响跨服务调用时，同时更新 `docs/project/` 对应文档。
+
+## 9. 前端页面与静态资源
+
+- 项目前端页面统一由 `system-service` 使用 Nest `serve-static` 能力提供，不另建独立的页面托管入口。
+- 页面、脚本、样式和图片等可部署静态资源统一放在 `apps/system-service/public/`；禁止放在 `src/public` 或其他目录维护同一套页面资源。
+- 配置 `ServeStaticModule`、构建资源复制规则和访问路径时，必须保持 `apps/system-service/public/` 为唯一源目录；当前仅声明依赖或构建复制规则不等同于已经启用静态服务。
+- 页面视觉与交互必须遵守仓库根目录 `DESIGN.md`，包括颜色、字体、间距、圆角、布局、动效、响应式和无障碍约定；新增页面前先阅读该文件。
+- 只绘制已经实现或正在实现的功能入口，不添加无实际功能的按钮、搜索框或装饰性控件；前端交互优先局部刷新并保留页面状态，避免普通操作整页重载和高频全量重绘。
+
+## 10. 测试与完成检查
+
+- 测试文件统一放在与业务代码约定一致的 `src/__tests__/` 目录，不参与正式业务注册。
+- 新增非 trivial 业务规则优先补行为测试；可稳定复现的缺陷必须补回归测试；优先覆盖公开方法、核心筛选、配置合并、缓存策略、身份同步和导入转换等高价值规则。
+- 任务完成后在项目根目录执行：
+  - `pnpm run lint`
+  - `pnpm run test`
+  - `pnpm run tsgo`
+- 如检查失败，必须在结果中说明失败命令、根因和是否影响本次修改，不得将失败伪装为通过。

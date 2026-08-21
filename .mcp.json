@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-postgres-full-access",
+        "postgresql://postgres:123456@localhost:5432/nest_cloud"
+      ]
+    },
+    "redis": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "redis-mcp-server@latest",
+        "redis-mcp-server",
+        "--url",
+        "redis://root:123456@127.0.0.1:6379/0"
+      ]
+    },
+    "apiFox": {
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer ${APIFOX_TOKEN}",
+        "X-Apifox-Api-Version": "2025-09-01"
+      },
+      "url": "https://api.apifox.com/mcp"
+    }
+  }
+}
