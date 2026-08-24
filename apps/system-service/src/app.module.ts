@@ -1,10 +1,14 @@
-import { EnableAutoRegister, EnableTypeOrm } from '@nest-cloud/common';
 import { Module } from '@nestjs/common';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'node:path';
 
-//@EnableAutoRegister()
-// @EnableTypeOrm()
 @Module({
-  imports: [],
+  imports: [
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, 'public'),
+      serveRoot: '/public',
+    }),
+  ],
   controllers: [],
   providers: [],
 })

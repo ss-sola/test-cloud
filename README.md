@@ -8,7 +8,7 @@
 
 - `apps/common-service`：统一基础设施内核
 - `apps/config-service`：Nacos-like 简化控制面（配置中心与注册中心）
-- `apps/system-service`：系统管理服务，承载前后台统一账号主体、认证、权限、字典、菜单路由等能力
+- `apps/system-service`：系统管理服务，承载前后台统一账号主体、认证与权限等能力
 - `apps/stock-service`：公开股票行情稳定增长分析与静态展示服务
 
 ## 架构分层
@@ -34,8 +34,6 @@
 `system-service` 提供系统管理能力，并以 `account` 作为前后台统一登录与用户主体。当前模块包括：
 
 - 账号、认证、角色、权限与运行时权限管理
-- 字典命名空间与字典项管理
-- 菜单路由树、排序、启停与权限码绑定管理
 
 ### stock-service
 

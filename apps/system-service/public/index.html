@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="NestCloud 系统管理台，提供统一的系统工作区入口。"
+    />
+    <title>系统管理台 · NestCloud</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Lato:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/public/css/app.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar" aria-label="系统管理台导航">
+        <div class="brand-block">
+          <a class="brand" href="#overview" aria-label="返回工作台总览">
+            <span class="brand-mark" aria-hidden="true">N</span>
+            <span>
+              <strong class="brand-name">NestCloud</strong>
+              <span class="brand-caption">SYSTEM CONSOLE</span>
+            </span>
+          </a>
+        </div>
+
+        <nav class="primary-nav" aria-label="主导航">
+          <p class="nav-label">工作区</p>
+          <a class="nav-link" href="#overview" data-route="overview">
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+            </svg>
+            <span>工作台总览</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="service-status">
+            <span class="status-pulse" aria-hidden="true"></span>
+            <span>
+              <strong>静态管理台</strong>
+              <small>前端骨架已就绪</small>
+            </span>
+          </div>
+          <span class="version-label">SYSTEM / 0.1</span>
+        </div>
+      </aside>
+
+      <div class="sidebar-scrim" data-sidebar-close></div>
+
+      <div class="content-shell">
+        <header class="topbar">
+          <div class="topbar-leading">
+            <button
+              class="mobile-menu-button"
+              id="mobile-menu-button"
+              type="button"
+              aria-label="打开导航菜单"
+              aria-controls="sidebar"
+              aria-expanded="false"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div class="breadcrumbs" aria-label="当前位置">
+              <span>系统管理台</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                <path d="m9 5 7 7-7 7" />
+              </svg>
+              <strong id="breadcrumb-current">工作台总览</strong>
+            </div>
+          </div>
+          <div class="topbar-meta">
+            <span class="environment-chip"><span class="environment-dot"></span>本地环境</span>
+            <span class="topbar-divider" aria-hidden="true"></span>
+            <span class="topbar-date">NestCloud Console</span>
+          </div>
+        </header>
+
+        <main id="main-content" class="main-content" tabindex="-1">
+          <section class="view" data-view="overview" aria-labelledby="overview-title">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">SYSTEM OVERVIEW</p>
+                <h1 id="overview-title">工作台总览</h1>
+                <p class="page-description">这里是 NestCloud 系统管理台的统一工作区。</p>
+              </div>
+              <span class="heading-mark" aria-hidden="true">01</span>
+            </div>
+
+            <div class="overview-grid">
+              <article class="welcome-panel">
+                <div class="welcome-copy">
+                  <span class="section-kicker">NESTCLOUD / SYSTEM</span>
+                  <h2>管理台骨架已准备好</h2>
+                  <p>左侧导航承载工作区入口，右侧区域用于呈现当前页面内容。后续系统能力接入后，将在这里形成统一的管理工作区。</p>
+                </div>
+                <div class="welcome-illustration" aria-hidden="true">
+                  <span class="illustration-square illustration-square-main"></span>
+                  <span class="illustration-square illustration-square-small"></span>
+                  <span class="illustration-line illustration-line-one"></span>
+                  <span class="illustration-line illustration-line-two"></span>
+                </div>
+              </article>
+
+              <article class="metric-card">
+                <span class="metric-label">当前工作区</span>
+                <strong class="metric-value">01</strong>
+                <span class="metric-note"><span class="metric-dot metric-dot-blue"></span>总览入口</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">服务状态</span>
+                <strong class="metric-value metric-value-text">就绪</strong>
+                <span class="metric-note"><span class="metric-dot metric-dot-green"></span>静态资源可托管</span>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script src="/public/js/app.js" defer></script>
+  </body>
+</html>
