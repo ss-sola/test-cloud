@@ -38,7 +38,9 @@ pnpm start:system
 - 页面入口：`/public/index.html`
 - 静态资源源目录：`public/`，由 `@nestjs/serve-static` 提供访问
 - 页面结构：左侧主导航、右侧主体内容区
-- 当前页面为工作台总览骨架，业务接口接入后在主体区域扩展
+- 页面提供工作台总览、图片转粒子、JSON 对比、ENV 对比和周报生成五个 hash 入口
+- 三个本地工具均在浏览器本地处理，不上传图片、JSON 或 ENV 内容
+- 周报生成通过受约束的后端 API 读取白名单 Git 仓库，支持源项目的 `week:last` 与 `week:this` 周期，并返回可复制/下载的 Markdown
 - 页面设计遵循仓库根目录 `DESIGN.md`
 
 ## 维护约束

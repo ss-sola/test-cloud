@@ -4,3 +4,4 @@ logs
 dist/**
 coverage
 .gstack/
+docs/plan
