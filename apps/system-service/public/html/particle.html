@@ -1,0 +1,68 @@
+<section class="view tool-view" data-view="particle" aria-labelledby="particle-title" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">PARTICLE LAB / LOCAL</p>
+                <h1 id="particle-title">图片转粒子</h1>
+                <p class="page-description">上传两张图片，点击画布让同一批粒子完成形态切换。所有处理均在当前浏览器内完成。</p>
+              </div>
+              <span class="heading-mark" aria-hidden="true">02</span>
+            </div>
+
+            <div class="particle-layout">
+              <section class="particle-input-panel" aria-labelledby="particle-upload-title">
+                <div class="section-heading-row section-heading-row-compact">
+                  <div>
+                    <p class="section-kicker">INPUT MATERIALS</p>
+                    <h2 id="particle-upload-title">上传素材</h2>
+                  </div>
+                  <span class="section-count">A + B</span>
+                </div>
+                <div class="upload-zone" id="particle-upload-zone">
+                  <input id="particle-file-input" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple />
+                  <span class="upload-zone-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
+                  </span>
+                  <span class="upload-zone-copy">
+                    <strong id="particle-upload-title-text">上传两张图片</strong>
+                    <span>拖入文件，或 <button type="button" class="inline-button" id="particle-browse-button">浏览文件</button></span>
+                  </span>
+                  <span class="upload-format">PNG / JPG / WEBP / GIF<br />单文件最大 15 MB</span>
+                </div>
+                <div class="source-list" id="particle-source-list" aria-live="polite">
+                  <div class="source-chip" data-slot="0">
+                    <span class="source-chip-label">A</span><span class="file-chip-status" data-status-dot="0"></span>
+                    <span class="file-chip-name">素材 A — 等待上传</span><span class="source-chip-state">等待</span>
+                    <button type="button" class="source-chip-action" data-slot-action="0">添加</button>
+                  </div>
+                  <div class="source-chip" data-slot="1">
+                    <span class="source-chip-label">B</span><span class="file-chip-status" data-status-dot="1"></span>
+                    <span class="file-chip-name">素材 B — 等待上传</span><span class="source-chip-state">等待</span>
+                    <button type="button" class="source-chip-action" data-slot-action="1">添加</button>
+                  </div>
+                </div>
+                <p class="tool-error" id="particle-error" role="alert" hidden></p>
+                <div class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>图片不会上传到服务器。</span></div>
+              </section>
+
+              <section class="particle-stage-panel" aria-labelledby="particle-stage-title">
+                <div class="particle-stage-header">
+                  <div><p class="section-kicker">VISUAL FIELD</p><h2 id="particle-stage-title">粒子场</h2></div>
+                  <span class="status-badge" id="particle-status"><span></span><span id="particle-status-label">等待</span></span>
+                </div>
+                <div class="particle-visual-frame" id="particle-field" aria-label="图片边缘粒子画布">
+                  <div class="empty-stage" id="particle-empty-stage">
+                    <div class="empty-crosshair" aria-hidden="true"><span></span><span></span></div>
+                    <p>等待上传素材 A</p><span>上传素材 A + B</span>
+                  </div>
+                </div>
+                <div class="particle-visual-footer">
+                  <div class="particle-control">
+                    <div class="metric"><span>粒子数</span><strong id="particle-count">—</strong></div>
+                    <label class="particle-slider-label" for="particle-density"><span>密度</span><input id="particle-density" type="range" min="1000" max="10000" step="100" value="5000" disabled /><strong id="particle-density-value">5,000</strong></label>
+                  </div>
+                  <label class="effect-selector" for="particle-effect"><span>效果</span><select id="particle-effect"><option value="spring">弹性</option><option value="wave">波浪</option><option value="rotate">旋转至目标</option></select></label>
+                  <button type="button" class="visual-cta" id="particle-morph-button" disabled>添加图片 2 <span aria-hidden="true">→</span></button>
+                </div>
+              </section>
+            </div>
+          </section>

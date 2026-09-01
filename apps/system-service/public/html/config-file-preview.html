@@ -1,0 +1,50 @@
+<section class="view tool-view config-file-preview-view" data-view="config-file-preview" aria-labelledby="config-file-preview-title" hidden>
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">CONFIG TOOL / GIT TAG</p>
+                <h1 id="config-file-preview-title">配置版本预览</h1>
+                <p class="page-description">按 Git 分支选择 tag，读取指定配置文件的纯文本内容。输入会经过服务端安全校验。</p>
+              </div>
+              <span class="heading-mark" aria-hidden="true">06</span>
+            </div>
+
+            <form class="config-file-preview-config" id="config-file-preview-form">
+              <div class="section-heading-row section-heading-row-compact">
+                <div><p class="section-kicker">SOURCE CONFIGURATION</p><h2>选择版本来源</h2></div>
+                <span class="section-count">GIT</span>
+              </div>
+              <div class="config-file-preview-fields">
+                <label for="config-preview-repository-url">Git 地址
+                  <input id="config-preview-repository-url" name="repositoryUrl" type="text" autocomplete="url" required maxlength="2048" placeholder="https://github.com/owner/project.git" aria-describedby="config-preview-error" />
+                </label>
+                <label for="config-preview-branch">分支
+                  <input id="config-preview-branch" name="branch" type="text" autocomplete="off" required maxlength="256" placeholder="main" aria-describedby="config-preview-error" />
+                </label>
+                <label for="config-preview-file-path">指定文件
+                  <input id="config-preview-file-path" name="filePath" type="text" autocomplete="off" required maxlength="512" placeholder="config/application.yml" aria-describedby="config-preview-error" />
+                </label>
+                <label for="config-preview-tag">Git tag
+                  <select id="config-preview-tag" name="tag" disabled aria-describedby="config-preview-error">
+                    <option value="">加载 tag 中...</option>
+                  </select>
+                </label>
+              </div>
+              <div class="config-file-preview-actions">
+                <button class="compare-button" id="config-preview-submit" type="submit">读取版本 <span aria-hidden="true">→</span></button>
+                <span class="config-file-preview-hint">Git 地址按当前运行环境访问；tag 只显示当前分支可达版本。</span>
+              </div>
+              <p class="tool-error" id="config-preview-error" role="alert" hidden></p>
+            </form>
+
+            <section class="config-file-preview-result" aria-labelledby="config-file-preview-result-title" aria-live="polite" aria-busy="false">
+              <div class="particle-stage-header">
+                <div><p class="section-kicker">VERSION CONTENT</p><h2 id="config-file-preview-result-title">文件内容</h2></div>
+                <span class="status-badge" id="config-preview-status"><span></span><span id="config-preview-status-label">等待</span></span>
+              </div>
+              <div class="config-file-preview-meta" id="config-preview-meta">提交配置后读取指定 tag 的文件。</div>
+              <pre class="config-file-preview-output" id="config-preview-output" tabindex="0" aria-label="Git tag 文件内容" hidden></pre>
+              <div class="config-file-preview-result-actions" id="config-preview-result-actions" hidden>
+                <button class="compare-button compare-button--secondary" id="config-preview-copy" type="button">复制内容</button>
+              </div>
+            </section>
+          </section>

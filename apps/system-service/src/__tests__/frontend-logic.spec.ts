@@ -17,13 +17,19 @@ interface EnvParser {
 }
 
 interface JsonDiff {
-  compareJson(left: unknown, right: unknown): {
+  compareJson(
+    left: unknown,
+    right: unknown,
+  ): {
     left: unknown;
     right: unknown;
     stats: { added: number; removed: number; modified: number };
     tree: { path: string; status: string; children: unknown[] };
   };
-  serializeDiffSegments(tree: unknown, side: 'left' | 'right'): Array<{ text: string; status: string | null }>;
+  serializeDiffSegments(
+    tree: unknown,
+    side: 'left' | 'right',
+  ): Array<{ text: string; status: string | null }>;
 }
 
 const envParser = require('../../public/js/env-parser.js') as EnvParser;
@@ -31,7 +37,9 @@ const jsonDiff = require('../../public/js/json-diff.js') as JsonDiff;
 
 describe('static frontend parsers', () => {
   it('preserves ENV string values and quoted syntax', () => {
-    const result = envParser.parseEnv('﻿# comment\r\nexport APP_NAME="particle"\r\nPORT=3000\r\nURL=a=b#fragment\r\nHASH=foo # trailing comment\r\nEMPTY=');
+    const result = envParser.parseEnv(
+      '﻿# comment\r\nexport APP_NAME="particle"\r\nPORT=3000\r\nURL=a=b#fragment\r\nHASH=foo # trailing comment\r\nEMPTY=',
+    );
 
     expect(result.ok).toBe(true);
     expect(Object.fromEntries(Object.entries(result.value ?? {}))).toEqual({
@@ -44,7 +52,9 @@ describe('static frontend parsers', () => {
   });
 
   it('reports malformed ENV lines without accepting partial values', () => {
-    const result = envParser.parseEnv('BAD-KEY=x\nNO_EQUALS\nOPEN="value\nOK="done"junk\nNAME=one\nNAME=two');
+    const result = envParser.parseEnv(
+      'BAD-KEY=x\nNO_EQUALS\nOPEN="value\nOK="done"junk\nNAME=one\nNAME=two',
+    );
 
     expect(result.ok).toBe(false);
     expect(result.value).toBeNull();
@@ -71,13 +81,33 @@ describe('static frontend parsers', () => {
 describe('static JSON diff', () => {
   it('matches identity arrays independent of input order', () => {
     const result = jsonDiff.compareJson(
-      { items: [{ id: 2, name: 'b' }, { id: 1, name: 'a' }] },
-      { items: [{ id: 1, name: 'A' }, { id: 3, name: 'c' }] },
+      {
+        items: [
+          { id: 2, name: 'b' },
+          { id: 1, name: 'a' },
+        ],
+      },
+      {
+        items: [
+          { id: 1, name: 'A' },
+          { id: 3, name: 'c' },
+        ],
+      },
     );
 
     expect(result.stats).toEqual({ added: 1, removed: 1, modified: 1 });
-    expect(result.left).toEqual({ items: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
-    expect(result.right).toEqual({ items: [{ id: 1, name: 'A' }, { id: 3, name: 'c' }] });
+    expect(result.left).toEqual({
+      items: [
+        { id: 1, name: 'a' },
+        { id: 2, name: 'b' },
+      ],
+    });
+    expect(result.right).toEqual({
+      items: [
+        { id: 1, name: 'A' },
+        { id: 3, name: 'c' },
+      ],
+    });
     expect(result.tree.path).toBe('$');
   });
 
@@ -98,24 +128,102 @@ describe('static JSON diff', () => {
 });
 
 describe('static compare editor contract', () => {
-  it('keeps the highlight layer positioned and aligned with each textarea', () => {
-    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+  it('keeps compare controls and editors in each page fragment', () => {
+    const json = readFileSync(resolve(process.cwd(), 'public/html/json-compare.html'), 'utf8');
+    const env = readFileSync(resolve(process.cwd(), 'public/html/env-compare.html'), 'utf8');
 
-    expect((html.match(/class="compare-editor__highlight"/g) ?? []).length).toBe(4);
-    expect((html.match(/class="compare-editor__textarea"/g) ?? []).length).toBe(4);
+    expect((`${json}${env}`.match(/class="compare-editor__highlight"/g) ?? []).length).toBe(4);
+    expect((`${json}${env}`.match(/class="compare-editor__textarea"/g) ?? []).length).toBe(4);
+    expect((`${json}${env}`.match(/data-compare-swap=/g) ?? []).length).toBe(2);
+    expect(json.indexOf('data-compare-action="json"')).toBeLessThan(json.indexOf('id="json-a"'));
+    expect(env.indexOf('data-compare-action="env"')).toBeLessThan(env.indexOf('id="env-a"'));
+  });
+});
+
+describe('static shell and fragment contract', () => {
+  it('keeps the entry document as a shell and exposes all page fragments', () => {
+    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const routes = [
+      'overview',
+      'particle',
+      'json-compare',
+      'env-compare',
+      'weekly-report',
+      'config-file-preview',
+    ];
+
+    expect(html).toContain('id="main-content"');
+    expect(html).toContain('id="view-host"');
+    expect(html).not.toContain('data-view="overview"');
+    routes.forEach((route) => {
+      const fragment = readFileSync(resolve(process.cwd(), `public/html/${route}.html`), 'utf8');
+      expect(fragment).toContain(`data-view="${route}"`);
+      expect((fragment.match(/<section\b/g) ?? []).length).toBeGreaterThan(0);
+    });
   });
 });
 
 describe('weekly report menu contract', () => {
-  it('connects the menu, route registry, and view', () => {
+  it('connects the menu, route registry, and view fragment', () => {
     const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const weekly = readFileSync(resolve(process.cwd(), 'public/html/weekly-report.html'), 'utf8');
     const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
 
     expect(html).toContain('href="#weekly-report" data-route="weekly-report"');
-    expect(html).toContain('data-view="weekly-report"');
-    expect(html).toContain('id="weekly-report-progress"');
-    expect(html.indexOf('id="weekly-report-submit"')).toBeLessThan(html.indexOf('PROJECT SOURCES'));
+    expect(weekly).toContain('data-view="weekly-report"');
+    expect(weekly).toContain('id="weekly-report-progress"');
+    expect(weekly).toContain('id="weekly-report-project-errors"');
+    expect(weekly).toContain('id="weekly-project-add"');
+    expect(weekly).toContain('id="weekly-project-template"');
+    expect(weekly).toContain('data-weekly-project-remove');
+    expect(weekly).toContain('form="weekly-report-form"');
+    expect(weekly).toContain('aria-valuenow="0"');
+    expect(weekly).toContain('role="alert"');
+    expect(weekly.indexOf('id="weekly-report-submit"')).toBeLessThan(
+      weekly.indexOf('PROJECT SOURCES'),
+    );
     expect(app).toContain("'weekly-report': { title: '周报生成'");
-    expect(app).toContain("fetch('/api/weekly-commit-reports/generate'");
+    expect(app).toContain('weekly-report.html');
+    expect(app).toContain('/api/weekly-commit-reports/jobs');
+    expect(app).toContain('/api/weekly-commit-reports/jobs/status?jobId=');
+    expect(app).toContain('nestcloud:weekly-report:v1');
+    expect(app).toContain('nestcloud:compare:json:v1');
+    expect(app).toContain('nestcloud:compare:env:v1');
+    expect(app).toContain('localStorage');
+    expect(app).toContain('projectErrors');
+    expect(app).toContain('renderProjectErrors');
+  });
+});
+
+describe('config file preview menu contract', () => {
+  it('connects the editable form, route, script, and safe text output', () => {
+    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const fragment = readFileSync(
+      resolve(process.cwd(), 'public/html/config-file-preview.html'),
+      'utf8',
+    );
+    const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
+    const preview = readFileSync(
+      resolve(process.cwd(), 'public/js/config-file-preview.js'),
+      'utf8',
+    );
+
+    expect(html).toContain('href="#config-file-preview" data-route="config-file-preview"');
+    expect(fragment).toContain('data-view="config-file-preview"');
+    expect(fragment).toContain('id="config-preview-repository-url"');
+    expect(fragment).toContain('id="config-preview-branch"');
+    expect(fragment).toContain('id="config-preview-file-path"');
+    expect(fragment).toContain('id="config-preview-tag"');
+    expect(fragment).toContain('role="alert"');
+    expect(fragment).toContain('aria-live="polite"');
+    expect(html).toContain('<script src="/public/js/config-file-preview.js" defer></script>');
+    expect(app).toContain("'config-file-preview': { title: '配置版本预览'");
+    expect(app).toContain('config-file-preview.html');
+    expect(preview).toContain("'/api/config-file-preview/defaults'");
+    expect(preview).toContain("'/api/config-file-preview/tags'");
+    expect(preview).toContain("'/api/config-file-preview/preview'");
+    expect(preview).toContain('window.NestCloudConfigFilePreview');
+    expect(preview).toContain('output.textContent = latestContent');
+    expect(preview).not.toContain('innerHTML');
   });
 });

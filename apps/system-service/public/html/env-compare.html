@@ -1,0 +1,16 @@
+<section class="view tool-view compare-view" data-view="env-compare" aria-labelledby="env-compare-title" hidden>
+            <div class="page-heading">
+              <div><p class="eyebrow">CONFIG TOOL / ENV</p><h1 id="env-compare-title">ENV 对比</h1><p class="page-description">按字符串键值解析并比较两份环境配置，保留原始 ENV 文本并展示结构差异。</p></div>
+              <span class="heading-mark" aria-hidden="true">04</span>
+            </div>
+            <div class="compare-actions">
+              <button type="button" class="compare-button" data-compare-action="env">对比 ENV <span aria-hidden="true">→</span></button>
+              <span class="compare-hint">ENV 值保持字符串，结果树展示结构差异</span>
+              <button type="button" class="compare-button compare-button--secondary compare-swap-button" data-compare-swap="env">对调 A / B</button>
+            </div>
+            <div class="compare-input-grid">
+              <div class="compare-input-panel" data-compare-panel="env-A"><label for="env-a"><span>ENV A</span><small id="env-a-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="env-a-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="env-a" spellcheck="false" placeholder="# 示例\nexport APP_NAME=&quot;particle&quot;\nPORT=3000\nDEBUG=true\nEMPTY=" aria-describedby="env-a-error"></textarea><div class="compare-markers" id="env-a-markers" aria-hidden="true"></div></div><p class="compare-error" id="env-a-error" role="alert" hidden></p></div>
+              <div class="compare-input-panel" data-compare-panel="env-B"><label for="env-b"><span>ENV B</span><small id="env-b-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="env-b-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="env-b" spellcheck="false" placeholder="# 示例\nexport APP_NAME=&quot;particle&quot;\nPORT=3000\nDEBUG=true\nEMPTY=" aria-describedby="env-b-error"></textarea><div class="compare-markers" id="env-b-markers" aria-hidden="true"></div></div><p class="compare-error" id="env-b-error" role="alert" hidden></p></div>
+            </div>
+            <section class="compare-result" id="env-result" aria-live="polite" aria-label="ENV 对比结果" hidden><div class="compare-result-header"><div><p class="result-kicker">差异结果</p><h2 id="env-result-title"></h2></div><div class="compare-stats"><span class="stat-added">新增 <strong id="env-added-count">0</strong></span><span class="stat-removed">删除 <strong id="env-removed-count">0</strong></span><span class="stat-modified">修改 <strong id="env-modified-count">0</strong></span></div></div><div class="compare-tree" id="env-tree" role="tree" aria-label="ENV 差异树"></div></section>
+          </section>

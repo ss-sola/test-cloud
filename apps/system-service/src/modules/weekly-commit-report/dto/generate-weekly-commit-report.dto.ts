@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { WeeklyReportPeriod } from '../weekly-report.types';
+import { WeeklyReportPublishDto } from './weekly-report-publish.dto';
 
 export class WeeklyReportProjectDto {
   @IsString()
@@ -40,4 +41,9 @@ export class GenerateWeeklyCommitReportDto {
   @ValidateNested({ each: true })
   @Type(() => WeeklyReportProjectDto)
   configs?: WeeklyReportProjectDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WeeklyReportPublishDto)
+  publish?: WeeklyReportPublishDto;
 }

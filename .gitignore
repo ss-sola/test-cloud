@@ -5,3 +5,4 @@ dist/**
 coverage
 .gstack/
 docs/plan
+.codegraph

@@ -1,0 +1,12 @@
+<section class="view tool-view compare-view" data-view="json-compare" aria-label="JSON 对比" hidden>
+            <div class="compare-actions">
+              <button type="button" class="compare-button" data-compare-action="json">对比 JSON <span aria-hidden="true">→</span></button>
+              <span class="compare-hint">对象键、含 ID 的数组与嵌套数组会在对比前规范化</span>
+              <button type="button" class="compare-button compare-button--secondary compare-swap-button" data-compare-swap="json">对调 A / B</button>
+            </div>
+            <div class="compare-input-grid">
+              <div class="compare-input-panel" data-compare-panel="json-A"><label for="json-a"><span>JSON A</span><small id="json-a-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="json-a-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="json-a" spellcheck="false" placeholder="{\n  &quot;name&quot;: &quot;particle&quot;,\n  &quot;items&quot;: [1, 2, 3]\n}" aria-describedby="json-a-error"></textarea><div class="compare-markers" id="json-a-markers" aria-hidden="true"></div></div><p class="compare-error" id="json-a-error" role="alert" hidden></p></div>
+              <div class="compare-input-panel" data-compare-panel="json-B"><label for="json-b"><span>JSON B</span><small id="json-b-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="json-b-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="json-b" spellcheck="false" placeholder="{\n  &quot;name&quot;: &quot;particle&quot;,\n  &quot;items&quot;: [1, 2, 3]\n}" aria-describedby="json-b-error"></textarea><div class="compare-markers" id="json-b-markers" aria-hidden="true"></div></div><p class="compare-error" id="json-b-error" role="alert" hidden></p></div>
+            </div>
+            <section class="compare-result" id="json-result" aria-live="polite" aria-label="JSON 对比结果" hidden><div class="compare-result-header"><div><p class="result-kicker">差异结果</p><h2 id="json-result-title"></h2></div><div class="compare-stats"><span class="stat-added">新增 <strong id="json-added-count">0</strong></span><span class="stat-removed">删除 <strong id="json-removed-count">0</strong></span><span class="stat-modified">修改 <strong id="json-modified-count">0</strong></span></div></div><div class="compare-tree" id="json-tree" role="tree" aria-label="JSON 差异树"></div></section>
+          </section>

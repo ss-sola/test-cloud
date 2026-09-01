@@ -8,9 +8,25 @@
     'json-compare': { title: 'JSON 对比', documentTitle: 'JSON 对比 · NestCloud' },
     'env-compare': { title: 'ENV 对比', documentTitle: 'ENV 对比 · NestCloud' },
     'weekly-report': { title: '周报生成', documentTitle: '周报生成 · NestCloud' },
+    'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
   }
+  const FRAGMENT_PATHS = Object.freeze({
+    overview: '/public/html/overview.html',
+    particle: '/public/html/particle.html',
+    'json-compare': '/public/html/json-compare.html',
+    'env-compare': '/public/html/env-compare.html',
+    'weekly-report': '/public/html/weekly-report.html',
+    'config-file-preview': '/public/html/config-file-preview.html',
+  })
   const STATUS_LABELS = { empty: '等待', loading: '处理中', ready: '就绪', error: '错误' }
   const DIFF_LABELS = { added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' }
+  const STORAGE_KEYS = Object.freeze({
+    json: 'nestcloud:compare:json:v1',
+    env: 'nestcloud:compare:env:v1',
+    weekly: 'nestcloud:weekly-report:v1',
+  })
+  const STORAGE_VERSION = 1
+  const MAX_COMPARE_DRAFT_LENGTH = 500_000
 
   const appShell = document.querySelector('.app-shell')
   const sidebar = document.querySelector('#sidebar')
@@ -19,12 +35,13 @@
   const sidebarCollapseButton = document.querySelector('#sidebar-collapse-button')
   const breadcrumbCurrent = document.querySelector('#breadcrumb-current')
   const mainContent = document.querySelector('#main-content')
+  const viewHost = document.querySelector('#view-host')
   const navLinks = [...document.querySelectorAll('.nav-link[data-route]')]
-  const views = [...document.querySelectorAll('[data-view]')]
+  let views = []
 
   if (!(appShell instanceof HTMLElement) || !(sidebar instanceof HTMLElement) || !(sidebarScrim instanceof HTMLElement)
     || !(mobileMenuButton instanceof HTMLButtonElement) || !(breadcrumbCurrent instanceof HTMLElement)
-    || !(mainContent instanceof HTMLElement)) return
+    || !(mainContent instanceof HTMLElement) || !(viewHost instanceof HTMLElement)) return
 
   let menuTrigger = null
 
@@ -80,11 +97,130 @@
     }
   }
 
+  const fragmentCache = new Map()
+  let fragmentGeneration = 0
+
+  async function loadFragment(routeName, path) {
+    let source = fragmentCache.get(routeName)
+    if (!source) {
+      const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' })
+      if (!response.ok) throw new Error(`页面片段加载失败（${response.status}）。`)
+      source = await response.text()
+      fragmentCache.set(routeName, source)
+    }
+    const parsed = new DOMParser().parseFromString(source, 'text/html')
+    const roots = [...parsed.body.children]
+    if (roots.length !== 1 || roots[0].tagName !== 'SECTION' || roots[0].dataset.view !== routeName) {
+      throw new Error(`页面片段 ${routeName} 格式无效。`)
+    }
+    return document.importNode(roots[0], true)
+  }
+
+  async function loadViews() {
+    const generation = ++fragmentGeneration
+    viewHost.replaceChildren(createElement('p', 'view-loader', '正在加载页面内容…'))
+    try {
+      const fragments = await Promise.all(
+        Object.entries(FRAGMENT_PATHS).map(([routeName, path]) => loadFragment(routeName, path)),
+      )
+      if (generation !== fragmentGeneration) return
+      viewHost.replaceChildren(...fragments)
+      views = [...viewHost.querySelectorAll('[data-view]')]
+      mountCompare('json-compare')
+      mountCompare('env-compare')
+      mountParticleLab()
+      mountWeeklyReport()
+      if (typeof window.NestCloudConfigFilePreview?.mount === 'function') {
+        const configView = viewHost.querySelector('[data-view="config-file-preview"]')
+        if (configView instanceof HTMLElement) window.NestCloudConfigFilePreview.mount(configView)
+      }
+      renderRoute(normalizeRoute())
+    } catch (error) {
+      if (generation !== fragmentGeneration) return
+      viewHost.replaceChildren(createElement('p', 'view-loader view-loader--error', error instanceof Error ? error.message : '页面加载失败，请刷新重试。'))
+    }
+  }
+
   function createElement(tag, className, text) {
     const element = document.createElement(tag)
     if (className) element.className = className
     if (text !== undefined) element.textContent = text
     return element
+  }
+
+  function readStoredValue(key) {
+    try {
+      const raw = window.localStorage.getItem(key)
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  }
+
+  function writeStoredValue(key, value) {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value))
+    } catch {
+      // Storage is optional; keep the current in-memory state usable.
+    }
+  }
+
+  function createClientId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID()
+    return `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  }
+
+  function readCompareDraft(mode) {
+    const draft = readStoredValue(STORAGE_KEYS[mode])
+    if (draft?.version !== STORAGE_VERSION
+      || typeof draft.left !== 'string' || typeof draft.right !== 'string'
+      || draft.left.length > MAX_COMPARE_DRAFT_LENGTH || draft.right.length > MAX_COMPARE_DRAFT_LENGTH) return null
+    return { left: draft.left, right: draft.right }
+  }
+
+  function saveCompareDraft(mode, left, right) {
+    if (left.length > MAX_COMPARE_DRAFT_LENGTH || right.length > MAX_COMPARE_DRAFT_LENGTH) return
+    writeStoredValue(STORAGE_KEYS[mode], {
+      version: STORAGE_VERSION,
+      left,
+      right,
+      updatedAt: Date.now(),
+    })
+  }
+
+  function readWeeklyDraft() {
+    const draft = readStoredValue(STORAGE_KEYS.weekly)
+    if (draft?.version !== STORAGE_VERSION || !Array.isArray(draft.projects)
+      || draft.projects.length < 1 || draft.projects.length > 10) return null
+    const projects = draft.projects.map((project) => {
+      if (!project || typeof project !== 'object'
+        || typeof project.repo !== 'string' || typeof project.person !== 'string'
+        || (project.branch !== undefined && typeof project.branch !== 'string')) return null
+      if (project.repo.length > 2048 || project.person.length > 128 || (project.branch || '').length > 256) return null
+      return {
+        id: typeof project.id === 'string' && project.id ? project.id : createClientId(),
+        repo: project.repo,
+        person: project.person,
+        branch: project.branch || '',
+      }
+    })
+    return projects.every(Boolean)
+      ? { period: draft.period === 'this-week' ? 'this-week' : 'last-week', projects }
+      : null
+  }
+
+  function saveWeeklyDraft(period, projects) {
+    writeStoredValue(STORAGE_KEYS.weekly, {
+      version: STORAGE_VERSION,
+      period,
+      projects: projects.map((project) => ({
+        id: project.id,
+        repo: project.repo,
+        person: project.person,
+        branch: project.branch,
+      })),
+      updatedAt: Date.now(),
+    })
   }
 
   function formatJsonValue(value, type) {
@@ -249,22 +385,33 @@
     const resultTitle = root.querySelector(`#${prefix}-result-title`)
     const tree = root.querySelector(`#${prefix}-tree`)
     const compareButton = root.querySelector(`[data-compare-action="${prefix}"]`)
+    const swapButton = root.querySelector(`[data-compare-swap="${prefix}"]`)
     if (!(left instanceof HTMLTextAreaElement) || !(right instanceof HTMLTextAreaElement)
       || !(leftHighlight instanceof HTMLElement) || !(rightHighlight instanceof HTMLElement)
       || !(leftMarkers instanceof HTMLElement) || !(rightMarkers instanceof HTMLElement)
       || !(resultRoot instanceof HTMLElement) || !(resultTitle instanceof HTMLElement)
-      || !(tree instanceof HTMLElement) || !(compareButton instanceof HTMLButtonElement)) return
+      || !(tree instanceof HTMLElement) || !(compareButton instanceof HTMLButtonElement)
+      || !(swapButton instanceof HTMLButtonElement)) return
 
     const placeholder = mode === 'json-compare'
       ? '{\n  "name": "particle",\n  "items": [1, 2, 3]\n}'
       : '# 示例\nexport APP_NAME="particle"\nPORT=3000\nDEBUG=true\nEMPTY='
     left.placeholder = placeholder
     right.placeholder = placeholder
+    const draft = readCompareDraft(prefix)
+    if (draft) {
+      left.value = draft.left
+      right.value = draft.right
+    }
 
     let result = null
     let expandedPaths = new Set(['$'])
     const editorRefs = { A: left, B: right }
     let syncingScroll = false
+
+    function saveDraft() {
+      saveCompareDraft(prefix, left.value, right.value)
+    }
 
     function updateCounts() {
       if (leftCount) leftCount.textContent = `${left.value.length.toLocaleString()} 字符`
@@ -324,6 +471,7 @@
       if (side === 'left') setError(leftError, '')
       else setError(rightError, '')
       updateCounts()
+      saveDraft()
       expandedPaths = new Set(['$'])
       clearResult()
     }
@@ -352,9 +500,20 @@
         left.value = JSON.stringify(result.left, null, 2)
         right.value = JSON.stringify(result.right, null, 2)
       }
+      saveDraft()
       updateCounts()
       expandedPaths = collectExpandedPaths(result.tree)
       renderResult()
+    }
+
+    function swap() {
+      const leftValue = left.value
+      left.value = right.value
+      right.value = leftValue
+      saveDraft()
+      updateCounts()
+      expandedPaths = new Set(['$'])
+      compare()
     }
 
     function syncScroll(side) {
@@ -379,6 +538,7 @@
       syncScroll('B')
     })
     compareButton.addEventListener('click', compare)
+    swapButton.addEventListener('click', swap)
     updateCounts()
   }
 
@@ -649,6 +809,7 @@
     const form = root.querySelector('#weekly-report-form')
     const submitButton = root.querySelector('#weekly-report-submit')
     const errorElement = root.querySelector('#weekly-report-error')
+    const projectErrorsElement = root.querySelector('#weekly-report-project-errors')
     const statusBadge = root.querySelector('#weekly-report-status')
     const statusLabel = root.querySelector('#weekly-report-status-label')
     const meta = root.querySelector('#weekly-report-meta')
@@ -659,42 +820,36 @@
     const actions = root.querySelector('#weekly-report-actions')
     const copyButton = root.querySelector('#weekly-report-copy')
     const downloadButton = root.querySelector('#weekly-report-download')
+    const projectList = root.querySelector('#weekly-project-list')
+    const projectTemplate = root.querySelector('#weekly-project-template')
+    const projectCount = root.querySelector('#weekly-project-count')
+    const projectAdd = root.querySelector('#weekly-project-add')
     if (!(form instanceof HTMLFormElement) || !(submitButton instanceof HTMLButtonElement)
-      || !(errorElement instanceof HTMLElement) || !(statusBadge instanceof HTMLElement)
-      || !(statusLabel instanceof HTMLElement) || !(meta instanceof HTMLElement)
-      || !(progress instanceof HTMLElement) || !(progressLabel instanceof HTMLElement)
-      || !(progressbar instanceof HTMLElement) || !(output instanceof HTMLElement) || !(actions instanceof HTMLElement)
-      || !(copyButton instanceof HTMLButtonElement) || !(downloadButton instanceof HTMLButtonElement)) return
+      || !(errorElement instanceof HTMLElement) || !(projectErrorsElement instanceof HTMLElement)
+      || !(statusBadge instanceof HTMLElement) || !(statusLabel instanceof HTMLElement)
+      || !(meta instanceof HTMLElement) || !(progress instanceof HTMLElement)
+      || !(progressLabel instanceof HTMLElement) || !(progressbar instanceof HTMLElement)
+      || !(output instanceof HTMLElement) || !(actions instanceof HTMLElement)
+      || !(copyButton instanceof HTMLButtonElement) || !(downloadButton instanceof HTMLButtonElement)
+      || !(projectList instanceof HTMLElement) || !(projectTemplate instanceof HTMLTemplateElement)
+      || !(projectCount instanceof HTMLElement) || !(projectAdd instanceof HTMLButtonElement)) return
 
+    const phaseLabels = {
+      queued: '排队中',
+      validating: '校验配置',
+      collecting: '读取 GitHub 提交',
+      summarizing: '生成摘要',
+      finalizing: '整理 Markdown',
+      publishing: '写入飞书',
+      completed: '已完成',
+      failed: '任务失败',
+    }
     let latestMarkdown = ''
     let latestResult = null
     let submitting = false
-    let progressTimer = null
-    let progressIndex = 0
-    const progressStages = ['校验配置', '读取 Git 提交', '生成摘要', '整理 Markdown']
-
-    function updateProgress() {
-      const label = `阶段 ${progressIndex + 1}/${progressStages.length} · ${progressStages[progressIndex]}`
-      progressLabel.textContent = label
-      progressbar.setAttribute('aria-valuetext', label)
-      progressbar.dataset.stage = String(progressIndex + 1)
-    }
-
-    function startProgress() {
-      progress.hidden = false
-      progressIndex = 0
-      updateProgress()
-      progressTimer = window.setInterval(() => {
-        progressIndex = (progressIndex + 1) % progressStages.length
-        updateProgress()
-      }, 1200)
-    }
-
-    function stopProgress() {
-      if (progressTimer !== null) window.clearInterval(progressTimer)
-      progressTimer = null
-      progress.hidden = true
-    }
+    let pollTimer = null
+    let pollController = null
+    let requestGeneration = 0
 
     function setStatus(status, label) {
       statusBadge.className = `status-badge status-badge--${status}`
@@ -707,11 +862,149 @@
       errorElement.hidden = !message
     }
 
-    function collectConfigs() {
-      return [...root.querySelectorAll('[data-weekly-project]')].map((card) => ({
+    function renderProjectErrors(errors) {
+      projectErrorsElement.replaceChildren()
+      if (!Array.isArray(errors) || errors.length === 0) {
+        projectErrorsElement.hidden = true
+        return 0
+      }
+      const title = createElement('strong', '', '项目读取异常')
+      const list = createElement('ul')
+      errors.forEach((error) => {
+        if (!error || typeof error !== 'object') return
+        const label = typeof error.repoLabel === 'string' && error.repoLabel
+          ? error.repoLabel
+          : typeof error.repo === 'string' ? error.repo : '未知项目'
+        const code = Number.isInteger(error.code) ? error.code : 500
+        const message = typeof error.message === 'string' && error.message
+          ? error.message
+          : '项目提交信息读取失败。'
+        list.append(createElement('li', '', `${label}（${code}）：${message}`))
+      })
+      projectErrorsElement.append(title, list)
+      projectErrorsElement.hidden = list.children.length === 0
+      return list.children.length
+    }
+
+    function renderProgress(value) {
+      if (!value || typeof value !== 'object') return
+      const phase = typeof value.phase === 'string' ? value.phase : 'queued'
+      const phaseLabel = phaseLabels[phase] || phase
+      const percent = Number.isFinite(Number(value.percent))
+        ? Math.max(0, Math.min(100, Number(value.percent)))
+        : 0
+      const current = typeof value.currentProject === 'string' && value.currentProject
+        ? ` · ${value.currentProject}`
+        : ''
+      const message = typeof value.message === 'string' && value.message ? ` · ${value.message}` : ''
+      const label = `${phaseLabel}${current}${message}`
+      progress.hidden = false
+      progressLabel.textContent = label
+      progressbar.setAttribute('aria-valuenow', String(percent))
+      progressbar.setAttribute('aria-valuetext', `${label}（${percent}%）`)
+      progressbar.dataset.stage = phase
+      const bar = progressbar.querySelector('span')
+      if (bar instanceof HTMLElement) {
+        bar.style.left = '0'
+        bar.style.width = `${percent}%`
+        bar.style.animation = 'none'
+      }
+    }
+
+    function clearPolling() {
+      if (pollTimer !== null) window.clearTimeout(pollTimer)
+      pollTimer = null
+      pollController?.abort()
+      pollController = null
+    }
+
+    function waitForPoll() {
+      return new Promise((resolve) => {
+        pollTimer = window.setTimeout(() => {
+          pollTimer = null
+          resolve()
+        }, 800)
+      })
+    }
+
+    async function pollJob(jobId, generation) {
+      while (generation === requestGeneration) {
+        const controller = new AbortController()
+        pollController = controller
+        let response
+        try {
+          response = await fetch(`/api/weekly-commit-reports/jobs/status?jobId=${encodeURIComponent(jobId)}`, {
+            credentials: 'same-origin',
+            signal: controller.signal,
+          })
+        } finally {
+          if (pollController === controller) pollController = null
+        }
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || !payload?.data) throw new Error(payload?.message || `任务查询失败（${response.status}）。`)
+        const job = payload.data
+        renderProgress(job.progress)
+        if (job.status === 'succeeded') return { result: job.result, publication: job.publication }
+        if (job.status === 'failed') throw new Error(job.error?.message || '周报任务执行失败。')
+        await waitForPoll()
+      }
+      return null
+    }
+
+    function readProjectsFromDom() {
+      return [...projectList.querySelectorAll('[data-weekly-project]')].map((card) => ({
+        id: card.dataset.weeklyProjectId || createClientId(),
         repo: card.querySelector('[data-weekly-field="repo"]')?.value.trim() || '',
         person: card.querySelector('[data-weekly-field="person"]')?.value.trim() || '',
-        branch: card.querySelector('[data-weekly-field="branch"]')?.value.trim() || undefined,
+        branch: card.querySelector('[data-weekly-field="branch"]')?.value.trim() || '',
+      }))
+    }
+
+    function updateProjectCard(card, index) {
+      const repo = card.querySelector('[data-weekly-field="repo"]')?.value.trim() || ''
+      const label = card.querySelector('[data-weekly-project-label]')
+      const remove = card.querySelector('[data-weekly-project-remove]')
+      const indexElement = card.querySelector('[data-weekly-project-index]')
+      if (indexElement instanceof HTMLElement) indexElement.textContent = String(index + 1).padStart(2, '0')
+      if (label instanceof HTMLElement) label.textContent = repo ? repo.replace(/^https?:\/\//i, '').replace(/\.git$/i, '').split('/').at(-1) || '新项目' : '新项目'
+      if (remove instanceof HTMLButtonElement) {
+        remove.disabled = projectList.querySelectorAll('[data-weekly-project]').length <= 1
+        remove.setAttribute('aria-label', `移除 ${repo || '新项目'}`)
+      }
+    }
+
+    function updateProjectMeta() {
+      const cards = [...projectList.querySelectorAll('[data-weekly-project]')]
+      cards.forEach((card, index) => updateProjectCard(card, index))
+      projectCount.textContent = `${cards.length} 项`
+      projectAdd.disabled = cards.length >= 10 || submitting
+    }
+
+    function saveProjects() {
+      saveWeeklyDraft(root.querySelector('input[name="weekly-period"]:checked')?.value || 'last-week', readProjectsFromDom())
+    }
+
+    function renderProjects(projects) {
+      projectList.replaceChildren()
+      projects.slice(0, 10).forEach((project) => {
+        const card = projectTemplate.content.firstElementChild.cloneNode(true)
+        card.dataset.weeklyProjectId = project.id || createClientId()
+        const repo = card.querySelector('[data-weekly-field="repo"]')
+        const person = card.querySelector('[data-weekly-field="person"]')
+        const branch = card.querySelector('[data-weekly-field="branch"]')
+        if (repo instanceof HTMLInputElement) repo.value = project.repo || ''
+        if (person instanceof HTMLInputElement) person.value = project.person || ''
+        if (branch instanceof HTMLInputElement) branch.value = project.branch || ''
+        projectList.append(card)
+      })
+      updateProjectMeta()
+    }
+
+    function collectConfigs() {
+      return readProjectsFromDom().map(({ repo, person, branch }) => ({
+        repo,
+        person,
+        ...(branch ? { branch } : {}),
       }))
     }
 
@@ -719,48 +1012,77 @@
       event.preventDefault()
       if (submitting || !form.reportValidity()) return
       submitting = true
+      const generation = ++requestGeneration
+      clearPolling()
+      saveProjects()
       submitButton.disabled = true
+      projectAdd.disabled = true
+      projectList.querySelectorAll('[data-weekly-project-remove]').forEach((element) => { element.disabled = true })
       setError('')
-      setStatus('loading', '生成中')
-      meta.textContent = '正在读取 Git 提交并整理摘要，请稍候。'
+      renderProjectErrors([])
+      setStatus('loading', '排队中')
+      meta.textContent = '正在创建周报任务，请稍候。'
       output.hidden = true
       actions.hidden = true
       latestMarkdown = ''
       latestResult = null
-      startProgress()
+      renderProgress({ phase: 'queued', percent: 0, message: '任务已排队。' })
       try {
         const period = root.querySelector('input[name="weekly-period"]:checked')?.value
-        const response = await fetch('/api/weekly-commit-reports/generate', {
+        const response = await fetch('/api/weekly-commit-reports/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
           body: JSON.stringify({ period, configs: collectConfigs() }),
         })
         const payload = await response.json().catch(() => null)
-        if (!response.ok || !payload?.data?.markdown) {
-          throw new Error(payload?.message || '周报生成失败，请稍后重试。')
-        }
-        latestResult = payload.data
-        latestMarkdown = latestResult.markdown
+        if (!response.ok || !payload?.data?.jobId) throw new Error(payload?.message || '周报任务创建失败，请稍后重试。')
+        renderProgress(payload.data.progress)
+        const outcome = await pollJob(payload.data.jobId, generation)
+        if (generation !== requestGeneration || !outcome?.result) return
+        const result = outcome.result
+        const publication = outcome.publication
+        latestResult = result
+        latestMarkdown = typeof result.markdown === 'string' ? result.markdown : ''
+        if (!latestMarkdown) throw new Error('周报任务未返回 Markdown 内容。')
         output.textContent = latestMarkdown
         output.hidden = false
         actions.hidden = false
-        const modeLabel = latestResult.degraded ? '本地规则摘要' : 'AI 摘要'
-        meta.textContent = `${latestResult.weekStart} ~ ${latestResult.weekEnd} · ${latestResult.commitCount} 条提交 · ${modeLabel}`
-        setStatus(latestResult.degraded ? 'ready' : 'ready', latestResult.degraded ? '已生成 / 本地' : '已生成')
+        const projectErrorCount = renderProjectErrors(result.projectErrors)
+        const modeLabel = result.degraded ? '本地规则摘要' : 'AI 摘要'
+        const errorLabel = projectErrorCount > 0 ? ` · ${projectErrorCount} 个项目失败` : ''
+        const publicationStatus = publication?.status
+        const publicationLabel = publicationStatus === 'succeeded'
+          ? ' · 飞书已写入'
+          : publicationStatus === 'skipped'
+            ? ' · 飞书内容未变化'
+            : publicationStatus === 'failed'
+              ? ` · 飞书发布失败${publication.message ? `：${publication.message}` : ''}`
+              : ''
+        meta.textContent = `${result.weekStart} ~ ${result.weekEnd} · ${result.commitCount} 条提交 · ${modeLabel}${errorLabel}${publicationLabel}`
+        const finalMessage = publicationStatus === 'failed'
+          ? '周报已生成，但飞书发布失败。'
+          : projectErrorCount > 0 ? '周报已生成，部分项目失败。' : '周报已生成。'
+        renderProgress({ phase: 'completed', percent: 100, message: finalMessage })
+        setStatus('ready', publicationStatus === 'failed' ? '已生成但发布失败' : projectErrorCount > 0 ? '部分完成' : '已生成')
       } catch (error) {
+        if (generation !== requestGeneration) return
         latestResult = null
         latestMarkdown = ''
         output.textContent = ''
         output.hidden = true
         actions.hidden = true
+        renderProjectErrors([])
         setError(error instanceof Error ? error.message : '周报生成失败，请稍后重试。')
         meta.textContent = '未生成报告。'
         setStatus('error', '错误')
       } finally {
-        stopProgress()
-        submitting = false
-        submitButton.disabled = false
+        if (generation === requestGeneration) {
+          clearPolling()
+          submitting = false
+          submitButton.disabled = false
+          updateProjectMeta()
+        }
       }
     }
 
@@ -796,6 +1118,37 @@
       URL.revokeObjectURL(url)
     }
 
+    const initialProjects = readProjectsFromDom()
+    const savedDraft = readWeeklyDraft()
+    if (savedDraft) {
+      form.querySelectorAll('input[name="weekly-period"]').forEach((element) => {
+        if (element instanceof HTMLInputElement) element.checked = element.value === savedDraft.period
+      })
+    }
+    renderProjects(savedDraft?.projects || initialProjects)
+    projectList.addEventListener('click', (event) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const remove = target.closest('[data-weekly-project-remove]')
+      if (!(remove instanceof HTMLButtonElement) || projectList.querySelectorAll('[data-weekly-project]').length <= 1) return
+      remove.closest('[data-weekly-project]')?.remove()
+      updateProjectMeta()
+      saveProjects()
+    })
+    projectList.addEventListener('input', (event) => {
+      if (!(event.target instanceof HTMLInputElement) || !event.target.matches('[data-weekly-field]')) return
+      updateProjectMeta()
+      saveProjects()
+    })
+    projectAdd.addEventListener('click', () => {
+      const projects = readProjectsFromDom()
+      if (projects.length >= 10) return
+      projects.push({ id: createClientId(), repo: '', person: '', branch: '' })
+      renderProjects(projects)
+      saveProjects()
+      projectList.querySelector('[data-weekly-project]:last-child [data-weekly-field="repo"]')?.focus()
+    })
+    form.querySelectorAll('input[name="weekly-period"]').forEach((element) => element.addEventListener('change', saveProjects))
     form.addEventListener('submit', generate)
     copyButton.addEventListener('click', copyMarkdown)
     downloadButton.addEventListener('click', downloadMarkdown)
@@ -813,9 +1166,5 @@
   })
   window.addEventListener('hashchange', () => renderRoute(normalizeRoute(), true))
 
-  mountCompare('json-compare')
-  mountCompare('env-compare')
-  mountParticleLab()
-  mountWeeklyReport()
-  renderRoute(normalizeRoute())
+  void loadViews()
 })()

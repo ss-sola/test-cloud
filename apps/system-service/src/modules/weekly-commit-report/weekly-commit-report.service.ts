@@ -1,33 +1,20 @@
-import { execFile } from 'node:child_process';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  getConfig,
-  ParamsErrorException,
-  ProjectException,
-} from '@nest-cloud/common';
-import {
-  DEFAULT_WEEKLY_REPORT_PROJECTS,
-  WeeklyReportConfigKeys,
-} from './weekly-report.constants';
+import { getConfig, ParamsErrorException, ProjectException } from '@nest-cloud/common';
+import { DEFAULT_WEEKLY_REPORT_PROJECTS, WeeklyReportConfigKeys } from './weekly-report.constants';
 import type {
   DailyReportSection,
   GenerateWeeklyReportInput,
   GitLogEntry,
   WeekWindow,
   WeeklyReportLimits,
+  WeeklyReportProgress,
+  WeeklyReportProgressReporter,
   WeeklyReportProjectConfig,
+  WeeklyReportProjectError,
   WeeklyReportProjectResult,
   WeeklyReportResult,
 } from './weekly-report.types';
 
-const execFileAsync = promisify(execFile);
-
-const GIT_RECORD_SEPARATOR = '';
-const GIT_FIELD_SEPARATOR = '';
 const MAX_DAILY_BULLETS = 5;
 const MIN_DAILY_BULLETS = 2;
 const MAX_REPOSITORY_URL_LENGTH = 2048;
@@ -51,11 +38,6 @@ interface SummaryResult {
   degraded: boolean;
 }
 
-interface MaterializedRepository {
-  localRepoPath: string;
-  temporary: boolean;
-}
-
 interface ProjectWorkResult {
   config: WeeklyReportProjectConfig;
   repoLabel: string;
@@ -68,18 +50,24 @@ interface ProjectWorkResult {
 export class WeeklyCommitReportService {
   private readonly logger = new Logger(WeeklyCommitReportService.name);
 
-  async generate(input: GenerateWeeklyReportInput): Promise<WeeklyReportResult> {
+  async generate(
+    input: GenerateWeeklyReportInput,
+    progress?: WeeklyReportProgressReporter,
+  ): Promise<WeeklyReportResult> {
     const configs = this.resolveConfigs(input.configs);
+    progress?.(this.createProgress(configs.length, 0, 0, 'validating', null, '配置校验完成。'));
+    if (!process.env.GITHUB_TAG_FILE_TOKEN?.trim()) {
+      throw new ProjectException('未配置 GITHUB_TAG_FILE_TOKEN。', 503);
+    }
     const now = new Date();
-    const window = input.period === 'this-week'
-      ? this.getThisWeekWindow(now)
-      : this.getLastWeekWindow(now);
+    const window =
+      input.period === 'this-week' ? this.getThisWeekWindow(now) : this.getLastWeekWindow(now);
 
     if (input.period === 'this-week') {
-      return this.generateThisWeek(configs, window);
+      return this.generateThisWeek(configs, window, progress);
     }
 
-    return this.generateLastWeek(configs, window);
+    return this.generateLastWeek(configs, window, progress);
   }
 
   getLastWeekWindow(now: Date = new Date()): WeekWindow {
@@ -109,43 +97,6 @@ export class WeeklyCommitReportService {
     };
   }
 
-  buildGitLogArgs(options: {
-    repoPath: string;
-    ref: string;
-    since: Date;
-    until: Date;
-    person: string;
-  }): string[] {
-    return [
-      '-C',
-      options.repoPath,
-      'log',
-      options.ref,
-      '--no-merges',
-      `--since=${options.since.toISOString()}`,
-      `--until=${options.until.toISOString()}`,
-      `--author=${this.escapeGitAuthorPattern(options.person)}`,
-      '--date=iso-strict',
-      `--pretty=format:%H${GIT_FIELD_SEPARATOR}%an${GIT_FIELD_SEPARATOR}%ad${GIT_FIELD_SEPARATOR}%s${GIT_FIELD_SEPARATOR}%b${GIT_RECORD_SEPARATOR}`,
-      '-n',
-      String(this.getLimits().maxCommitsPerRepository),
-    ];
-  }
-
-  parseGitLogOutput(rawOutput: string): GitLogEntry[] {
-    if (!rawOutput) return [];
-
-    return rawOutput
-      .split(GIT_RECORD_SEPARATOR)
-      .map((record) => record.trim())
-      .filter(Boolean)
-      .map((record) => {
-        const [hash = '', author = '', date = '', subject = '', body = ''] =
-          record.split(GIT_FIELD_SEPARATOR);
-        return { hash, author, date, subject, body: body.trim() };
-      });
-  }
-
   groupLogsByDay(logs: GitLogEntry[], dayKeys: string[]) {
     const bucketMap = new Map<string, GitLogEntry[]>(dayKeys.map((dayKey) => [dayKey, []]));
 
@@ -161,9 +112,8 @@ export class WeeklyCommitReportService {
   buildLocalSummary(logs: GitLogEntry[]): string[] {
     const seen = new Set<string>();
     const items: string[] = [];
-    const subjectLimit = logs.length > MAX_DAILY_BULLETS
-      ? MAX_DAILY_BULLETS - 1
-      : MAX_DAILY_BULLETS;
+    const subjectLimit =
+      logs.length > MAX_DAILY_BULLETS ? MAX_DAILY_BULLETS - 1 : MAX_DAILY_BULLETS;
 
     for (const log of logs) {
       const subject = this.normalizeCommitSubject(log.subject);
@@ -203,12 +153,13 @@ export class WeeklyCommitReportService {
     }
 
     const maxItems = dayKeys.length * MAX_DAILY_BULLETS;
-    const displayItems = items.length > maxItems
-      ? [
-          ...items.slice(0, Math.max(0, maxItems - 1)),
-          `其余 ${items.length - Math.max(0, maxItems - 1)} 条工作未展开。`,
-        ]
-      : items;
+    const displayItems =
+      items.length > maxItems
+        ? [
+            ...items.slice(0, Math.max(0, maxItems - 1)),
+            `其余 ${items.length - Math.max(0, maxItems - 1)} 条工作未展开。`,
+          ]
+        : items;
     const baseCount = Math.floor(displayItems.length / dayKeys.length);
     const remainder = displayItems.length % dayKeys.length;
     const sections: DailyReportSection[] = [];
@@ -219,9 +170,7 @@ export class WeeklyCommitReportService {
       sections.push({
         date: dayKeys[index],
         logs: [],
-        bullets: itemCount > 0
-          ? displayItems.slice(offset, offset + itemCount)
-          : [NO_NEW_BULLET],
+        bullets: itemCount > 0 ? displayItems.slice(offset, offset + itemCount) : [NO_NEW_BULLET],
       });
       offset += itemCount;
     }
@@ -245,11 +194,15 @@ export class WeeklyCommitReportService {
       `- Sources: ${options.projects.map((project) => `${this.getRepoLabel(project.repo)}@${project.branch ?? 'HEAD'}`).join(', ')}`,
     ].join('\n');
 
-    const sectionBlocks = options.sections.map((section) => [
-      `## ${this.formatDateWithWeekday(section.date)}`,
-      '',
-      ...this.normalizeRenderedItems(section.bullets).map((item, index) => `${index + 1}. ${item}`),
-    ].join('\n'));
+    const sectionBlocks = options.sections.map((section) =>
+      [
+        `## ${this.formatDateWithWeekday(section.date)}`,
+        '',
+        ...this.normalizeRenderedItems(section.bullets).map(
+          (item, index) => `${index + 1}. ${item}`,
+        ),
+      ].join('\n'),
+    );
 
     return `${[header, ...sectionBlocks].join('\n\n')}\n`;
   }
@@ -269,7 +222,10 @@ export class WeeklyCommitReportService {
     ].join('\n');
 
     const summaryItems = this.normalizeRenderedItems(
-      this.dedupeBullets(options.projects.flatMap((project) => project.bullets), new Set<string>()),
+      this.dedupeBullets(
+        options.projects.flatMap((project) => project.bullets),
+        new Set<string>(),
+      ),
     );
     const summaryBlock = [
       '## 本周摘要（去重）',
@@ -277,16 +233,20 @@ export class WeeklyCommitReportService {
       ...summaryItems.map((item, index) => `${index + 1}. ${item}`),
     ].join('\n');
 
-    const projectBlocks = options.projects.map((project) => [
-      `## ${project.repoLabel}`,
-      '',
-      `- Repo: ${project.repo}`,
-      `- Person: ${project.person}`,
-      `- Branch: ${project.branch}`,
-      `- Commits: ${project.commitCount}`,
-      '',
-      ...this.normalizeRenderedItems(project.bullets).map((item, index) => `${index + 1}. ${item}`),
-    ].join('\n'));
+    const projectBlocks = options.projects.map((project) =>
+      [
+        `## ${project.repoLabel}`,
+        '',
+        `- Repo: ${project.repo}`,
+        `- Person: ${project.person}`,
+        `- Branch: ${project.branch}`,
+        `- Commits: ${project.commitCount}`,
+        '',
+        ...this.normalizeRenderedItems(project.bullets).map(
+          (item, index) => `${index + 1}. ${item}`,
+        ),
+      ].join('\n'),
+    );
 
     return `${[header, summaryBlock, ...projectBlocks].join('\n\n')}\n`;
   }
@@ -294,19 +254,63 @@ export class WeeklyCommitReportService {
   private async generateThisWeek(
     configs: WeeklyReportProjectConfig[],
     window: WeekWindow,
+    progress?: WeeklyReportProgressReporter,
   ): Promise<WeeklyReportResult> {
     const projectWork: ProjectWorkResult[] = [];
+    const projectErrors: WeeklyReportProjectError[] = [];
+    let completedProjects = 0;
+    let failedProjects = 0;
     for (const config of configs) {
       const repoLabel = this.getRepoLabel(config.repo);
-      const logs = await this.collectGitLogs(config, window);
-      const summary = logs.length === 0
-        ? { bullets: [NO_COMMIT_BULLET], degraded: false }
-        : await this.summarizeProject(logs, {
-            person: config.person,
-            repoLabel,
-            weekStart: window.dayKeys[0],
-            weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
-          });
+      progress?.(
+        this.createProgress(
+          configs.length,
+          completedProjects,
+          failedProjects,
+          'collecting',
+          repoLabel,
+          '正在读取 GitHub 提交。',
+        ),
+      );
+      let logs: GitLogEntry[];
+      try {
+        logs = await this.collectGitLogs(config, window);
+      } catch (error) {
+        if (!(error instanceof ProjectException)) throw error;
+        projectErrors.push(this.toProjectError(config, repoLabel, error));
+        failedProjects += 1;
+        completedProjects += 1;
+        progress?.(
+          this.createProgress(
+            configs.length,
+            completedProjects,
+            failedProjects,
+            'collecting',
+            null,
+            `${repoLabel} 读取失败，已跳过。`,
+          ),
+        );
+        continue;
+      }
+      progress?.(
+        this.createProgress(
+          configs.length,
+          completedProjects,
+          failedProjects,
+          'summarizing',
+          repoLabel,
+          '正在生成项目摘要。',
+        ),
+      );
+      const summary =
+        logs.length === 0
+          ? { bullets: [NO_COMMIT_BULLET], degraded: false }
+          : await this.summarizeProject(logs, {
+              person: config.person,
+              repoLabel,
+              weekStart: window.dayKeys[0],
+              weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
+            });
       projectWork.push({
         config,
         repoLabel,
@@ -314,8 +318,19 @@ export class WeeklyCommitReportService {
         bullets: summary.bullets,
         degraded: summary.degraded,
       });
+      completedProjects += 1;
     }
 
+    progress?.(
+      this.createProgress(
+        configs.length,
+        completedProjects,
+        failedProjects,
+        'finalizing',
+        null,
+        '正在整理 Markdown 报告。',
+      ),
+    );
     const projects = projectWork.map((work) => ({
       repo: work.config.repo,
       repoLabel: work.repoLabel,
@@ -324,19 +339,35 @@ export class WeeklyCommitReportService {
       commitCount: work.logs.length,
       bullets: work.bullets,
     }));
-    const markdown = this.limitOutput(this.renderThisWeekReport({
-      person: this.getPersonLabel(projects),
-      weekStart: window.dayKeys[0],
-      weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
-      projects,
-    }));
+    const markdown = this.limitOutput(
+      this.appendProjectErrors(
+        this.renderThisWeekReport({
+          person: this.getPersonLabel(projects.length > 0 ? projects : configs),
+          weekStart: window.dayKeys[0],
+          weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
+          projects,
+        }),
+        projectErrors,
+      ),
+    );
 
+    progress?.(
+      this.createProgress(
+        configs.length,
+        completedProjects,
+        failedProjects,
+        'completed',
+        null,
+        '周报已生成。',
+      ),
+    );
     return {
       period: 'this-week',
       weekStart: window.dayKeys[0],
       weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
       markdown,
       projects,
+      projectErrors,
       commitCount: projects.reduce((total, project) => total + project.commitCount, 0),
       degraded: projectWork.some((work) => work.degraded),
     };
@@ -345,14 +376,58 @@ export class WeeklyCommitReportService {
   private async generateLastWeek(
     configs: WeeklyReportProjectConfig[],
     window: WeekWindow,
+    progress?: WeeklyReportProgressReporter,
   ): Promise<WeeklyReportResult> {
     const mergedBullets: string[] = [];
     const projectResults: WeeklyReportProjectResult[] = [];
+    const projectErrors: WeeklyReportProjectError[] = [];
+    const successfulConfigs: WeeklyReportProjectConfig[] = [];
+    let completedProjects = 0;
+    let failedProjects = 0;
     let degraded = false;
 
     for (const config of configs) {
       const repoLabel = this.getRepoLabel(config.repo);
-      const logs = await this.collectGitLogs(config, window);
+      progress?.(
+        this.createProgress(
+          configs.length,
+          completedProjects,
+          failedProjects,
+          'collecting',
+          repoLabel,
+          '正在读取 GitHub 提交。',
+        ),
+      );
+      let logs: GitLogEntry[];
+      try {
+        logs = await this.collectGitLogs(config, window);
+      } catch (error) {
+        if (!(error instanceof ProjectException)) throw error;
+        projectErrors.push(this.toProjectError(config, repoLabel, error));
+        failedProjects += 1;
+        completedProjects += 1;
+        progress?.(
+          this.createProgress(
+            configs.length,
+            completedProjects,
+            failedProjects,
+            'collecting',
+            null,
+            `${repoLabel} 读取失败，已跳过。`,
+          ),
+        );
+        continue;
+      }
+      progress?.(
+        this.createProgress(
+          configs.length,
+          completedProjects,
+          failedProjects,
+          'summarizing',
+          repoLabel,
+          '正在生成日报摘要。',
+        ),
+      );
       const summary = await this.buildDailySections(logs, window.dayKeys, {
         person: config.person,
         repoLabel,
@@ -367,29 +442,104 @@ export class WeeklyCommitReportService {
         commitCount: logs.length,
         bullets: summary.sections.flatMap((section) => section.bullets),
       });
+      successfulConfigs.push(config);
+      completedProjects += 1;
     }
 
+    progress?.(
+      this.createProgress(
+        configs.length,
+        completedProjects,
+        failedProjects,
+        'finalizing',
+        null,
+        '正在整理 Markdown 报告。',
+      ),
+    );
     const sections = this.distributeBulletsAcrossDays(
       this.dedupeBullets(mergedBullets, new Set<string>()),
       window.dayKeys.slice(0, 5),
     );
-    const markdown = this.limitOutput(this.renderLastWeekReport({
-      person: this.getPersonLabel(projectResults),
-      weekStart: window.dayKeys[0],
-      weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
-      projects: configs,
-      sections,
-    }));
+    const markdown = this.limitOutput(
+      this.appendProjectErrors(
+        this.renderLastWeekReport({
+          person: this.getPersonLabel(projectResults.length > 0 ? projectResults : configs),
+          weekStart: window.dayKeys[0],
+          weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
+          projects: successfulConfigs,
+          sections,
+        }),
+        projectErrors,
+      ),
+    );
 
+    progress?.(
+      this.createProgress(
+        configs.length,
+        completedProjects,
+        failedProjects,
+        'completed',
+        null,
+        '周报已生成。',
+      ),
+    );
     return {
       period: 'last-week',
       weekStart: window.dayKeys[0],
       weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
       markdown,
       projects: projectResults,
+      projectErrors,
       commitCount: projectResults.reduce((total, project) => total + project.commitCount, 0),
       degraded,
+      dailySections: sections,
     };
+  }
+
+  private createProgress(
+    totalProjects: number,
+    completedProjects: number,
+    failedProjects: number,
+    phase: WeeklyReportProgress['phase'],
+    currentProject: string | null,
+    message: string,
+  ): WeeklyReportProgress {
+    const totalUnits = Math.max(totalProjects + 1, 1);
+    const percent =
+      phase === 'completed'
+        ? 100
+        : Math.min(99, Math.floor((completedProjects / totalUnits) * 100));
+    return {
+      phase,
+      percent,
+      completedProjects,
+      totalProjects,
+      failedProjects,
+      currentProject,
+      message,
+    };
+  }
+
+  private toProjectError(
+    config: WeeklyReportProjectConfig,
+    repoLabel: string,
+    error: ProjectException,
+  ): WeeklyReportProjectError {
+    return {
+      repo: config.repo,
+      repoLabel,
+      code: error.getStatus(),
+      message: error.message || '项目提交信息读取失败。',
+    };
+  }
+
+  private appendProjectErrors(markdown: string, errors: WeeklyReportProjectError[]): string {
+    if (errors.length === 0) return markdown;
+    const lines = errors.map(
+      (error) =>
+        `- ${error.repoLabel}（${error.code}）：${error.message.replace(/\s+/g, ' ').trim()}`,
+    );
+    return `${markdown}\n## 项目异常\n\n${lines.join('\n')}\n`;
   }
 
   private async buildDailySections(
@@ -429,93 +579,144 @@ export class WeeklyCommitReportService {
     config: WeeklyReportProjectConfig,
     window: WeekWindow,
   ): Promise<GitLogEntry[]> {
-    let repository: MaterializedRepository | undefined;
-    try {
-      repository = await this.materializeRepository(config.repo);
-      const ref = await this.resolveBranchRef(repository.localRepoPath, config.branch);
-      const rawOutput = await this.runGit(
-        this.buildGitLogArgs({
-          repoPath: repository.localRepoPath,
-          ref,
-          since: window.start,
-          until: window.end,
-          person: config.person,
-        }),
-        repository.localRepoPath,
-      );
-      return this.parseGitLogOutput(rawOutput);
-    } catch (error) {
-      this.logger.warn(`读取周报仓库失败：${this.getRepoLabel(config.repo)}`);
-      if (error instanceof ProjectException) throw error;
-      throw new ProjectException(
-        `无法读取仓库 ${this.getRepoLabel(config.repo)} 的提交，请检查仓库、分支和 Git 配置。`,
-        502,
-      );
-    } finally {
-      if (repository?.temporary) {
-        await rm(repository.localRepoPath, { recursive: true, force: true }).catch((error: unknown) => {
-          this.logger.warn(`清理周报临时仓库失败：${error instanceof Error ? error.message : String(error)}`);
-        });
-      }
-    }
-  }
+    const repository = this.parseGitHubRepository(config.repo);
+    const token = process.env.GITHUB_TAG_FILE_TOKEN?.trim() ?? '';
+    if (!token) throw new ProjectException('未配置 GITHUB_TAG_FILE_TOKEN。', 503);
 
-  private async materializeRepository(repo: string): Promise<MaterializedRepository> {
-    if (!this.isRemoteRepository(repo)) {
-      return { localRepoPath: await this.resolveLocalRepository(repo), temporary: false };
-    }
-
-    const temporaryPath = await mkdtemp(join(tmpdir(), 'nestcloud-weekly-report-'));
-    try {
-      await this.runGit(
-        ['clone', '--bare', '--filter=blob:none', repo, temporaryPath],
-        undefined,
-      );
-      return { localRepoPath: temporaryPath, temporary: true };
-    } catch (error) {
-      await rm(temporaryPath, { recursive: true, force: true }).catch((cleanupError: unknown) => {
-        this.logger.warn(`清理周报临时仓库失败：${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
-      });
-      throw error;
-    }
-  }
-
-  private async resolveBranchRef(repoPath: string, branch?: string): Promise<string> {
-    if (!branch) return 'HEAD';
-
-    for (const candidate of [branch, `refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
-      try {
-        await this.runGit(['-C', repoPath, 'rev-parse', '--verify', candidate], repoPath);
-        return candidate;
-      } catch {
-        // Try the next fully-qualified ref.
-      }
-    }
-
-    return branch;
-  }
-
-  private async runGit(args: string[], cwd?: string): Promise<string> {
     const limits = this.getLimits();
-    try {
-      const result = await execFileAsync('git', args, {
-        cwd,
-        encoding: 'utf8',
-        timeout: limits.commandTimeoutMs,
-        maxBuffer: 10 * 1024 * 1024,
-        windowsHide: true,
-      });
-      return String(result.stdout).trim();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (/timed out|ETIMEDOUT|killed/i.test(message)) {
-        throw new ProjectException('Git 操作超时，请缩小仓库范围或稍后重试。', 504);
+    const maxCommits = limits.maxCommitsPerRepository;
+    const maxPages = Math.ceil(maxCommits / 100) + 1;
+    const logs: GitLogEntry[] = [];
+
+    for (let page = 1; page <= maxPages; page += 1) {
+      const url = new URL(
+        `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/commits`,
+      );
+      if (config.branch) url.searchParams.set('sha', config.branch);
+      url.searchParams.set('author', config.person);
+      url.searchParams.set('since', window.start.toISOString());
+      url.searchParams.set('until', window.end.toISOString());
+      url.searchParams.set('per_page', '100');
+      url.searchParams.set('page', String(page));
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), limits.commandTimeoutMs);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+          },
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new ProjectException('GitHub 提交请求超时，请稍后重试。', 504);
+        }
+        throw new ProjectException('GitHub 提交请求失败，请稍后重试。', 502);
+      } finally {
+        clearTimeout(timeout);
       }
-      throw error;
+
+      if (!response.ok) {
+        throw new ProjectException(
+          `GitHub API error: ${response.status} ${await response.text()}`,
+          response.status,
+        );
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new ProjectException('GitHub 提交响应格式无效。', 502);
+      }
+      if (!Array.isArray(payload)) throw new ProjectException('GitHub 提交响应格式无效。', 502);
+
+      for (const item of payload) {
+        const log = this.mapGitHubCommit(item, config.person);
+        if (log) logs.push(log);
+        if (logs.length >= maxCommits) return logs.slice(0, maxCommits);
+      }
+      if (payload.length < 100) break;
     }
+
+    if (logs.length >= maxCommits) return logs.slice(0, maxCommits);
+    return logs;
   }
 
-  private async summarizeDaily(logs: GitLogEntry[], context: SummaryContext): Promise<SummaryResult> {
+  private mapGitHubCommit(value: unknown, fallbackAuthor: string): GitLogEntry | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const record = value as {
+      sha?: unknown;
+      parents?: unknown;
+      author?: { login?: unknown };
+      commit?: {
+        message?: unknown;
+        author?: { name?: unknown; email?: unknown; date?: unknown };
+        committer?: { date?: unknown };
+      };
+    };
+    const message = record.commit?.message;
+    const hash = typeof record.sha === 'string' ? record.sha : '';
+    const dateValue = record.commit?.author?.date ?? record.commit?.committer?.date;
+    const date = typeof dateValue === 'string' ? dateValue : '';
+    if (!hash || !date || Number.isNaN(Date.parse(date)) || typeof message !== 'string')
+      return undefined;
+
+    const lines = message.split(/\r?\n/);
+    const subject = lines.shift()?.trim() ?? '';
+    if (!subject || subject.startsWith('Merge pull request') || subject.startsWith('Merge branch'))
+      return undefined;
+    if (Array.isArray(record.parents) && record.parents.length > 1) return undefined;
+
+    const authorName = record.commit?.author?.name;
+    const authorLogin = record.author?.login;
+    const authorEmail = record.commit?.author?.email;
+    const author =
+      typeof authorName === 'string' && authorName
+        ? authorName
+        : typeof authorLogin === 'string' && authorLogin
+          ? authorLogin
+          : typeof authorEmail === 'string' && authorEmail
+            ? authorEmail
+            : fallbackAuthor;
+    return { hash, author, date, subject, body: lines.join('\n').trim() };
+  }
+
+  private parseGitHubRepository(repo: string): { owner: string; name: string } {
+    let parsed: URL;
+    try {
+      parsed = new URL(repo);
+    } catch {
+      throw new ParamsErrorException('周报仅支持有效的 GitHub HTTPS 仓库地址。');
+    }
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.hostname.toLowerCase() !== 'github.com' ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      (parsed.port && parsed.port !== '443')
+    ) {
+      throw new ParamsErrorException('周报仅支持无凭据的 GitHub HTTPS 仓库地址。');
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length !== 2) throw new ParamsErrorException('GitHub 仓库地址格式无效。');
+    const owner = decodeURIComponent(segments[0]);
+    const name = decodeURIComponent(segments[1]).replace(/\.git$/i, '');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(owner) || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) {
+      throw new ParamsErrorException('GitHub 仓库地址格式无效。');
+    }
+    return { owner, name };
+  }
+
+  private async summarizeDaily(
+    logs: GitLogEntry[],
+    context: SummaryContext,
+  ): Promise<SummaryResult> {
     const prompt = this.buildDailySummaryPrompt(logs, context);
     const ai = this.getAiConfig();
     const aiBullets = await this.requestAiSummary(ai, prompt, '研发日报助手');
@@ -523,7 +724,10 @@ export class WeeklyCommitReportService {
     return { bullets: this.buildLocalSummary(logs), degraded: true };
   }
 
-  private async summarizeProject(logs: GitLogEntry[], context: SummaryContext): Promise<SummaryResult> {
+  private async summarizeProject(
+    logs: GitLogEntry[],
+    context: SummaryContext,
+  ): Promise<SummaryResult> {
     const prompt = this.buildProjectSummaryPrompt(logs, context);
     const ai = this.getAiConfig();
     const aiBullets = await this.requestAiSummary(ai, prompt, '研发周报助手');
@@ -664,7 +868,13 @@ export class WeeklyCommitReportService {
       if (/[ -]/.test(person) || (branch && /[ -]/.test(branch))) {
         throw new ParamsErrorException('周报项目字段包含不允许的控制字符。');
       }
-      if (branch && (branch.length > 256 || branch.startsWith('-') || branch.includes('..') || branch.includes('@{'))) {
+      if (
+        branch &&
+        (branch.length > 256 ||
+          branch.startsWith('-') ||
+          branch.includes('..') ||
+          branch.includes('@{'))
+      ) {
         throw new ParamsErrorException('分支名称格式无效。');
       }
       this.assertAllowedRepository(repo);
@@ -677,102 +887,34 @@ export class WeeklyCommitReportService {
       .split(',')
       .map((repo) => repo.trim())
       .filter(Boolean);
-    const allowed = configured.length ? configured : DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => project.repo);
-    const defaultsByRepo = new Map(DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => [this.canonicalRepo(project.repo), project]));
-    return allowed.map((repo) => defaultsByRepo.get(this.canonicalRepo(repo)) ?? {
-      repo,
-      person: 'ljh',
-      branch: undefined,
-    });
+    const allowed = configured.length
+      ? configured
+      : DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => project.repo);
+    const defaultsByRepo = new Map(
+      DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => [this.canonicalRepo(project.repo), project]),
+    );
+    return allowed.map(
+      (repo) =>
+        defaultsByRepo.get(this.canonicalRepo(repo)) ?? {
+          repo,
+          person: '2451477516@qq.com',
+          branch: undefined,
+        },
+    );
   }
 
   private assertAllowedRepository(repo: string): void {
-    if (this.isUrlLikeRepository(repo)) {
-      if (!this.isRemoteRepository(repo)) {
-        throw new ParamsErrorException('周报仅支持 HTTPS 仓库地址。');
-      }
-      this.validateRemoteRepository(repo);
-      const allowed = getConfig<string>(WeeklyReportConfigKeys.AllowedRepositories, '', false)
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean);
-      const allowedRepos = allowed.length ? allowed : DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => project.repo);
-      if (!allowedRepos.some((item) => this.canonicalRepo(item) === this.canonicalRepo(repo))) {
-        throw new ParamsErrorException('仓库不在周报允许访问列表中。');
-      }
-      return;
+    const allowed = getConfig<string>(WeeklyReportConfigKeys.AllowedRepositories, '', false)
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const allowedRepos = allowed.length
+      ? allowed
+      : DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => project.repo);
+    if (!allowedRepos.some((item) => this.canonicalRepo(item) === this.canonicalRepo(repo))) {
+      throw new ParamsErrorException('仓库不在周报允许访问列表中。');
     }
-
-    if (/^git@/i.test(repo)) {
-      throw new ParamsErrorException('周报不支持 SSH 仓库地址。');
-    }
-    this.validateLocalRepository(repo);
-  }
-
-  private validateLocalRepository(repo: string): string {
-    const localRoot = resolve(
-      getConfig<string>(WeeklyReportConfigKeys.AllowedLocalRoot, process.cwd(), false),
-    );
-    const localPath = resolve(repo);
-    const normalizedRoot = this.normalizePathForComparison(localRoot);
-    const normalizedPath = this.normalizePathForComparison(localPath);
-    if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(`${normalizedRoot}${sep}`)) {
-      throw new ParamsErrorException('本地仓库不在周报允许访问目录中。');
-    }
-    return localPath;
-  }
-
-  private async resolveLocalRepository(repo: string): Promise<string> {
-    const localPath = this.validateLocalRepository(repo);
-    const localRoot = resolve(
-      getConfig<string>(WeeklyReportConfigKeys.AllowedLocalRoot, process.cwd(), false),
-    );
-    try {
-      const [resolvedRoot, resolvedPath] = await Promise.all([
-        realpath(localRoot),
-        realpath(localPath),
-      ]);
-      const normalizedRoot = this.normalizePathForComparison(resolvedRoot);
-      const normalizedPath = this.normalizePathForComparison(resolvedPath);
-      if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(`${normalizedRoot}${sep}`)) {
-        throw new ParamsErrorException('本地仓库不在周报允许访问目录中。');
-      }
-      return resolvedPath;
-    } catch (error) {
-      if (error instanceof ParamsErrorException) throw error;
-      throw new ParamsErrorException('本地仓库不存在或无法访问。');
-    }
-  }
-
-  private validateRemoteRepository(repo: string): void {
-    try {
-      const parsed = new URL(repo);
-      if (
-        parsed.protocol !== 'https:'
-        || parsed.username
-        || parsed.password
-        || parsed.search
-        || parsed.hash
-        || (parsed.port && parsed.port !== '443')
-      ) {
-        throw new ParamsErrorException('仓库地址必须是无凭据、无参数的标准 HTTPS 地址。');
-      }
-    } catch (error) {
-      if (error instanceof ParamsErrorException) throw error;
-      throw new ParamsErrorException('仓库地址格式无效。');
-    }
-  }
-
-  private isUrlLikeRepository(repo: string): boolean {
-    return /^[a-z][a-z\d+.-]*:\/\//i.test(repo);
-  }
-
-  private isRemoteRepository(repo: string): boolean {
-    try {
-      return new URL(repo).protocol === 'https:';
-    } catch {
-      return false;
-    }
+    this.parseGitHubRepository(repo);
   }
 
   private getAiConfig() {
@@ -786,12 +928,42 @@ export class WeeklyCommitReportService {
   private getLimits(): WeeklyReportLimits {
     return {
       maxProjects: this.readPositiveConfig(WeeklyReportConfigKeys.MaxProjects, 10, 1, 10),
-      maxCommitsPerRepository: this.readPositiveConfig(WeeklyReportConfigKeys.MaxCommits, 100, 1, 500),
-      maxPromptCommits: this.readPositiveConfig(WeeklyReportConfigKeys.MaxPromptCommits, 40, 1, 100),
-      maxPromptCharacters: this.readPositiveConfig(WeeklyReportConfigKeys.MaxPromptCharacters, 30_000, 1000, 100_000),
-      maxOutputCharacters: this.readPositiveConfig(WeeklyReportConfigKeys.MaxOutputCharacters, 100_000, 1000, 500_000),
-      commandTimeoutMs: this.readPositiveConfig(WeeklyReportConfigKeys.CommandTimeoutMs, 60_000, 1000, 300_000),
-      aiTimeoutMs: this.readPositiveConfig(WeeklyReportConfigKeys.AiTimeoutMs, 30_000, 1000, 120_000),
+      maxCommitsPerRepository: this.readPositiveConfig(
+        WeeklyReportConfigKeys.MaxCommits,
+        100,
+        1,
+        500,
+      ),
+      maxPromptCommits: this.readPositiveConfig(
+        WeeklyReportConfigKeys.MaxPromptCommits,
+        40,
+        1,
+        100,
+      ),
+      maxPromptCharacters: this.readPositiveConfig(
+        WeeklyReportConfigKeys.MaxPromptCharacters,
+        30_000,
+        1000,
+        100_000,
+      ),
+      maxOutputCharacters: this.readPositiveConfig(
+        WeeklyReportConfigKeys.MaxOutputCharacters,
+        100_000,
+        1000,
+        500_000,
+      ),
+      commandTimeoutMs: this.readPositiveConfig(
+        WeeklyReportConfigKeys.CommandTimeoutMs,
+        60_000,
+        1000,
+        300_000,
+      ),
+      aiTimeoutMs: this.readPositiveConfig(
+        WeeklyReportConfigKeys.AiTimeoutMs,
+        30_000,
+        1000,
+        120_000,
+      ),
     };
   }
 
@@ -825,17 +997,12 @@ export class WeeklyCommitReportService {
         .replace(/\/+$/, '')
         .replace(/\.git$/i, '')}`;
     } catch {
-      return this.normalizePathForComparison(repo).replace(/[\\/]+$/, '');
+      return repo
+        .trim()
+        .replace(/[\\/]+$/, '')
+        .replace(/\.git$/i, '')
+        .toLowerCase();
     }
-  }
-
-  private normalizePathForComparison(value: string): string {
-    const normalized = resolve(value).replace(/[\\/]+$/, '');
-    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-  }
-
-  private escapeGitAuthorPattern(person: string): string {
-    return person.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private normalizeCommitSubject(subject: string): string {
@@ -844,7 +1011,12 @@ export class WeeklyCommitReportService {
   }
 
   private normalizeSummaryLine(line: string): string {
-    return this.normalizeCommitSubject(line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim());
+    return this.normalizeCommitSubject(
+      line
+        .replace(/^[-*•]\s+/, '')
+        .replace(/^\d+\.\s+/, '')
+        .trim(),
+    );
   }
 
   private canonicalizeBullet(bullet: string): string {
@@ -863,7 +1035,12 @@ export class WeeklyCommitReportService {
     const result: string[] = [];
     for (const bullet of bullets) {
       const normalized = this.normalizeSummaryLine(bullet);
-      if (!normalized || this.isPlaceholderBullet(normalized) || this.isCodeIntegrationBullet(normalized)) continue;
+      if (
+        !normalized ||
+        this.isPlaceholderBullet(normalized) ||
+        this.isCodeIntegrationBullet(normalized)
+      )
+        continue;
       const key = this.canonicalizeBullet(normalized);
       if (!key || seenKeys.has(key)) continue;
       seenKeys.add(key);
@@ -882,7 +1059,9 @@ export class WeeklyCommitReportService {
 
   private isCodeIntegrationBullet(bullet: string): boolean {
     const normalized = this.normalizeSummaryLine(bullet);
-    return /^(?:(?:merge|rebase|cherry-pick)\b.*|(?:合并|合入|同步)\s*(?:(?:[\w./-]+\s*)?(?:分支|代码|主分支|PR|MR|请求))|(?:解决|处理)\s*合并冲突)/i.test(normalized);
+    return /^(?:(?:merge|rebase|cherry-pick)\b.*|(?:合并|合入|同步)\s*(?:(?:[\w./-]+\s*)?(?:分支|代码|主分支|PR|MR|请求))|(?:解决|处理)\s*合并冲突)/i.test(
+      normalized,
+    );
   }
 
   private isPlaceholderBullet(bullet: string): boolean {
@@ -890,7 +1069,10 @@ export class WeeklyCommitReportService {
   }
 
   private firstMeaningfulBodyLine(body: string): string | undefined {
-    return body.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+    return body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
   }
 
   private formatDateWithWeekday(date: string): string {

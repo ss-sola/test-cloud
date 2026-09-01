@@ -79,6 +79,12 @@
             </svg>
             <span>周报生成</span>
           </a>
+          <a class="nav-link" href="#config-file-preview" data-route="config-file-preview">
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M5 4h14v16H5zM8 8h8M8 12h5M8 16h8" />
+            </svg>
+            <span>配置版本预览</span>
+          </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -126,204 +132,7 @@
         </header>
 
         <main id="main-content" class="main-content" tabindex="-1">
-          <section class="view" data-view="overview" aria-labelledby="overview-title">
-            <div class="page-heading">
-              <div>
-                <p class="eyebrow">SYSTEM OVERVIEW</p>
-                <h1 id="overview-title">工作台总览</h1>
-                <p class="page-description">这里是 NestCloud 系统管理台的统一工作区。</p>
-              </div>
-              <span class="heading-mark" aria-hidden="true">01</span>
-            </div>
-
-            <div class="overview-grid">
-              <article class="welcome-panel">
-                <div class="welcome-copy">
-                  <span class="section-kicker">NESTCLOUD / SYSTEM</span>
-                  <h2>管理台骨架已准备好</h2>
-                  <p>左侧导航承载工作区和本地工具入口，右侧区域用于呈现当前页面内容。图片、JSON 与 ENV 工具均在浏览器内完成处理，不上传用户素材或配置。</p>
-                </div>
-                <div class="welcome-illustration" aria-hidden="true">
-                  <span class="illustration-square illustration-square-main"></span>
-                  <span class="illustration-square illustration-square-small"></span>
-                  <span class="illustration-line illustration-line-one"></span>
-                  <span class="illustration-line illustration-line-two"></span>
-                </div>
-              </article>
-
-              <article class="metric-card">
-                <span class="metric-label">当前工作区</span>
-                <strong class="metric-value">01</strong>
-                <span class="metric-note"><span class="metric-dot metric-dot-blue"></span>总览入口</span>
-              </article>
-              <article class="metric-card">
-                <span class="metric-label">服务状态</span>
-                <strong class="metric-value metric-value-text">就绪</strong>
-                <span class="metric-note"><span class="metric-dot metric-dot-green"></span>静态资源可托管</span>
-              </article>
-            </div>
-          </section>
-
-          <section class="view tool-view" data-view="particle" aria-labelledby="particle-title" hidden>
-            <div class="page-heading">
-              <div>
-                <p class="eyebrow">PARTICLE LAB / LOCAL</p>
-                <h1 id="particle-title">图片转粒子</h1>
-                <p class="page-description">上传两张图片，点击画布让同一批粒子完成形态切换。所有处理均在当前浏览器内完成。</p>
-              </div>
-              <span class="heading-mark" aria-hidden="true">02</span>
-            </div>
-
-            <div class="particle-layout">
-              <section class="particle-input-panel" aria-labelledby="particle-upload-title">
-                <div class="section-heading-row section-heading-row-compact">
-                  <div>
-                    <p class="section-kicker">INPUT MATERIALS</p>
-                    <h2 id="particle-upload-title">上传素材</h2>
-                  </div>
-                  <span class="section-count">A + B</span>
-                </div>
-                <div class="upload-zone" id="particle-upload-zone">
-                  <input id="particle-file-input" class="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple />
-                  <span class="upload-zone-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
-                  </span>
-                  <span class="upload-zone-copy">
-                    <strong id="particle-upload-title-text">上传两张图片</strong>
-                    <span>拖入文件，或 <button type="button" class="inline-button" id="particle-browse-button">浏览文件</button></span>
-                  </span>
-                  <span class="upload-format">PNG / JPG / WEBP / GIF<br />单文件最大 15 MB</span>
-                </div>
-                <div class="source-list" id="particle-source-list" aria-live="polite">
-                  <div class="source-chip" data-slot="0">
-                    <span class="source-chip-label">A</span><span class="file-chip-status" data-status-dot="0"></span>
-                    <span class="file-chip-name">素材 A — 等待上传</span><span class="source-chip-state">等待</span>
-                    <button type="button" class="source-chip-action" data-slot-action="0">添加</button>
-                  </div>
-                  <div class="source-chip" data-slot="1">
-                    <span class="source-chip-label">B</span><span class="file-chip-status" data-status-dot="1"></span>
-                    <span class="file-chip-name">素材 B — 等待上传</span><span class="source-chip-state">等待</span>
-                    <button type="button" class="source-chip-action" data-slot-action="1">添加</button>
-                  </div>
-                </div>
-                <p class="tool-error" id="particle-error" role="alert" hidden></p>
-                <div class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>图片不会上传到服务器。</span></div>
-              </section>
-
-              <section class="particle-stage-panel" aria-labelledby="particle-stage-title">
-                <div class="particle-stage-header">
-                  <div><p class="section-kicker">VISUAL FIELD</p><h2 id="particle-stage-title">粒子场</h2></div>
-                  <span class="status-badge" id="particle-status"><span></span><span id="particle-status-label">等待</span></span>
-                </div>
-                <div class="particle-visual-frame" id="particle-field" aria-label="图片边缘粒子画布">
-                  <div class="empty-stage" id="particle-empty-stage">
-                    <div class="empty-crosshair" aria-hidden="true"><span></span><span></span></div>
-                    <p>等待上传素材 A</p><span>上传素材 A + B</span>
-                  </div>
-                </div>
-                <div class="particle-visual-footer">
-                  <div class="particle-control">
-                    <div class="metric"><span>粒子数</span><strong id="particle-count">—</strong></div>
-                    <label class="particle-slider-label" for="particle-density"><span>密度</span><input id="particle-density" type="range" min="1000" max="10000" step="100" value="5000" disabled /><strong id="particle-density-value">5,000</strong></label>
-                  </div>
-                  <label class="effect-selector" for="particle-effect"><span>效果</span><select id="particle-effect"><option value="spring">弹性</option><option value="wave">波浪</option><option value="rotate">旋转至目标</option></select></label>
-                  <button type="button" class="visual-cta" id="particle-morph-button" disabled>添加图片 2 <span aria-hidden="true">→</span></button>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <section class="view tool-view compare-view" data-view="json-compare" aria-label="JSON 对比" hidden>
-            <div class="compare-input-grid">
-              <div class="compare-input-panel" data-compare-panel="json-A"><label for="json-a"><span>JSON A</span><small id="json-a-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="json-a-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="json-a" spellcheck="false" placeholder="{\n  &quot;name&quot;: &quot;particle&quot;,\n  &quot;items&quot;: [1, 2, 3]\n}" aria-describedby="json-a-error"></textarea><div class="compare-markers" id="json-a-markers" aria-hidden="true"></div></div><p class="compare-error" id="json-a-error" role="alert" hidden></p></div>
-              <div class="compare-input-panel" data-compare-panel="json-B"><label for="json-b"><span>JSON B</span><small id="json-b-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="json-b-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="json-b" spellcheck="false" placeholder="{\n  &quot;name&quot;: &quot;particle&quot;,\n  &quot;items&quot;: [1, 2, 3]\n}" aria-describedby="json-b-error"></textarea><div class="compare-markers" id="json-b-markers" aria-hidden="true"></div></div><p class="compare-error" id="json-b-error" role="alert" hidden></p></div>
-            </div>
-            <div class="compare-actions"><button type="button" class="compare-button" data-compare-action="json">对比 JSON <span aria-hidden="true">→</span></button><span class="compare-hint">对象键、含 ID 的数组与嵌套数组会在对比前规范化</span></div>
-            <section class="compare-result" id="json-result" aria-live="polite" aria-label="JSON 对比结果" hidden><div class="compare-result-header"><div><p class="result-kicker">差异结果</p><h2 id="json-result-title"></h2></div><div class="compare-stats"><span class="stat-added">新增 <strong id="json-added-count">0</strong></span><span class="stat-removed">删除 <strong id="json-removed-count">0</strong></span><span class="stat-modified">修改 <strong id="json-modified-count">0</strong></span></div></div><div class="compare-tree" id="json-tree" role="tree" aria-label="JSON 差异树"></div></section>
-          </section>
-
-          <section class="view tool-view compare-view" data-view="env-compare" aria-labelledby="env-compare-title" hidden>
-            <div class="page-heading">
-              <div><p class="eyebrow">CONFIG TOOL / ENV</p><h1 id="env-compare-title">ENV 对比</h1><p class="page-description">按字符串键值解析并比较两份环境配置，保留原始 ENV 文本并展示结构差异。</p></div>
-              <span class="heading-mark" aria-hidden="true">04</span>
-            </div>
-            <div class="compare-input-grid">
-              <div class="compare-input-panel" data-compare-panel="env-A"><label for="env-a"><span>ENV A</span><small id="env-a-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="env-a-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="env-a" spellcheck="false" placeholder="# 示例\nexport APP_NAME=&quot;particle&quot;\nPORT=3000\nDEBUG=true\nEMPTY=" aria-describedby="env-a-error"></textarea><div class="compare-markers" id="env-a-markers" aria-hidden="true"></div></div><p class="compare-error" id="env-a-error" role="alert" hidden></p></div>
-              <div class="compare-input-panel" data-compare-panel="env-B"><label for="env-b"><span>ENV B</span><small id="env-b-count">0 字符</small></label><div class="compare-editor"><pre class="compare-editor__highlight" id="env-b-highlight" aria-hidden="true"><code></code></pre><textarea class="compare-editor__textarea" id="env-b" spellcheck="false" placeholder="# 示例\nexport APP_NAME=&quot;particle&quot;\nPORT=3000\nDEBUG=true\nEMPTY=" aria-describedby="env-b-error"></textarea><div class="compare-markers" id="env-b-markers" aria-hidden="true"></div></div><p class="compare-error" id="env-b-error" role="alert" hidden></p></div>
-            </div>
-            <div class="compare-actions"><button type="button" class="compare-button" data-compare-action="env">对比 ENV <span aria-hidden="true">→</span></button><span class="compare-hint">ENV 值保持字符串，结果树展示结构差异</span></div>
-            <section class="compare-result" id="env-result" aria-live="polite" aria-label="ENV 对比结果" hidden><div class="compare-result-header"><div><p class="result-kicker">差异结果</p><h2 id="env-result-title"></h2></div><div class="compare-stats"><span class="stat-added">新增 <strong id="env-added-count">0</strong></span><span class="stat-removed">删除 <strong id="env-removed-count">0</strong></span><span class="stat-modified">修改 <strong id="env-modified-count">0</strong></span></div></div><div class="compare-tree" id="env-tree" role="tree" aria-label="ENV 差异树"></div></section>
-          </section>
-
-          <section class="view tool-view weekly-report-view" data-view="weekly-report" aria-labelledby="weekly-report-title" hidden>
-            <div class="page-heading">
-              <div>
-                <p class="eyebrow">WEEKLY REPORT / GIT</p>
-                <h1 id="weekly-report-title">周报生成</h1>
-                <p class="page-description">按提交记录生成上周或本周项目汇总。Git 与摘要处理在服务端完成，结果不会自动写入服务器文件。</p>
-              </div>
-              <span class="heading-mark" aria-hidden="true">05</span>
-            </div>
-
-            <div class="weekly-report-layout">
-              <form class="weekly-report-config" id="weekly-report-form">
-                <div class="section-heading-row section-heading-row-compact">
-                  <div><p class="section-kicker">REPORT PERIOD</p><h2>选择周期</h2></div>
-                  <span class="section-count">CLI</span>
-                </div>
-                <fieldset class="weekly-period-options">
-                  <legend class="visually-hidden">周报周期</legend>
-                  <label class="weekly-period-option"><input type="radio" name="weekly-period" value="last-week" checked /><span><strong>上周</strong><small>完整的上一周，等同于 week:last</small></span></label>
-                  <label class="weekly-period-option"><input type="radio" name="weekly-period" value="this-week" /><span><strong>本周</strong><small>本周一至当前日期，等同于 week:this</small></span></label>
-                </fieldset>
-                <button class="compare-button weekly-report-submit" id="weekly-report-submit" type="submit">生成周报 <span aria-hidden="true">→</span></button>
-
-                <div class="section-heading-row section-heading-row-compact weekly-project-heading">
-                  <div><p class="section-kicker">PROJECT SOURCES</p><h2>项目配置</h2></div>
-                  <span class="section-count">3 项</span>
-                </div>
-                <div class="weekly-project-list" id="weekly-project-list">
-                  <article class="weekly-project-card" data-weekly-project="0">
-                    <div class="weekly-project-card__header"><span class="weekly-project-index">01</span><strong>wzj-nodejs-v2</strong></div>
-                    <label>仓库地址<input type="text" data-weekly-field="repo" value="https://github.com/whtthd/wzj-nodejs-v2.git" required maxlength="2048" /></label>
-                    <label>提交人<input type="text" data-weekly-field="person" value="ljh" required maxlength="128" /></label>
-                    <label>分支<input type="text" data-weekly-field="branch" value="merge/wzj-temp" maxlength="256" /></label>
-                  </article>
-                  <article class="weekly-project-card" data-weekly-project="1">
-                    <div class="weekly-project-card__header"><span class="weekly-project-index">02</span><strong>resource-portal-and-manage-backend</strong></div>
-                    <label>仓库地址<input type="text" data-weekly-field="repo" value="https://github.com/whtthd/resource-portal-and-manage-backend.git" required maxlength="2048" /></label>
-                    <label>提交人<input type="text" data-weekly-field="person" value="ljh" required maxlength="128" /></label>
-                    <label>分支<input type="text" data-weekly-field="branch" value="dev/master" maxlength="256" /></label>
-                  </article>
-                  <article class="weekly-project-card" data-weekly-project="2">
-                    <div class="weekly-project-card__header"><span class="weekly-project-index">03</span><strong>wzj-pc-frontend-next</strong></div>
-                    <label>仓库地址<input type="text" data-weekly-field="repo" value="https://github.com/whtthd/wzj-pc-frontend-next.git" required maxlength="2048" /></label>
-                    <label>提交人<input type="text" data-weekly-field="person" value="ljh" required maxlength="128" /></label>
-                    <label>分支<input type="text" data-weekly-field="branch" value="publish/integration" maxlength="256" /></label>
-                  </article>
-                </div>
-                <p class="tool-error" id="weekly-report-error" role="alert" hidden></p>
-                <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>仅允许访问服务端配置的仓库白名单；未配置摘要服务时自动使用本地规则。</span></p>
-              </form>
-
-              <section class="weekly-report-result" aria-labelledby="weekly-report-result-title">
-                <div class="particle-stage-header">
-                  <div><p class="section-kicker">REPORT OUTPUT</p><h2 id="weekly-report-result-title">生成结果</h2></div>
-                  <span class="status-badge" id="weekly-report-status"><span></span><span id="weekly-report-status-label">等待</span></span>
-                </div>
-                <div class="weekly-report-meta" id="weekly-report-meta" aria-live="polite">选择周期并生成一份报告。</div>
-                <div class="weekly-report-progress" id="weekly-report-progress" aria-live="polite" hidden>
-                  <div class="weekly-report-progress__label" id="weekly-report-progress-label">准备生成</div>
-                  <div class="weekly-report-progress__track" role="progressbar" aria-label="周报生成进度" aria-valuetext="准备生成"><span></span></div>
-                </div>
-                <pre class="weekly-report-output" id="weekly-report-output" tabindex="0" aria-label="周报 Markdown 内容" hidden></pre>
-                <div class="weekly-report-actions" id="weekly-report-actions" hidden>
-                  <button class="compare-button" id="weekly-report-copy" type="button">复制 Markdown</button>
-                  <button class="compare-button compare-button--secondary" id="weekly-report-download" type="button">下载 Markdown</button>
-                </div>
-              </section>
-            </div>
-          </section>
+          <div id="view-host" aria-live="polite"></div>
         </main>
       </div>
     </div>
@@ -332,6 +141,7 @@
     <script src="/public/js/json-diff.js" defer></script>
     <script src="/public/js/image-particles.js" defer></script>
     <script src="/public/js/particle-field.js" defer></script>
+    <script src="/public/js/config-file-preview.js" defer></script>
     <script src="/public/js/app.js" defer></script>
   </body>
 </html>
