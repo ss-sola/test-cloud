@@ -5,6 +5,7 @@ import { AppLogger } from './logger/logger.service';
 import { shouldLogHttpAccess } from './logger/logger.config';
 import { HttpException, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { GlobalExceptionFilter } from './exception/global.filter';
+import { redactSensitive } from './util/common.util';
 import { register } from './register';
 import { IOptions } from './type';
 import { setOptions } from './config-center/options';
@@ -103,9 +104,9 @@ export async function bootstrap(options: IOptions) {
             method: req.method,
             url: req.originalUrl,
             routePath: req.route.path,
-            params: req.params,
-            query: req.query,
-            body: req.body || {},
+            params: redactSensitive(req.params),
+            query: redactSensitive(req.query),
+            body: redactSensitive(req.body || {}),
             ip: req.ip,
             status: res.statusCode,
             durationMs,

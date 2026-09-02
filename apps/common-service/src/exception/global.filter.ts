@@ -9,6 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { redactSensitive } from '../util/common.util';
 
 /**
  * @Description: 全局异常处理器
@@ -46,9 +47,9 @@ export class GlobalExceptionFilter implements ExceptionFilter<HttpException> {
       const obj = {
         url: request.originalUrl,
         method: request.method,
-        params: request.params,
-        query: request.query,
-        body: request.body || {},
+        params: redactSensitive(request.params),
+        query: redactSensitive(request.query),
+        body: redactSensitive(request.body || {}),
         ip: request.ip,
         status: status,
       };

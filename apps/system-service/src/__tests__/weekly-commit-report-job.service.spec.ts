@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProjectException } from '@nest-cloud/common';
 import { WeeklyCommitReportJobService } from '../modules/weekly-commit-report/weekly-commit-report-job.service';
 import type {
+  WeeklyReportQueueGateway,
+  WeeklyReportQueueSnapshot,
+} from '../modules/weekly-commit-report/weekly-report-queue.service';
+import type {
   GenerateWeeklyReportInput,
+  WeeklyReportProgress,
   WeeklyReportResult,
 } from '../modules/weekly-commit-report/weekly-report.types';
 
@@ -17,127 +22,119 @@ const result: WeeklyReportResult = {
   commitCount: 0,
   degraded: false,
 };
+const progress: WeeklyReportProgress = {
+  phase: 'completed',
+  percent: 100,
+  completedProjects: 0,
+  totalProjects: 0,
+  failedProjects: 0,
+  currentProject: null,
+  message: '周报已生成。',
+};
 
-function tick() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+function createSnapshot(
+  overrides: Partial<WeeklyReportQueueSnapshot> = {},
+): WeeklyReportQueueSnapshot {
+  return {
+    jobId: 'weekly-report-test',
+    state: 'completed',
+    progress,
+    input,
+    result,
+    publication: null,
+    error: null,
+    failedReason: '',
+    ...overrides,
+  };
+}
+
+function createGateway(
+  snapshot: WeeklyReportQueueSnapshot | null = createSnapshot(),
+): WeeklyReportQueueGateway {
+  return {
+    add: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(snapshot),
+    getActiveCount: vi.fn().mockResolvedValue(0),
+  };
 }
 
 describe('WeeklyCommitReportJobService', () => {
-  it('returns a terminal result with backend progress', async () => {
-    const progress = {
-      phase: 'completed' as const,
-      percent: 100,
-      completedProjects: 1,
-      totalProjects: 1,
-      failedProjects: 0,
-      currentProject: null,
-      message: '周报已生成。',
-    };
-    const reportService = {
-      generate: vi.fn().mockImplementation(async (_input, reporter) => {
-        reporter(progress);
-        return { ...result, projectErrors: [] };
-      }),
-    } as never;
-    const jobs = new WeeklyCommitReportJobService(reportService);
+  it('adds a queued job with the existing public id format', async () => {
+    const queue = createGateway();
+    const jobs = new WeeklyCommitReportJobService(queue);
 
-    const created = jobs.create(input);
-    await tick();
-    const status = jobs.getStatus(created.jobId);
+    const created = await jobs.create(input);
 
     expect(created.jobId).toMatch(/^weekly-report-/);
-    expect(status.status).toBe('succeeded');
-    expect(status.progress.percent).toBe(100);
-    expect(status.result).toEqual(result);
-    expect(status.error).toBeNull();
+    expect(created.status).toBe('queued');
+    expect(created.progress.phase).toBe('queued');
+    expect(queue.add).toHaveBeenCalledWith(created.jobId, input, created.progress);
   });
 
-  it('keeps project failures in a succeeded result', async () => {
-    const projectError = { repo: 'repo', repoLabel: 'repo', code: 404, message: 'not found' };
-    const reportService = {
-      generate: vi.fn().mockResolvedValue({ ...result, projectErrors: [projectError] }),
-    } as never;
-    const jobs = new WeeklyCommitReportJobService(reportService);
+  it('maps a completed BullMQ job to the existing status view', async () => {
+    const queue = createGateway(createSnapshot({ jobId: 'weekly-report-1' }));
+    const jobs = new WeeklyCommitReportJobService(queue);
 
-    const created = jobs.create(input);
-    await tick();
-    const status = jobs.getStatus(created.jobId);
+    await expect(jobs.getStatus('weekly-report-1')).resolves.toMatchObject({
+      jobId: 'weekly-report-1',
+      status: 'succeeded',
+      progress,
+      result,
+      publication: null,
+      error: null,
+    });
+  });
+
+  it('preserves project failures in a succeeded result', async () => {
+    const projectError = { repo: 'repo', repoLabel: 'repo', code: 404, message: 'not found' };
+    const queue = createGateway(
+      createSnapshot({
+        result: { ...result, projectErrors: [projectError] },
+        progress: { ...progress, totalProjects: 1, failedProjects: 1 },
+      }),
+    );
+    const jobs = new WeeklyCommitReportJobService(queue);
+
+    const status = await jobs.getStatus('weekly-report-test');
 
     expect(status.status).toBe('succeeded');
     expect(status.progress.failedProjects).toBe(1);
     expect(status.result?.projectErrors).toEqual([projectError]);
   });
 
-  it('marks task-level failures as failed', async () => {
-    const reportService = {
-      generate: vi.fn().mockRejectedValue(new ProjectException('Token missing', 503)),
-    } as never;
-    const jobs = new WeeklyCommitReportJobService(reportService);
-
-    const created = jobs.create(input);
-    await tick();
-    const status = jobs.getStatus(created.jobId);
-
-    expect(status.status).toBe('failed');
-    expect(status.progress.phase).toBe('failed');
-    expect(status.error).toEqual({ code: 503, message: 'Token missing' });
-  });
-
-  it('keeps a generated report succeeded when Feishu publication fails', async () => {
-    const reportService = {
-      generate: vi.fn().mockResolvedValue(result),
-    } as never;
-    const publicationService = {
-      publishIfEnabled: vi.fn().mockRejectedValue(new Error('权限不足')),
-    } as never;
-    const jobs = new WeeklyCommitReportJobService(reportService, publicationService);
-
-    const created = jobs.create({ ...input, publish: { enabled: true, person: '张三' } });
-    await tick();
-    const status = jobs.getStatus(created.jobId);
-
-    expect(status.status).toBe('succeeded');
-    expect(status.result).toEqual(result);
-    expect(status.publication).toEqual({
-      status: 'failed',
-      retryable: false,
-      message: '权限不足',
-    });
-    expect(status.progress.message).toContain('发布失败');
-  });
-
-  it('records a successful Feishu publication without changing report result', async () => {
-    const reportService = {
-      generate: vi.fn().mockResolvedValue(result),
-    } as never;
-    const publicationService = {
-      publishIfEnabled: vi.fn().mockResolvedValue({
-        status: 'skipped',
-        range: 'sheet!C1:G1',
-        row: 1,
+  it('maps a failed BullMQ job to a normalized error', async () => {
+    const queue = createGateway(
+      createSnapshot({
+        state: 'failed',
+        progress: { ...progress, phase: 'failed', percent: 100, message: 'Token missing' },
+        result: null,
+        error: { code: 503, message: 'Token missing' },
+        failedReason: 'Token missing',
       }),
-    } as never;
-    const jobs = new WeeklyCommitReportJobService(reportService, publicationService);
+    );
+    const jobs = new WeeklyCommitReportJobService(queue);
 
-    const created = jobs.create({ ...input, publish: { enabled: true, person: '张三' } });
-    await tick();
-    const status = jobs.getStatus(created.jobId);
-
-    expect(status.status).toBe('succeeded');
-    expect(status.publication).toMatchObject({ status: 'skipped', range: 'sheet!C1:G1' });
+    await expect(jobs.getStatus('weekly-report-test')).resolves.toMatchObject({
+      status: 'failed',
+      error: { code: 503, message: 'Token missing' },
+    });
   });
 
-  it('limits active tasks', () => {
-    let resolveFirst!: (value: WeeklyReportResult) => void;
-    const pending = new Promise<WeeklyReportResult>((resolve) => {
-      resolveFirst = resolve;
-    });
-    const reportService = { generate: vi.fn().mockReturnValue(pending) } as never;
-    const jobs = new WeeklyCommitReportJobService(reportService);
+  it('does not expose a missing BullMQ job', async () => {
+    const jobs = new WeeklyCommitReportJobService(createGateway(null));
 
-    jobs.create(input);
-    jobs.create(input);
-    expect(() => jobs.create(input)).toThrow(/任务过多/);
-    resolveFirst(result);
+    await expect(jobs.getStatus('missing')).rejects.toMatchObject({
+      message: '周报任务不存在或已过期。',
+      status: 404,
+    });
+  });
+
+  it('rejects a new job when the queue admission limit is reached', async () => {
+    const queue = createGateway();
+    queue.getActiveCount = vi.fn().mockResolvedValue(2);
+    const jobs = new WeeklyCommitReportJobService(queue);
+
+    await expect(jobs.create(input)).rejects.toBeInstanceOf(ProjectException);
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });

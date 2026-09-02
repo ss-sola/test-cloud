@@ -68,4 +68,39 @@ describe('FeishuHttpClientService', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('uses request-level retry settings instead of global config', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ message: 'temporary' }, 503));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FeishuHttpClientService();
+
+    await expect(
+      service.request(
+        { method: 'GET', path: '/open-apis/example' },
+        {
+          appId: 'app-id',
+          appSecret: 'app-secret',
+          requestTimeoutMs: 8_000,
+          maxRetries: 0,
+        },
+      ),
+    ).rejects.toMatchObject({ status: 503, retryable: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('includes a safe Feishu error message for HTTP 400 responses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ code: 99991663, msg: 'invalid spreadsheet token' }, 400));
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FeishuHttpClientService();
+
+    await expect(
+      service.request({ method: 'GET', path: '/open-apis/example' }),
+    ).rejects.toMatchObject({
+      status: 400,
+      apiCode: 99991663,
+      message: '飞书 API 调用失败（请求飞书接口，HTTP 400：invalid spreadsheet token）。',
+    });
+  });
 });

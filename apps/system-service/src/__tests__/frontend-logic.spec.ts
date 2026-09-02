@@ -149,6 +149,7 @@ describe('static shell and fragment contract', () => {
       'json-compare',
       'env-compare',
       'weekly-report',
+      'bullmq',
       'config-file-preview',
     ];
 
@@ -173,6 +174,14 @@ describe('weekly report menu contract', () => {
     expect(weekly).toContain('data-view="weekly-report"');
     expect(weekly).toContain('id="weekly-report-progress"');
     expect(weekly).toContain('id="weekly-report-project-errors"');
+    expect(weekly).toContain('id="weekly-report-publish"');
+    expect(weekly).toContain('type="checkbox" name="weekly-report-publish" />');
+    expect(weekly).toContain('id="weekly-feishu-settings"');
+    expect(weekly).toContain('id="weekly-feishu-app-secret"');
+    expect(weekly).toContain('id="weekly-feishu-target-template"');
+    expect(weekly).toContain('id="weekly-feishu-target-add"');
+    expect(weekly).toContain('data-weekly-feishu-target-remove');
+    expect(weekly).toContain('仅上周周报支持同步');
     expect(weekly).toContain('id="weekly-project-add"');
     expect(weekly).toContain('id="weekly-project-template"');
     expect(weekly).toContain('data-weekly-project-remove');
@@ -186,12 +195,38 @@ describe('weekly report menu contract', () => {
     expect(app).toContain('weekly-report.html');
     expect(app).toContain('/api/weekly-commit-reports/jobs');
     expect(app).toContain('/api/weekly-commit-reports/jobs/status?jobId=');
+    expect(app).toContain('const publish = { enabled: publishEnabled }');
+    expect(app).toContain('if (publishEnabled) publish.settings = collectPublishSettings()');
+    expect(app).toContain('publishSettings');
+    expect(app).toContain('extractSheetId');
+    expect(app).toContain('normalizeFeishuSettings');
     expect(app).toContain('nestcloud:weekly-report:v1');
     expect(app).toContain('nestcloud:compare:json:v1');
     expect(app).toContain('nestcloud:compare:env:v1');
     expect(app).toContain('localStorage');
     expect(app).toContain('projectErrors');
     expect(app).toContain('renderProjectErrors');
+  });
+});
+
+describe('bullmq panel menu contract', () => {
+  it('connects the BullMQ menu, fragment, and embedded panel route', () => {
+    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const fragment = readFileSync(resolve(process.cwd(), 'public/html/bullmq.html'), 'utf8');
+    const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
+    const css = readFileSync(resolve(process.cwd(), 'public/css/app.css'), 'utf8');
+
+    expect(html).toContain('href="#bullmq" data-route="bullmq"');
+    expect(fragment).toContain('data-view="bullmq"');
+    expect(fragment).toContain('src="/ops/queues/"');
+    expect(fragment).toContain('title="BullMQ 队列监控面板"');
+    expect(fragment).toContain('loading="eager"');
+    expect(fragment).toContain('class="bullmq-frame-wrap"');
+    expect(app).toContain("bullmq: { title: 'BullMQ 面板'");
+    expect(app).toContain("bullmq: '/public/html/bullmq.html'");
+    expect(css).toContain(".main-content[data-route='bullmq']");
+    expect(css).toContain('height: calc(100dvh - var(--topbar-height))');
+    expect(css).toContain('height: 100%;');
   });
 });
 

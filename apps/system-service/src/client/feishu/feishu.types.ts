@@ -32,12 +32,15 @@ export interface FeishuMonthlyTarget {
   name?: string;
 }
 
-export interface FeishuPublishSettings {
-  enabled: boolean;
+export interface FeishuRequestContext {
   appId: string;
   appSecret: string;
   requestTimeoutMs: number;
   maxRetries: number;
+}
+
+export interface FeishuPublishSettings extends FeishuRequestContext {
+  enabled: boolean;
   targets: FeishuMonthlyTarget[];
 }
 

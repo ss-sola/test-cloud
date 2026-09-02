@@ -21,15 +21,18 @@ export function findWeeklyReportTargetRow(
   }
 
   const matches: WeeklyReportTargetRow[] = [];
+  let currentDateRange = '';
   values.forEach((rowValues, index) => {
-    const dateRange = normalizeCellText(rowValues[0]);
+    const cellDateRange = normalizeCellText(rowValues[0]);
+    if (cellDateRange) currentDateRange = cellDateRange;
     const rowPerson = normalizeCellText(rowValues[1]);
-    if (!dateRange || !rowPerson) return;
-    if (toMonthDayRange(dateRange) !== expectedDateRange || rowPerson !== expectedPerson) return;
+    if (!currentDateRange || !rowPerson) return;
+    if (toMonthDayRange(currentDateRange) !== expectedDateRange || rowPerson !== expectedPerson)
+      return;
 
     matches.push({
       row: startRow + index,
-      dateRange,
+      dateRange: currentDateRange,
       person: rowPerson,
     });
   });

@@ -28,7 +28,11 @@ export class WeeklyReportSheetMapper {
     const lines = bullets
       .map((bullet) => String(bullet).replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim())
       .filter(Boolean);
-    const text = lines.length > 0 ? lines.join('\n') : '无新增事项。';
+    const numberedLines = lines.map((line, index) => {
+      const safeLine = /^[=+\-@]/.test(line) ? `'${line}` : line;
+      return `${index + 1}. ${safeLine}`;
+    });
+    const text = numberedLines.length > 0 ? numberedLines.join('\n') : '无新增事项。';
     const limited = text.slice(0, FEISHU_MAX_CELL_CHARACTERS);
     return /^[=+\-@]/.test(limited) ? `'${limited}` : limited;
   }

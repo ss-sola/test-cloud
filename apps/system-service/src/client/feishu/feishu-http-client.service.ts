@@ -7,7 +7,7 @@ import {
   FEISHU_RETRY_BASE_DELAY_MS,
   WeeklyReportConfigKeys,
 } from '../../modules/weekly-commit-report/weekly-report.constants';
-import type { FeishuApiResponse } from './feishu.types';
+import type { FeishuApiResponse, FeishuRequestContext } from './feishu.types';
 
 interface FeishuRequestOptions {
   method: 'GET' | 'POST' | 'PUT';
@@ -30,14 +30,16 @@ export class FeishuApiException extends ProjectException {
 
 @Injectable()
 export class FeishuHttpClientService {
-  async request<T>(options: FeishuRequestOptions): Promise<T> {
+  async request<T>(options: FeishuRequestOptions, context?: FeishuRequestContext): Promise<T> {
     const timeoutMs = this.getPositiveConfig(
       WeeklyReportConfigKeys.FeishuRequestTimeoutMs,
       DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
+      context?.requestTimeoutMs,
     );
     const maxRetries = this.getNonNegativeConfig(
       WeeklyReportConfigKeys.FeishuMaxRetries,
       DEFAULT_FEISHU_MAX_RETRIES,
+      context?.maxRetries,
     );
     const url = this.buildUrl(options.path, options.query);
 
@@ -73,10 +75,13 @@ export class FeishuHttpClientService {
       const text = await response.text();
       const payload = this.parseResponse(text);
       if (!response.ok) {
+        const detail = this.getResponseErrorDetail(payload);
+        const operation = this.getOperationLabel(options.path);
         throw new FeishuApiException(
-          `飞书 API 调用失败（HTTP ${response.status}）。`,
+          `飞书 API 调用失败（${operation}，HTTP ${response.status}${detail ? `：${detail}` : ''}）。`,
           response.status,
           response.status === 429 || response.status >= 500,
+          this.getResponseErrorCode(payload),
         );
       }
       if (this.isApiError(payload)) {
@@ -111,6 +116,35 @@ export class FeishuHttpClientService {
     }
   }
 
+  private getOperationLabel(path: string): string {
+    if (path.includes('/auth/')) return '获取访问令牌';
+    if (path.includes('/wiki/')) return '解析 Wiki 节点';
+    if (path.includes('/sheets/v3/')) return '读取 Sheet 列表';
+    if (path.includes('/sheets/v2/') && path.endsWith('/values')) return '写入 Sheet';
+    if (path.includes('/sheets/v2/')) return '读取 Sheet 内容';
+    return '请求飞书接口';
+  }
+
+  private getResponseErrorDetail(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return '';
+    const message = (payload as { msg?: unknown }).msg;
+    if (typeof message !== 'string') return '';
+    return message
+      .replace(
+        /(app[_-]?secret|secret|token|authorization|password)\s*[:=]\s*[^\s,;]+/gi,
+        '$1=[REDACTED]',
+      )
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 256);
+  }
+
+  private getResponseErrorCode(payload: unknown): number | undefined {
+    if (!payload || typeof payload !== 'object') return undefined;
+    const code = (payload as { code?: unknown }).code;
+    return typeof code === 'number' && code !== 0 ? code : undefined;
+  }
+
   private isApiError(payload: unknown): payload is FeishuApiResponse {
     return (
       !!payload &&
@@ -138,13 +172,13 @@ export class FeishuHttpClientService {
     return url.toString();
   }
 
-  private getPositiveConfig(key: string, fallback: number): number {
-    const value = getConfig<number>(key, fallback, false);
+  private getPositiveConfig(key: string, fallback: number, override?: number): number {
+    const value = override ?? getConfig<number>(key, fallback, false);
     return Number.isFinite(value) && value > 0 ? value : fallback;
   }
 
-  private getNonNegativeConfig(key: string, fallback: number): number {
-    const value = getConfig<number>(key, fallback, false);
+  private getNonNegativeConfig(key: string, fallback: number, override?: number): number {
+    const value = override ?? getConfig<number>(key, fallback, false);
     return Number.isInteger(value) && value >= 0 ? value : fallback;
   }
 

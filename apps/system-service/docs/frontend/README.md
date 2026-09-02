@@ -6,6 +6,7 @@
 - [实现逻辑](./实现逻辑.md)
 - [前端交互](./前端交互.md)
 - [周报生成](./周报.md)
+- [BullMQ 面板](./bullmq-dashboard.md)
 - [配置版本预览](./config-file-preview.md)
 
-管理台当前提供工作台总览、图片转粒子、JSON 对比、ENV 对比、周报生成和配置版本预览。页面由 `system-service` 通过 `/public` 静态托管；`index.html` 只保留管理台壳层，业务页面 section 分别位于 `public/html/`，由 `app.js` 加载后挂入 `#view-host`。本地工具不会上传用户素材或配置内容。周报和配置版本预览通过受约束的后端接口读取 Git 内容，配置版本预览的初始地址、分支和文件路径来自服务端 TypeScript 默认值，页面可以修改但不能绕过服务端校验。
+管理台当前提供工作台总览、图片转粒子、JSON 对比、ENV 对比、周报生成、BullMQ 面板和配置版本预览。页面由 `system-service` 通过 `/public` 静态托管；`index.html` 只保留管理台壳层，业务页面 section 分别位于 `public/html/`，由 `app.js` 加载后挂入 `#view-host`。本地工具不会上传用户素材或配置内容。周报和配置版本预览通过受约束的后端接口读取 Git 内容，配置版本预览的初始地址、分支和文件路径来自服务端 TypeScript 默认值，页面可以修改但不能绕过服务端校验。BullMQ 面板由服务端独立挂载到 `/ops/queues/`，只展示固定的 `weekly-report` 队列。

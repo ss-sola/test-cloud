@@ -56,3 +56,24 @@ function getDefaultPort(protocol: string): string {
       return '';
   }
 }
+
+const SENSITIVE_KEY_PATTERN =
+  /^(?:.*(?:secret|password|passwd|token)|authorization|api[_-]?key|cookie|set-cookie|private[_-]?key)$/i;
+
+export function redactSensitive<T>(value: T): T {
+  return redactValue(value, new WeakSet<object>()) as T;
+}
+
+function redactValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+
+  if (Array.isArray(value)) return value.map((item) => redactValue(item, seen));
+
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    result[key] = SENSITIVE_KEY_PATTERN.test(key) ? '[REDACTED]' : redactValue(item, seen);
+  }
+  return result;
+}

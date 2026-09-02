@@ -22,7 +22,12 @@
   --radius-lg: 12px;
   --shadow-card: 0 2px 8px rgb(52 58 64 / 8%);
   --shadow-sidebar: 2px 0 12px rgb(52 58 64 / 6%);
-  font-family: Lato, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Lato,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   color: var(--color-ink);
   background: var(--color-page);
 }
@@ -141,7 +146,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: var(--color-primary);
   color: var(--color-surface);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 1.25rem;
   font-weight: 500;
 }
@@ -160,7 +165,7 @@ a:focus-visible {
 .brand-caption {
   margin-top: 0.2rem;
   color: rgb(255 255 255 / 55%);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.625rem;
   letter-spacing: 0.08em;
   line-height: 1.2;
@@ -174,7 +179,7 @@ a:focus-visible {
 .nav-label {
   margin: 0 var(--space-1) 0.4rem;
   color: rgb(255 255 255 / 45%);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.65rem;
   letter-spacing: 0.1em;
   line-height: 1.4;
@@ -215,12 +220,12 @@ a:focus-visible {
   flex: 0 0 auto;
 }
 
-.nav-link[data-active="true"] {
+.nav-link[data-active='true'] {
   background: var(--color-primary);
   color: var(--color-surface);
 }
 
-.nav-link[data-active="true"]::before {
+.nav-link[data-active='true']::before {
   position: absolute;
   top: 0.5rem;
   bottom: 0.5rem;
@@ -228,7 +233,7 @@ a:focus-visible {
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: var(--color-primary);
-  content: "";
+  content: '';
 }
 
 .nav-link-main {
@@ -245,7 +250,7 @@ a:focus-visible {
   transition: transform 200ms ease-out;
 }
 
-.nav-group-toggle[aria-expanded="false"] .chevron {
+.nav-group-toggle[aria-expanded='false'] .chevron {
   transform: rotate(-90deg);
 }
 
@@ -263,7 +268,7 @@ a:focus-visible {
   left: 1.55rem;
   width: 1px;
   background: rgb(255 255 255 / 18%);
-  content: "";
+  content: '';
 }
 
 .nav-link-child {
@@ -273,7 +278,7 @@ a:focus-visible {
   font-size: 0.9375rem;
 }
 
-.nav-link-child[data-active="true"]::before {
+.nav-link-child[data-active='true']::before {
   left: 0.25rem;
 }
 
@@ -293,7 +298,7 @@ a:focus-visible {
   white-space: nowrap;
 }
 
-.nav-link-child[data-active="true"] .nav-status {
+.nav-link-child[data-active='true'] .nav-status {
   color: rgb(255 255 255 / 78%);
 }
 
@@ -344,7 +349,7 @@ a:focus-visible {
   display: block;
   margin-top: 0.75rem;
   color: rgb(255 255 255 / 35%);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.625rem;
   letter-spacing: 0.08em;
   text-align: center;
@@ -449,7 +454,7 @@ a:focus-visible {
 
 .topbar-date {
   color: #868e96;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   letter-spacing: 0.02em;
 }
@@ -483,7 +488,7 @@ a:focus-visible {
 .section-kicker {
   margin: 0;
   color: var(--color-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.12em;
@@ -516,7 +521,7 @@ a:focus-visible {
 .heading-mark {
   padding-top: 0.25rem;
   color: #ced4da;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   letter-spacing: 0.08em;
 }
@@ -666,14 +671,19 @@ a:focus-visible {
 .metric-value {
   margin: 1rem 0;
   color: var(--color-ink);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: clamp(2rem, 4vw, 3rem);
   font-weight: 500;
   line-height: 1;
 }
 
 .metric-value-text {
-  font-family: Lato, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Lato,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 2rem;
   font-weight: 700;
 }
@@ -699,6 +709,10 @@ a:focus-visible {
   background: var(--color-success);
 }
 
+.metric-dot-orange {
+  background: var(--color-warning);
+}
+
 .section-heading-row {
   display: flex;
   align-items: flex-end;
@@ -715,7 +729,7 @@ a:focus-visible {
 
 .section-count {
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
 }
 
@@ -995,7 +1009,9 @@ a:focus-visible {
   background: transparent;
   color: rgb(255 255 255 / 58%);
   cursor: pointer;
-  transition: background-color 200ms ease-out, color 200ms ease-out;
+  transition:
+    background-color 200ms ease-out,
+    color 200ms ease-out;
 }
 
 .sidebar-collapse-button:hover {
@@ -1038,7 +1054,7 @@ a:focus-visible {
 }
 
 .app-shell--sidebar-collapsed .sidebar-collapse-button::before {
-  content: "›";
+  content: '›';
   font-size: 1.25rem;
   line-height: 1;
 }
@@ -1059,7 +1075,7 @@ a:focus-visible {
   padding-left: 0.5rem;
 }
 
-.app-shell--sidebar-collapsed .nav-link[data-active="true"]::before {
+.app-shell--sidebar-collapsed .nav-link[data-active='true']::before {
   left: -0.5rem;
 }
 
@@ -1068,8 +1084,14 @@ a:focus-visible {
 }
 
 @keyframes view-entry {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .section-heading-row-compact {
@@ -1107,7 +1129,10 @@ a:focus-visible {
   border: 1px dashed #9ec5fe;
   border-radius: var(--radius-sm);
   background: #f6faff;
-  transition: background-color 200ms ease-out, border-color 200ms ease-out, transform 200ms ease-out;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    transform 200ms ease-out;
 }
 
 .upload-zone:hover,
@@ -1164,7 +1189,7 @@ a:focus-visible {
 .upload-format {
   margin-left: auto;
   flex: 0 0 auto;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.625rem;
   line-height: 1.7;
   text-align: right;
@@ -1199,7 +1224,9 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   color: var(--color-ink-muted);
   font-size: 0.75rem;
-  transition: background-color 200ms ease-out, border-color 200ms ease-out;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out;
 }
 
 .source-chip--active {
@@ -1216,7 +1243,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: #e7f1ff;
   color: var(--color-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   font-weight: 500;
 }
@@ -1243,7 +1270,9 @@ a:focus-visible {
 }
 
 @keyframes status-pulse {
-  50% { opacity: 0.4; }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .file-chip-name {
@@ -1259,7 +1288,7 @@ a:focus-visible {
 .source-chip-state {
   flex: 0 0 auto;
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.625rem;
 }
 
@@ -1335,7 +1364,7 @@ a:focus-visible {
   align-items: center;
   gap: 0.45rem;
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
 }
 
@@ -1346,9 +1375,16 @@ a:focus-visible {
   background: #adb5bd;
 }
 
-.status-badge--loading > span:first-child { background: var(--color-info); animation: status-pulse 1s ease-in-out infinite; }
-.status-badge--ready > span:first-child { background: var(--color-success); }
-.status-badge--error > span:first-child { background: #dc3545; }
+.status-badge--loading > span:first-child {
+  background: var(--color-info);
+  animation: status-pulse 1s ease-in-out infinite;
+}
+.status-badge--ready > span:first-child {
+  background: var(--color-success);
+}
+.status-badge--error > span:first-child {
+  background: #dc3545;
+}
 
 .particle-visual-frame {
   position: relative;
@@ -1363,7 +1399,7 @@ a:focus-visible {
   position: absolute;
   inset: 0;
   border: 1px solid rgb(255 255 255 / 8%);
-  content: "";
+  content: '';
   pointer-events: none;
 }
 
@@ -1392,8 +1428,16 @@ a:focus-visible {
   pointer-events: none;
 }
 
-.stage-corner--tl { top: 1rem; left: 1rem; border-width: 1px 0 0 1px; }
-.stage-corner--br { right: 1rem; bottom: 1rem; border-width: 0 1px 1px 0; }
+.stage-corner--tl {
+  top: 1rem;
+  left: 1rem;
+  border-width: 1px 0 0 1px;
+}
+.stage-corner--br {
+  right: 1rem;
+  bottom: 1rem;
+  border-width: 0 1px 1px 0;
+}
 
 .stage-hint {
   position: absolute;
@@ -1401,7 +1445,7 @@ a:focus-visible {
   right: 1.25rem;
   bottom: 1.25rem;
   color: rgb(255 255 255 / 58%);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.625rem;
   pointer-events: none;
 }
@@ -1420,7 +1464,7 @@ a:focus-visible {
   z-index: 1;
   margin: 0;
   color: #9ec5fe;
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   letter-spacing: 0.08em;
 }
@@ -1481,7 +1525,7 @@ a:focus-visible {
 .metric strong,
 .particle-slider-label strong {
   color: var(--color-ink);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.8125rem;
   font-weight: 500;
 }
@@ -1520,7 +1564,10 @@ a:focus-visible {
   background: var(--color-surface);
 }
 
-.particle-slider:disabled { opacity: 0.45; cursor: not-allowed; }
+.particle-slider:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .effect-selector select {
   min-width: 7rem;
@@ -1547,7 +1594,10 @@ a:focus-visible {
   cursor: pointer;
   font-size: 0.75rem;
   font-weight: 700;
-  transition: background-color 200ms ease-out, box-shadow 200ms ease-out, transform 200ms ease-out;
+  transition:
+    background-color 200ms ease-out,
+    box-shadow 200ms ease-out,
+    transform 200ms ease-out;
 }
 
 .visual-cta:hover:not(:disabled),
@@ -1568,7 +1618,7 @@ a:focus-visible {
   min-width: 0;
 }
 
-.main-content[data-route="json-compare"] {
+.main-content[data-route='json-compare'] {
   padding-top: var(--space-4);
 }
 
@@ -1596,7 +1646,7 @@ a:focus-visible {
   gap: var(--space-2);
   margin-bottom: 0.75rem;
   color: var(--color-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   font-weight: 500;
 }
@@ -1630,7 +1680,7 @@ a:focus-visible {
   box-sizing: border-box;
   margin: 0;
   padding: 0.875rem;
-  font-family: Consolas, "Microsoft YaHei UI", "Cascadia Mono", "JetBrains Mono", monospace;
+  font-family: Consolas, 'Microsoft YaHei UI', 'Cascadia Mono', 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.7;
@@ -1688,9 +1738,15 @@ a:focus-visible {
 }
 
 .compare-editor__textarea::-webkit-scrollbar-track,
-.compare-tree::-webkit-scrollbar-track { background: #f1f3f5; }
+.compare-tree::-webkit-scrollbar-track {
+  background: #f1f3f5;
+}
 .compare-editor__textarea::-webkit-scrollbar-thumb,
-.compare-tree::-webkit-scrollbar-thumb { border: 2px solid #f1f3f5; border-radius: 1rem; background: #adb5bd; }
+.compare-tree::-webkit-scrollbar-thumb {
+  border: 2px solid #f1f3f5;
+  border-radius: 1rem;
+  background: #adb5bd;
+}
 
 .compare-markers {
   position: absolute;
@@ -1710,13 +1766,28 @@ a:focus-visible {
   border-radius: 2px;
 }
 
-.compare-marker--added { background: #28a745; }
-.compare-marker--removed { background: #dc3545; }
-.compare-marker--modified { background: #17a2b8; }
+.compare-marker--added {
+  background: #28a745;
+}
+.compare-marker--removed {
+  background: #dc3545;
+}
+.compare-marker--modified {
+  background: #17a2b8;
+}
 
-.compare-highlight--added { background: #b7e4c0; color: #0b5120; }
-.compare-highlight--removed { background: #f5b7bd; color: #6b1d24; }
-.compare-highlight--modified { background: #b7e3ea; color: #075563; }
+.compare-highlight--added {
+  background: #b7e4c0;
+  color: #0b5120;
+}
+.compare-highlight--removed {
+  background: #f5b7bd;
+  color: #6b1d24;
+}
+.compare-highlight--modified {
+  background: #b7e3ea;
+  color: #075563;
+}
 
 .compare-actions {
   display: flex;
@@ -1751,7 +1822,7 @@ a:focus-visible {
 .result-kicker {
   margin: 0 0 0.4rem;
   color: var(--color-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   letter-spacing: 0.08em;
 }
@@ -1768,7 +1839,7 @@ a:focus-visible {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
 }
 
@@ -1777,9 +1848,15 @@ a:focus-visible {
   font-weight: 500;
 }
 
-.stat-added { color: #218838; }
-.stat-removed { color: #c82333; }
-.stat-modified { color: #117a8b; }
+.stat-added {
+  color: #218838;
+}
+.stat-removed {
+  color: #c82333;
+}
+.stat-modified {
+  color: #117a8b;
+}
 
 .compare-tree {
   min-width: 0;
@@ -1797,7 +1874,7 @@ a:focus-visible {
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--color-border-soft);
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
 }
 
@@ -1822,7 +1899,7 @@ a:focus-visible {
 .compare-cell {
   min-width: 0;
   padding: 0.5rem;
-  font-family: Consolas, "Microsoft YaHei UI", "Cascadia Mono", "JetBrains Mono", monospace;
+  font-family: Consolas, 'Microsoft YaHei UI', 'Cascadia Mono', 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   line-height: 1.5;
 }
@@ -1872,14 +1949,27 @@ a:focus-visible {
 .compare-status {
   margin-left: auto;
   flex: 0 0 auto;
-  font-family: Lato, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Lato,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 0.6875rem;
 }
 
-.compare-status--added { color: #218838; }
-.compare-status--removed { color: #c82333; }
-.compare-status--modified { color: #117a8b; }
-.compare-status--unchanged { color: #868e96; }
+.compare-status--added {
+  color: #218838;
+}
+.compare-status--removed {
+  color: #c82333;
+}
+.compare-status--modified {
+  color: #117a8b;
+}
+.compare-status--unchanged {
+  color: #868e96;
+}
 
 .compare-cell {
   overflow-wrap: anywhere;
@@ -1887,10 +1977,22 @@ a:focus-visible {
   border-left: 1px solid var(--color-border-soft);
 }
 
-.compare-cell--added { background: #d3eed8; color: #0b5120; }
-.compare-cell--removed { background: #f9d7da; color: #6b1d24; }
-.compare-cell--modified { background: #cfecef; color: #075563; }
-.compare-cell--missing { background: #f8f9fa; color: #adb5bd; }
+.compare-cell--added {
+  background: #d3eed8;
+  color: #0b5120;
+}
+.compare-cell--removed {
+  background: #f9d7da;
+  color: #6b1d24;
+}
+.compare-cell--modified {
+  background: #cfecef;
+  color: #075563;
+}
+.compare-cell--missing {
+  background: #f8f9fa;
+  color: #adb5bd;
+}
 
 @media (max-width: 1023px) {
   .particle-layout {
@@ -2060,7 +2162,12 @@ a:focus-visible {
   .compare-cell::before {
     color: var(--color-ink-muted);
     content: attr(data-label);
-    font-family: Lato, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family:
+      Lato,
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      sans-serif;
     font-size: 0.6875rem;
   }
 }
@@ -2171,6 +2278,187 @@ a:focus-visible {
   line-height: 1.5;
 }
 
+.weekly-publish-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: #f8faff;
+  cursor: pointer;
+}
+
+.weekly-publish-option:has(input:checked) {
+  border-color: #8bb8f5;
+  background: #f0f6ff;
+}
+
+.weekly-publish-option:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.weekly-publish-option input {
+  margin-top: 0.2rem;
+  accent-color: var(--color-primary);
+}
+
+.weekly-publish-option span {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.weekly-publish-option strong {
+  color: var(--color-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.weekly-publish-option small {
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.weekly-feishu-settings {
+  min-width: 0;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: #fbfcff;
+}
+
+.weekly-feishu-settings:disabled {
+  opacity: 0.62;
+}
+
+.weekly-feishu-settings legend {
+  padding: 0 0.25rem;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.weekly-feishu-settings__grid,
+.weekly-feishu-target__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.weekly-feishu-settings label,
+.weekly-feishu-target label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.weekly-feishu-settings input,
+.weekly-feishu-target input {
+  width: 100%;
+  min-height: 2.25rem;
+  box-sizing: border-box;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6875rem;
+}
+
+.weekly-feishu-settings input:focus,
+.weekly-feishu-target input:focus {
+  border-color: var(--color-primary);
+  outline: 2px solid rgb(0 123 255 / 15%);
+  outline-offset: 1px;
+}
+
+.weekly-feishu-warning {
+  margin: 0.75rem 0 0;
+}
+
+.weekly-feishu-target-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.weekly-feishu-target-heading h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 0.8125rem;
+}
+
+.weekly-feishu-target-heading .compare-button {
+  min-height: 2rem;
+  padding: 0.4rem 0.65rem;
+}
+
+.weekly-feishu-target-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.weekly-feishu-target {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.weekly-feishu-target__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.625rem;
+  color: var(--color-ink);
+  font-size: 0.75rem;
+}
+
+.weekly-feishu-target__header span {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: #e7f1ff;
+  color: var(--color-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+}
+
+.weekly-feishu-target__header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekly-feishu-target__header button {
+  margin-left: auto;
+  padding: 0.2rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger, #dc3545);
+  cursor: pointer;
+  font-size: 0.6875rem;
+}
+
+.weekly-feishu-target__header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .weekly-project-heading {
   margin-top: var(--space-3);
 }
@@ -2213,7 +2501,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: #e7f1ff;
   color: var(--color-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.625rem;
   font-weight: 500;
 }
@@ -2234,7 +2522,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-ink);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
 }
 
@@ -2261,6 +2549,86 @@ a:focus-visible {
   color: var(--color-primary-dark);
 }
 
+.main-content[data-route='bullmq'] {
+  width: 100%;
+  max-width: none;
+  height: calc(100dvh - var(--topbar-height));
+  min-height: calc(100dvh - var(--topbar-height));
+  padding: 0;
+  overflow: hidden;
+}
+
+.main-content[data-route='bullmq'] #view-host,
+.bullmq-view {
+  height: 100%;
+}
+
+.bullmq-view {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.bullmq-view .page-heading {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.bullmq-panel-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.bullmq-panel-note {
+  margin: var(--space-2) 0;
+}
+
+.bullmq-frame-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.bullmq-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--color-surface);
+}
+
+.bullmq-panel-card .compare-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 767px) {
+  .bullmq-panel-card {
+    margin: 0 var(--space-2) var(--space-2);
+    padding: var(--space-2);
+  }
+
+  .bullmq-panel-card .particle-stage-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bullmq-frame-wrap,
+  .bullmq-frame {
+    min-height: 0;
+  }
+}
+
 .weekly-report-result {
   display: flex;
   min-height: 30rem;
@@ -2274,7 +2642,7 @@ a:focus-visible {
 .weekly-report-meta {
   min-height: 1.5rem;
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   line-height: 1.5;
 }
@@ -2310,7 +2678,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: #f8f9fa;
   color: var(--color-ink);
-  font-family: Consolas, "Microsoft YaHei UI", "Cascadia Mono", "JetBrains Mono", monospace;
+  font-family: Consolas, 'Microsoft YaHei UI', 'Cascadia Mono', 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   line-height: 1.7;
   white-space: pre-wrap;
@@ -2347,6 +2715,8 @@ a:focus-visible {
 
   .weekly-report-config > .section-heading-row,
   .weekly-report-config > .weekly-period-options,
+  .weekly-report-config > .weekly-publish-option,
+  .weekly-report-config > .weekly-feishu-settings,
   .weekly-report-config > .weekly-project-list,
   .weekly-report-config > .tool-error,
   .weekly-report-config > .weekly-report-submit,
@@ -2362,6 +2732,11 @@ a:focus-visible {
 @media (max-width: 767px) {
   .weekly-report-config {
     display: block;
+  }
+
+  .weekly-feishu-settings__grid,
+  .weekly-feishu-target__grid {
+    grid-template-columns: 1fr;
   }
 
   .weekly-project-list {
@@ -2399,7 +2774,7 @@ a:focus-visible {
   place-items: center;
   margin: 0;
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.8125rem;
 }
 
@@ -2423,7 +2798,7 @@ a:focus-visible {
 
 .weekly-report-progress__label {
   color: var(--color-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
 }
 
@@ -2552,7 +2927,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-ink);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
 }
 
@@ -2597,7 +2972,7 @@ a:focus-visible {
 .config-file-preview-meta {
   min-height: 1.5rem;
   color: var(--color-ink-muted);
-  font-family: "JetBrains Mono", monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 0.6875rem;
   line-height: 1.5;
 }
@@ -2612,7 +2987,7 @@ a:focus-visible {
   border-radius: var(--radius-sm);
   background: #f8f9fa;
   color: var(--color-ink);
-  font-family: Consolas, "Microsoft YaHei UI", "Cascadia Mono", "JetBrains Mono", monospace;
+  font-family: Consolas, 'Microsoft YaHei UI', 'Cascadia Mono', 'JetBrains Mono', monospace;
   font-size: 0.75rem;
   line-height: 1.7;
   white-space: pre;

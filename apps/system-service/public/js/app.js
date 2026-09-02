@@ -8,6 +8,7 @@
     'json-compare': { title: 'JSON 对比', documentTitle: 'JSON 对比 · NestCloud' },
     'env-compare': { title: 'ENV 对比', documentTitle: 'ENV 对比 · NestCloud' },
     'weekly-report': { title: '周报生成', documentTitle: '周报生成 · NestCloud' },
+    bullmq: { title: 'BullMQ 面板', documentTitle: 'BullMQ 面板 · NestCloud' },
     'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
   }
   const FRAGMENT_PATHS = Object.freeze({
@@ -16,6 +17,7 @@
     'json-compare': '/public/html/json-compare.html',
     'env-compare': '/public/html/env-compare.html',
     'weekly-report': '/public/html/weekly-report.html',
+    bullmq: '/public/html/bullmq.html',
     'config-file-preview': '/public/html/config-file-preview.html',
   })
   const STATUS_LABELS = { empty: '等待', loading: '处理中', ready: '就绪', error: '错误' }
@@ -27,6 +29,9 @@
   })
   const STORAGE_VERSION = 1
   const MAX_COMPARE_DRAFT_LENGTH = 500_000
+  const MAX_FEISHU_TARGETS = 24
+  const DEFAULT_FEISHU_TIMEOUT = 15_000
+  const DEFAULT_FEISHU_RETRIES = 2
 
   const appShell = document.querySelector('.app-shell')
   const sidebar = document.querySelector('#sidebar')
@@ -188,6 +193,48 @@
     })
   }
 
+  function createDefaultFeishuSettings() {
+    return {
+      appId: '',
+      appSecret: '',
+      requestTimeoutMs: DEFAULT_FEISHU_TIMEOUT,
+      maxRetries: DEFAULT_FEISHU_RETRIES,
+      monthlyTargets: [{ month: '', wikiUrl: '', sheetId: '', lookupRange: 'A1:B200', name: '' }],
+    }
+  }
+
+  function normalizeFeishuSettings(value) {
+    const defaults = createDefaultFeishuSettings()
+    if (!value || typeof value !== 'object') return defaults
+    const settings = value
+    const targets = Array.isArray(settings.monthlyTargets)
+      ? settings.monthlyTargets.slice(0, MAX_FEISHU_TARGETS).map((target) => {
+        if (!target || typeof target !== 'object') return null
+        return {
+          id: typeof target.id === 'string' && target.id ? target.id : createClientId(),
+          month: typeof target.month === 'string' ? target.month.slice(0, 7) : '',
+          wikiUrl: typeof target.wikiUrl === 'string' ? target.wikiUrl.slice(0, 2048) : '',
+          sheetId: typeof target.sheetId === 'string' ? target.sheetId.slice(0, 128) : '',
+          lookupRange: typeof target.lookupRange === 'string' && target.lookupRange
+            ? target.lookupRange.slice(0, 32)
+            : 'A1:B200',
+          name: typeof target.name === 'string' ? target.name.slice(0, 128) : '',
+        }
+      }).filter(Boolean)
+      : defaults.monthlyTargets
+    return {
+      appId: typeof settings.appId === 'string' ? settings.appId.slice(0, 256) : '',
+      appSecret: typeof settings.appSecret === 'string' ? settings.appSecret.slice(0, 512) : '',
+      requestTimeoutMs: Number.isInteger(settings.requestTimeoutMs)
+        && settings.requestTimeoutMs >= 1000 && settings.requestTimeoutMs <= 300000
+        ? settings.requestTimeoutMs : DEFAULT_FEISHU_TIMEOUT,
+      maxRetries: Number.isInteger(settings.maxRetries)
+        && settings.maxRetries >= 0 && settings.maxRetries <= 10
+        ? settings.maxRetries : DEFAULT_FEISHU_RETRIES,
+      monthlyTargets: targets.length > 0 ? targets : defaults.monthlyTargets,
+    }
+  }
+
   function readWeeklyDraft() {
     const draft = readStoredValue(STORAGE_KEYS.weekly)
     if (draft?.version !== STORAGE_VERSION || !Array.isArray(draft.projects)
@@ -205,14 +252,28 @@
       }
     })
     return projects.every(Boolean)
-      ? { period: draft.period === 'this-week' ? 'this-week' : 'last-week', projects }
+      ? {
+          period: draft.period === 'this-week' ? 'this-week' : 'last-week',
+          projects,
+          publishEnabled: draft.publishEnabled === true,
+          publishSettings: normalizeFeishuSettings(draft.publishSettings),
+        }
       : null
   }
 
-  function saveWeeklyDraft(period, projects) {
+  function saveWeeklyDraft(period, projects, publishEnabled = false, publishSettings) {
+    const settings = normalizeFeishuSettings(publishSettings)
     writeStoredValue(STORAGE_KEYS.weekly, {
       version: STORAGE_VERSION,
       period,
+      publishEnabled: publishEnabled === true,
+      publishSettings: {
+        appId: settings.appId,
+        appSecret: settings.appSecret,
+        requestTimeoutMs: settings.requestTimeoutMs,
+        maxRetries: settings.maxRetries,
+        monthlyTargets: settings.monthlyTargets.map(({ id, ...target }) => ({ id, ...target })),
+      },
       projects: projects.map((project) => ({
         id: project.id,
         repo: project.repo,
@@ -808,6 +869,15 @@
     if (!(root instanceof HTMLElement)) return
     const form = root.querySelector('#weekly-report-form')
     const submitButton = root.querySelector('#weekly-report-submit')
+    const publishCheckbox = root.querySelector('#weekly-report-publish')
+    const feishuSettings = root.querySelector('#weekly-feishu-settings')
+    const feishuAppId = root.querySelector('#weekly-feishu-app-id')
+    const feishuAppSecret = root.querySelector('#weekly-feishu-app-secret')
+    const feishuTimeout = root.querySelector('#weekly-feishu-timeout')
+    const feishuRetries = root.querySelector('#weekly-feishu-retries')
+    const feishuTargetList = root.querySelector('#weekly-feishu-target-list')
+    const feishuTargetTemplate = root.querySelector('#weekly-feishu-target-template')
+    const feishuTargetAdd = root.querySelector('#weekly-feishu-target-add')
     const errorElement = root.querySelector('#weekly-report-error')
     const projectErrorsElement = root.querySelector('#weekly-report-project-errors')
     const statusBadge = root.querySelector('#weekly-report-status')
@@ -825,6 +895,12 @@
     const projectCount = root.querySelector('#weekly-project-count')
     const projectAdd = root.querySelector('#weekly-project-add')
     if (!(form instanceof HTMLFormElement) || !(submitButton instanceof HTMLButtonElement)
+      || !(publishCheckbox instanceof HTMLInputElement)
+      || !(feishuSettings instanceof HTMLFieldSetElement)
+      || !(feishuAppId instanceof HTMLInputElement) || !(feishuAppSecret instanceof HTMLInputElement)
+      || !(feishuTimeout instanceof HTMLInputElement) || !(feishuRetries instanceof HTMLInputElement)
+      || !(feishuTargetList instanceof HTMLElement) || !(feishuTargetTemplate instanceof HTMLTemplateElement)
+      || !(feishuTargetAdd instanceof HTMLButtonElement)
       || !(errorElement instanceof HTMLElement) || !(projectErrorsElement instanceof HTMLElement)
       || !(statusBadge instanceof HTMLElement) || !(statusLabel instanceof HTMLElement)
       || !(meta instanceof HTMLElement) || !(progress instanceof HTMLElement)
@@ -980,8 +1056,107 @@
       projectAdd.disabled = cards.length >= 10 || submitting
     }
 
+    function getSelectedPeriod() {
+      return root.querySelector('input[name="weekly-period"]:checked')?.value || 'last-week'
+    }
+
+    function setFeishuFieldsRequired(required) {
+      ;[feishuAppId, feishuAppSecret, feishuTimeout, feishuRetries].forEach((input) => {
+        input.required = required
+      })
+      feishuTargetList.querySelectorAll('[data-weekly-feishu-field]').forEach((input) => {
+        if (!(input instanceof HTMLInputElement)) return
+        input.required = required && input.dataset.weeklyFeishuField !== 'name'
+      })
+    }
+
+    function updateFeishuTargetMeta() {
+      const targets = [...feishuTargetList.querySelectorAll('[data-weekly-feishu-target]')]
+      targets.forEach((target, index) => {
+        const indexElement = target.querySelector('[data-weekly-feishu-target-index]')
+        const remove = target.querySelector('[data-weekly-feishu-target-remove]')
+        if (indexElement instanceof HTMLElement) indexElement.textContent = String(index + 1).padStart(2, '0')
+        if (remove instanceof HTMLButtonElement) {
+          remove.disabled = targets.length <= 1
+          remove.setAttribute('aria-label', `移除第 ${index + 1} 个飞书月份目标`)
+        }
+      })
+      feishuTargetAdd.disabled = targets.length >= MAX_FEISHU_TARGETS
+    }
+
+    function appendFeishuTarget(target = {}) {
+      const card = feishuTargetTemplate.content.firstElementChild.cloneNode(true)
+      card.dataset.weeklyFeishuTargetId = target.id || createClientId()
+      Object.entries({
+        month: target.month || '',
+        wikiUrl: target.wikiUrl || '',
+        sheetId: target.sheetId || '',
+        lookupRange: target.lookupRange || 'A1:B200',
+        name: target.name || '',
+      }).forEach(([field, value]) => {
+        const input = card.querySelector(`[data-weekly-feishu-field="${field}"]`)
+        if (input instanceof HTMLInputElement) input.value = value
+      })
+      feishuTargetList.append(card)
+    }
+
+    function renderFeishuSettings(settings) {
+      feishuAppId.value = settings.appId
+      feishuAppSecret.value = settings.appSecret
+      feishuTimeout.value = String(settings.requestTimeoutMs)
+      feishuRetries.value = String(settings.maxRetries)
+      feishuTargetList.replaceChildren()
+      settings.monthlyTargets.forEach((target) => appendFeishuTarget(target))
+      updateFeishuTargetMeta()
+    }
+
+    function readFeishuSettingsFromDom() {
+      const monthlyTargets = [...feishuTargetList.querySelectorAll('[data-weekly-feishu-target]')].map((card) => ({
+        id: card.dataset.weeklyFeishuTargetId || createClientId(),
+        month: card.querySelector('[data-weekly-feishu-field="month"]')?.value || '',
+        wikiUrl: card.querySelector('[data-weekly-feishu-field="wikiUrl"]')?.value.trim() || '',
+        sheetId: card.querySelector('[data-weekly-feishu-field="sheetId"]')?.value.trim() || '',
+        lookupRange: card.querySelector('[data-weekly-feishu-field="lookupRange"]')?.value.trim() || '',
+        name: card.querySelector('[data-weekly-feishu-field="name"]')?.value.trim() || '',
+      }))
+      return normalizeFeishuSettings({
+        appId: feishuAppId.value.trim(),
+        appSecret: feishuAppSecret.value.trim(),
+        requestTimeoutMs: Number.parseInt(feishuTimeout.value, 10),
+        maxRetries: Number.parseInt(feishuRetries.value, 10),
+        monthlyTargets,
+      })
+    }
+
+    function collectPublishSettings() {
+      const settings = readFeishuSettingsFromDom()
+      return {
+        appId: settings.appId,
+        appSecret: settings.appSecret,
+        requestTimeoutMs: settings.requestTimeoutMs,
+        maxRetries: settings.maxRetries,
+        monthlyTargets: settings.monthlyTargets.map(({ id, ...target }) => target),
+      }
+    }
+
+    function extractSheetId(wikiUrl) {
+      try {
+        return new URL(wikiUrl).searchParams.get('sheet')?.trim() || ''
+      } catch {
+        return ''
+      }
+    }
+
+    function updatePublishOption() {
+      const canPublish = getSelectedPeriod() === 'last-week'
+      const active = canPublish && publishCheckbox.checked
+      publishCheckbox.disabled = !canPublish
+      feishuSettings.disabled = !active
+      setFeishuFieldsRequired(active)
+    }
+
     function saveProjects() {
-      saveWeeklyDraft(root.querySelector('input[name="weekly-period"]:checked')?.value || 'last-week', readProjectsFromDom())
+      saveWeeklyDraft(getSelectedPeriod(), readProjectsFromDom(), publishCheckbox.checked, readFeishuSettingsFromDom())
     }
 
     function renderProjects(projects) {
@@ -1028,12 +1203,15 @@
       latestResult = null
       renderProgress({ phase: 'queued', percent: 0, message: '任务已排队。' })
       try {
-        const period = root.querySelector('input[name="weekly-period"]:checked')?.value
+        const period = getSelectedPeriod()
+        const publishEnabled = period === 'last-week' && publishCheckbox.checked
+        const publish = { enabled: publishEnabled }
+        if (publishEnabled) publish.settings = collectPublishSettings()
         const response = await fetch('/api/weekly-commit-reports/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ period, configs: collectConfigs() }),
+          body: JSON.stringify({ period, configs: collectConfigs(), publish }),
         })
         const payload = await response.json().catch(() => null)
         if (!response.ok || !payload?.data?.jobId) throw new Error(payload?.message || '周报任务创建失败，请稍后重试。')
@@ -1125,6 +1303,9 @@
         if (element instanceof HTMLInputElement) element.checked = element.value === savedDraft.period
       })
     }
+    publishCheckbox.checked = savedDraft?.publishEnabled === true
+    renderFeishuSettings(savedDraft?.publishSettings || createDefaultFeishuSettings())
+    updatePublishOption()
     renderProjects(savedDraft?.projects || initialProjects)
     projectList.addEventListener('click', (event) => {
       const target = event.target
@@ -1148,7 +1329,48 @@
       saveProjects()
       projectList.querySelector('[data-weekly-project]:last-child [data-weekly-field="repo"]')?.focus()
     })
-    form.querySelectorAll('input[name="weekly-period"]').forEach((element) => element.addEventListener('change', saveProjects))
+    feishuTargetList.addEventListener('click', (event) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const remove = target.closest('[data-weekly-feishu-target-remove]')
+      if (!(remove instanceof HTMLButtonElement)
+        || feishuTargetList.querySelectorAll('[data-weekly-feishu-target]').length <= 1) return
+      remove.closest('[data-weekly-feishu-target]')?.remove()
+      updateFeishuTargetMeta()
+      saveProjects()
+    })
+    feishuTargetList.addEventListener('input', (event) => {
+      if (!(event.target instanceof HTMLInputElement)
+        || !event.target.matches('[data-weekly-feishu-field]')) return
+      if (event.target.dataset.weeklyFeishuField === 'wikiUrl') {
+        const card = event.target.closest('[data-weekly-feishu-target]')
+        const sheetId = card?.querySelector('[data-weekly-feishu-field="sheetId"]')
+        if (sheetId instanceof HTMLInputElement && !sheetId.value.trim()) {
+          const value = extractSheetId(event.target.value.trim())
+          if (value) sheetId.value = value
+        }
+      }
+      saveProjects()
+    })
+    feishuTargetAdd.addEventListener('click', () => {
+      if (feishuTargetList.querySelectorAll('[data-weekly-feishu-target]').length >= MAX_FEISHU_TARGETS) return
+      appendFeishuTarget()
+      updateFeishuTargetMeta()
+      saveProjects()
+      feishuTargetList.querySelector('[data-weekly-feishu-target]:last-child [data-weekly-feishu-field="month"]')?.focus()
+    })
+    ;[feishuAppId, feishuAppSecret, feishuTimeout, feishuRetries].forEach((input) => {
+      input.addEventListener('input', saveProjects)
+      input.addEventListener('change', saveProjects)
+    })
+    form.querySelectorAll('input[name="weekly-period"]').forEach((element) => element.addEventListener('change', () => {
+      updatePublishOption()
+      saveProjects()
+    }))
+    publishCheckbox.addEventListener('change', () => {
+      updatePublishOption()
+      saveProjects()
+    })
     form.addEventListener('submit', generate)
     copyButton.addEventListener('click', copyMarkdown)
     downloadButton.addEventListener('click', downloadMarkdown)

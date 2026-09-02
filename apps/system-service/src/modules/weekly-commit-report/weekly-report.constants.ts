@@ -23,6 +23,10 @@ export const WeeklyReportConfigKeys = {
 
 export const WEEKLY_REPORT_JOB_TTL_MS = 30 * 60 * 1000;
 export const WEEKLY_REPORT_MAX_ACTIVE_JOBS = 2;
+export const WEEKLY_REPORT_WORKER_CONCURRENCY = WEEKLY_REPORT_MAX_ACTIVE_JOBS;
+export const WEEKLY_REPORT_QUEUE_NAME = 'weekly-report';
+export const WEEKLY_REPORT_QUEUE_PREFIX = 'bull';
+export const WEEKLY_REPORT_QUEUE_JOB_NAME = 'generate';
 export const WEEKLY_REPORT_POLL_INTERVAL_MS = 800;
 
 export const FEISHU_OPEN_API_BASE_URL = 'https://open.feishu.cn';

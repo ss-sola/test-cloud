@@ -23,6 +23,23 @@ describe('weekly report target resolver', () => {
     ).toMatchObject({ row: 6, person: '张三' });
   });
 
+  it('inherits the last non-empty date range for merged date cells', () => {
+    expect(
+      findWeeklyReportTargetRow(
+        [
+          ['8.17-8.21', '李四'],
+          [null, '王五'],
+          ['8.24-8.28', '李四'],
+          [null, '张三'],
+        ],
+        'A1:B20',
+        '2026-08-24',
+        '2026-08-28',
+        '张三',
+      ),
+    ).toMatchObject({ row: 4, dateRange: '8.24-8.28', person: '张三' });
+  });
+
   it('rejects missing or duplicate date/name matches', () => {
     expect(() =>
       findWeeklyReportTargetRow(

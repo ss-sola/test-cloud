@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { FeishuAuthClientService } from './feishu-auth-client.service';
 import { FeishuApiException, FeishuHttpClientService } from './feishu-http-client.service';
-import type { FeishuApiResponse, FeishuSheetInfo, FeishuValueRange } from './feishu.types';
+import type {
+  FeishuApiResponse,
+  FeishuRequestContext,
+  FeishuSheetInfo,
+  FeishuValueRange,
+} from './feishu.types';
 
 interface SheetsData {
   sheets?: FeishuSheetInfo[];
@@ -15,50 +20,74 @@ export class FeishuSheetsClientService {
     private readonly authClient: FeishuAuthClientService,
   ) {}
 
-  async listSheets(spreadsheetToken: string): Promise<FeishuSheetInfo[]> {
+  async listSheets(
+    spreadsheetToken: string,
+    context?: FeishuRequestContext,
+  ): Promise<FeishuSheetInfo[]> {
     return this.withToken(async (accessToken) => {
-      const payload = await this.httpClient.request<FeishuApiResponse<SheetsData>>({
-        method: 'GET',
-        path: `/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`,
-        accessToken,
-      });
-      return payload.data?.sheets ?? [];
-    });
-  }
-
-  async readValues(spreadsheetToken: string, range: string): Promise<unknown[][]> {
-    return this.withToken(async (accessToken) => {
-      const payload = await this.httpClient.request<FeishuApiResponse<SheetsData>>({
-        method: 'GET',
-        path: `/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values/${encodeURIComponent(range)}`,
-        accessToken,
-      });
-      return payload.data?.valueRange?.values ?? [];
-    });
-  }
-
-  async updateValues(spreadsheetToken: string, range: string, values: unknown[][]): Promise<void> {
-    await this.withToken(async (accessToken) => {
-      await this.httpClient.request<FeishuApiResponse>({
-        method: 'PUT',
-        path: `/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values`,
-        accessToken,
-        body: {
-          valueRange: { range, values },
+      const payload = await this.httpClient.request<FeishuApiResponse<SheetsData>>(
+        {
+          method: 'GET',
+          path: `/open-apis/sheets/v3/spreadsheets/${encodeURIComponent(spreadsheetToken)}/sheets/query`,
+          accessToken,
         },
-      });
-    });
+        context,
+      );
+      return payload.data?.sheets ?? [];
+    }, context);
   }
 
-  private async withToken<T>(operation: (accessToken: string) => Promise<T>): Promise<T> {
+  async readValues(
+    spreadsheetToken: string,
+    range: string,
+    context?: FeishuRequestContext,
+  ): Promise<unknown[][]> {
+    return this.withToken(async (accessToken) => {
+      const payload = await this.httpClient.request<FeishuApiResponse<SheetsData>>(
+        {
+          method: 'GET',
+          path: `/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values/${encodeURIComponent(range)}`,
+          accessToken,
+        },
+        context,
+      );
+      return payload.data?.valueRange?.values ?? [];
+    }, context);
+  }
+
+  async updateValues(
+    spreadsheetToken: string,
+    range: string,
+    values: unknown[][],
+    context?: FeishuRequestContext,
+  ): Promise<void> {
+    await this.withToken(async (accessToken) => {
+      await this.httpClient.request<FeishuApiResponse>(
+        {
+          method: 'PUT',
+          path: `/open-apis/sheets/v2/spreadsheets/${encodeURIComponent(spreadsheetToken)}/values`,
+          accessToken,
+          body: {
+            valueRange: { range, values },
+          },
+        },
+        context,
+      );
+    }, context);
+  }
+
+  private async withToken<T>(
+    operation: (accessToken: string) => Promise<T>,
+    context?: FeishuRequestContext,
+  ): Promise<T> {
     let refreshed = false;
     for (;;) {
-      const accessToken = await this.authClient.getTenantAccessToken(refreshed);
+      const accessToken = await this.authClient.getTenantAccessToken(refreshed, context);
       try {
         return await operation(accessToken);
       } catch (error) {
         if (!refreshed && isUnauthorized(error)) {
-          this.authClient.invalidate();
+          this.authClient.invalidate(context);
           refreshed = true;
           continue;
         }

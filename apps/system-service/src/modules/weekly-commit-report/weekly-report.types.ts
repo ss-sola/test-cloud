@@ -84,10 +84,25 @@ export interface WeeklyReportResult {
   dailySections?: DailyReportSection[];
 }
 
+export interface WeeklyReportPublishSettingsInput {
+  appId: string;
+  appSecret: string;
+  requestTimeoutMs: number;
+  maxRetries: number;
+  monthlyTargets: Array<{
+    month: string;
+    wikiUrl: string;
+    sheetId: string;
+    lookupRange: string;
+    name?: string;
+  }>;
+}
+
 export interface WeeklyReportPublishInput {
   enabled?: boolean;
   /** 表格 B 列中的姓名；不传时仅允许从单一项目人员推断。 */
   person?: string;
+  settings?: WeeklyReportPublishSettingsInput;
 }
 
 export interface GenerateWeeklyReportInput {

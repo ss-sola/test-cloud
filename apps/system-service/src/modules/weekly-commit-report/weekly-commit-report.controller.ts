@@ -14,17 +14,21 @@ export class WeeklyCommitReportController {
 
   @Post('jobs')
   @HttpCode(HttpStatus.ACCEPTED)
-  createJob(@Body() body: GenerateWeeklyCommitReportDto) {
+  async createJob(@Body() body: GenerateWeeklyCommitReportDto) {
     return ResponseUtil.success(
-      this.jobService.create({ period: body.period, configs: body.configs, publish: body.publish }),
+      await this.jobService.create({
+        period: body.period,
+        configs: body.configs,
+        publish: body.publish,
+      }),
       'queued',
       HttpStatus.ACCEPTED,
     );
   }
 
   @Get('jobs/status')
-  getJobStatus(@Query() query: GetWeeklyCommitReportStatusDto) {
-    return ResponseUtil.success(this.jobService.getStatus(query.jobId));
+  async getJobStatus(@Query() query: GetWeeklyCommitReportStatusDto) {
+    return ResponseUtil.success(await this.jobService.getStatus(query.jobId));
   }
 
   @Post('generate')

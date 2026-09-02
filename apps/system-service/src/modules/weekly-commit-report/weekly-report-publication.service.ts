@@ -11,10 +11,15 @@ import { FeishuSheetsClientService } from '../../client/feishu/feishu-sheets-cli
 import { FeishuWikiClientService } from '../../client/feishu/feishu-wiki-client.service';
 import { WeeklyReportSheetMapper } from './weekly-report-sheet-mapper';
 import { findWeeklyReportTargetRow, normalizeCellText } from './weekly-report-target-resolver';
-import type { FeishuMonthlyTarget, FeishuPublishSettings } from '../../client/feishu/feishu.types';
+import type {
+  FeishuMonthlyTarget,
+  FeishuPublishSettings,
+  FeishuRequestContext,
+} from '../../client/feishu/feishu.types';
 import type {
   WeeklyReportPublicationResult,
   WeeklyReportPublishInput,
+  WeeklyReportPublishSettingsInput,
   WeeklyReportResult,
 } from './weekly-report.types';
 
@@ -30,6 +35,8 @@ export class WeeklyReportPublicationService {
     result: WeeklyReportResult,
     input?: WeeklyReportPublishInput,
   ): Promise<WeeklyReportPublicationResult | null> {
+    if (input?.enabled === false) return null;
+
     if (result.period !== 'last-week') {
       if (input?.enabled === true) {
         throw new ParamsErrorException('仅支持包含完整周一至周五摘要的上周周报发布。');
@@ -37,7 +44,7 @@ export class WeeklyReportPublicationService {
       return null;
     }
 
-    const settings = this.readSettings();
+    const settings = this.readSettings(input?.settings);
     const requested = input?.enabled === true || (input?.enabled === undefined && settings.enabled);
     if (!requested) return null;
     if (!settings.enabled) {
@@ -54,14 +61,20 @@ export class WeeklyReportPublicationService {
       throw new ParamsErrorException(`未配置 ${month} 对应的飞书 Sheet。`);
     }
     const person = this.resolvePerson(result, input, target);
-    const { spreadsheetToken } = await this.wikiClient.resolveSpreadsheet(target.wikiUrl);
-    const sheets = await this.sheetsClient.listSheets(spreadsheetToken);
+    const context: FeishuRequestContext = {
+      appId: settings.appId,
+      appSecret: settings.appSecret,
+      requestTimeoutMs: settings.requestTimeoutMs,
+      maxRetries: settings.maxRetries,
+    };
+    const { spreadsheetToken } = await this.wikiClient.resolveSpreadsheet(target.wikiUrl, context);
+    const sheets = await this.sheetsClient.listSheets(spreadsheetToken, context);
     if (!sheets.some((sheet) => sheet.sheet_id === target.sheetId)) {
       throw new ParamsErrorException(`飞书 Sheet 不存在：${target.sheetId}。`);
     }
 
     const lookupRange = `${target.sheetId}!${target.lookupRange}`;
-    const lookupValues = await this.sheetsClient.readValues(spreadsheetToken, lookupRange);
+    const lookupValues = await this.sheetsClient.readValues(spreadsheetToken, lookupRange, context);
     const weekdayStart = result.dailySections[0].date;
     const weekdayEnd = result.dailySections[4].date;
     const targetRow = findWeeklyReportTargetRow(
@@ -72,7 +85,11 @@ export class WeeklyReportPublicationService {
       person,
     );
     const targetRange = `${target.sheetId}!C${targetRow.row}:G${targetRow.row}`;
-    const currentValues = await this.sheetsClient.readValues(spreadsheetToken, targetRange);
+    const currentValues = await this.sheetsClient.readValues(
+      spreadsheetToken,
+      targetRange,
+      context,
+    );
     const desiredValues = this.mapper.toWeekdayWrite(result, targetRow.row).values[0];
     if (sameCells(currentValues[0] ?? [], desiredValues)) {
       return {
@@ -83,7 +100,7 @@ export class WeeklyReportPublicationService {
       };
     }
 
-    await this.sheetsClient.updateValues(spreadsheetToken, targetRange, [desiredValues]);
+    await this.sheetsClient.updateValues(spreadsheetToken, targetRange, [desiredValues], context);
     return {
       status: 'succeeded',
       range: targetRange,
@@ -92,7 +109,23 @@ export class WeeklyReportPublicationService {
     };
   }
 
-  protected readSettings(): FeishuPublishSettings {
+  protected readSettings(input?: WeeklyReportPublishSettingsInput): FeishuPublishSettings {
+    if (input) {
+      const appId = String(input.appId ?? '').trim();
+      const appSecret = String(input.appSecret ?? '').trim();
+      if (!appId || !appSecret) {
+        throw new ProjectException('飞书周报发布缺少应用凭据。', 503);
+      }
+      return {
+        enabled: true,
+        appId,
+        appSecret,
+        requestTimeoutMs: validPositive(input.requestTimeoutMs, DEFAULT_FEISHU_REQUEST_TIMEOUT_MS),
+        maxRetries: validNonNegativeInteger(input.maxRetries, DEFAULT_FEISHU_MAX_RETRIES),
+        targets: parseTargets(input.monthlyTargets),
+      };
+    }
+
     const enabled = getConfig<boolean>(WeeklyReportConfigKeys.FeishuPublishEnabled, false, false);
     if (!enabled) {
       return {

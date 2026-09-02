@@ -25,14 +25,22 @@ describe('weekly report sheet mapper', () => {
   it('maps five daily sections to exactly the C:G row', () => {
     expect(mapper.toWeekdayWrite(result, 12)).toEqual({
       range: 'C12:G12',
-      values: [['完成接口\n补充测试', '修复导出', '无新增事项。', '整理文档', '发布验证']],
+      values: [
+        [
+          '1. 完成接口\n2. 补充测试',
+          '1. 修复导出',
+          '1. 无新增事项。',
+          '1. 整理文档',
+          '1. 发布验证',
+        ],
+      ],
       sections: result.dailySections,
     });
   });
 
   it('uses plain text and protects formula-like content', () => {
     expect(mapper.toCellText(['=HYPERLINK("https://example.com")'])).toBe(
-      '\'=HYPERLINK("https://example.com")',
+      '1. \'=HYPERLINK("https://example.com")',
     );
     expect(mapper.toCellText([])).toBe('无新增事项。');
   });

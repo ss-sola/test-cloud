@@ -19,6 +19,48 @@
         <label class="weekly-period-option"><input type="radio" name="weekly-period" value="last-week" checked /><span><strong>上周</strong><small>完整的上一周，等同于 week:last</small></span></label>
         <label class="weekly-period-option"><input type="radio" name="weekly-period" value="this-week" /><span><strong>本周</strong><small>本周一至当前日期，等同于 week:this</small></span></label>
       </fieldset>
+      <label class="weekly-publish-option" for="weekly-report-publish">
+        <input id="weekly-report-publish" type="checkbox" name="weekly-report-publish" />
+        <span><strong>同步到飞书文档</strong><small>仅上周周报支持同步，将写入服务端配置的飞书周报表格。</small></span>
+      </label>
+      <fieldset class="weekly-feishu-settings" id="weekly-feishu-settings" disabled>
+        <legend>飞书同步配置</legend>
+        <div class="weekly-feishu-settings__grid">
+          <label>App ID<input id="weekly-feishu-app-id" type="text" maxlength="256" autocomplete="off" /></label>
+          <label>App Secret<input id="weekly-feishu-app-secret" type="password" maxlength="512" autocomplete="new-password" /></label>
+          <label>API 请求超时（毫秒）<input id="weekly-feishu-timeout" type="number" min="1000" max="300000" step="1" value="15000" /></label>
+          <label>临时错误重试次数<input id="weekly-feishu-retries" type="number" min="0" max="10" step="1" value="2" /></label>
+        </div>
+        <p class="tool-note weekly-feishu-warning"><span class="metric-dot metric-dot-orange"></span><span>App Secret 会保存到当前浏览器的 localStorage，仅适用于受信任的内部管理台。</span></p>
+        <div class="weekly-feishu-target-heading">
+          <div><p class="section-kicker">MONTHLY TARGETS</p><h3>月度表格目标</h3></div>
+          <button class="compare-button compare-button--secondary" id="weekly-feishu-target-add" type="button">添加月份</button>
+        </div>
+        <div class="weekly-feishu-target-list" id="weekly-feishu-target-list">
+          <article class="weekly-feishu-target" data-weekly-feishu-target data-weekly-feishu-target-id="default-0">
+            <div class="weekly-feishu-target__header"><span data-weekly-feishu-target-index>01</span><strong>当前月份目标</strong><button type="button" data-weekly-feishu-target-remove>移除</button></div>
+            <div class="weekly-feishu-target__grid">
+              <label>月份<input type="month" data-weekly-feishu-field="month" required /></label>
+              <label>Wiki 地址<input type="url" data-weekly-feishu-field="wikiUrl" maxlength="2048" placeholder="https://example.feishu.cn/wiki/..." required /></label>
+              <label>Sheet ID<input type="text" data-weekly-feishu-field="sheetId" maxlength="128" placeholder="a0ab9d" required /></label>
+              <label>查找范围<input type="text" data-weekly-feishu-field="lookupRange" maxlength="32" value="A1:B200" pattern="A[0-9]+:B[0-9]+" required /></label>
+              <label>表格 B 列姓名<input type="text" data-weekly-feishu-field="name" maxlength="128" placeholder="张三" /></label>
+            </div>
+          </article>
+        </div>
+        <template id="weekly-feishu-target-template">
+          <article class="weekly-feishu-target" data-weekly-feishu-target>
+            <div class="weekly-feishu-target__header"><span data-weekly-feishu-target-index></span><strong>新月份目标</strong><button type="button" data-weekly-feishu-target-remove>移除</button></div>
+            <div class="weekly-feishu-target__grid">
+              <label>月份<input type="month" data-weekly-feishu-field="month" required /></label>
+              <label>Wiki 地址<input type="url" data-weekly-feishu-field="wikiUrl" maxlength="2048" placeholder="https://example.feishu.cn/wiki/..." required /></label>
+              <label>Sheet ID<input type="text" data-weekly-feishu-field="sheetId" maxlength="128" placeholder="a0ab9d" required /></label>
+              <label>查找范围<input type="text" data-weekly-feishu-field="lookupRange" maxlength="32" value="A1:B200" pattern="A[0-9]+:B[0-9]+" required /></label>
+              <label>表格 B 列姓名<input type="text" data-weekly-feishu-field="name" maxlength="128" placeholder="张三" /></label>
+            </div>
+          </article>
+        </template>
+      </fieldset>
       <button class="compare-button weekly-report-submit" id="weekly-report-submit" type="submit">生成周报 <span aria-hidden="true">→</span></button>
       <p class="tool-error" id="weekly-report-error" role="alert" hidden></p>
       <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>项目配置和对比内容保存在当前浏览器；GitHub Token 只由服务端环境提供。</span></p>
