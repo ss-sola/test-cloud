@@ -83,7 +83,8 @@ export function getConfig<T>(
   required = true,
   valueType?: ConfigValueType,
 ): T {
-  const value = getValueByPath(configCenter.mainConfig, key);
+  const configuredValue = getValueByPath(configCenter.mainConfig, key);
+  const value = configuredValue === undefined ? process.env[key] : configuredValue;
   if (value === undefined && defaultValue === undefined && required) {
     throw new ProjectException(`Config key not found: ${key}`);
   }

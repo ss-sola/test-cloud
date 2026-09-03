@@ -4,18 +4,13 @@ import {
   DEFAULT_FEISHU_MAX_RETRIES,
   DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
   FEISHU_DEFAULT_LOOKUP_RANGE,
-  FEISHU_MAX_MONTHLY_TARGETS,
   WeeklyReportConfigKeys,
 } from './weekly-report.constants';
 import { FeishuSheetsClientService } from '../../client/feishu/feishu-sheets-client.service';
 import { FeishuWikiClientService } from '../../client/feishu/feishu-wiki-client.service';
 import { WeeklyReportSheetMapper } from './weekly-report-sheet-mapper';
 import { findWeeklyReportTargetRow, normalizeCellText } from './weekly-report-target-resolver';
-import type {
-  FeishuMonthlyTarget,
-  FeishuPublishSettings,
-  FeishuRequestContext,
-} from '../../client/feishu/feishu.types';
+import type { FeishuPublishSettings, FeishuRequestContext } from '../../client/feishu/feishu.types';
 import type {
   WeeklyReportPublicationResult,
   WeeklyReportPublishInput,
@@ -55,36 +50,37 @@ export class WeeklyReportPublicationService {
       throw new ParamsErrorException('仅支持包含完整周一至周五摘要的上周周报发布。');
     }
 
-    const month = result.weekStart.slice(0, 7);
-    const target = settings.targets.find((item) => item.month === month);
-    if (!target) {
-      throw new ParamsErrorException(`未配置 ${month} 对应的飞书 Sheet。`);
-    }
-    const person = this.resolvePerson(result, input, target);
+    const person = this.resolvePerson(result, input, settings.name);
     const context: FeishuRequestContext = {
       appId: settings.appId,
       appSecret: settings.appSecret,
       requestTimeoutMs: settings.requestTimeoutMs,
       maxRetries: settings.maxRetries,
     };
-    const { spreadsheetToken } = await this.wikiClient.resolveSpreadsheet(target.wikiUrl, context);
+    const { spreadsheetToken, sheetId } = await this.wikiClient.resolveSpreadsheet(
+      settings.wikiUrl,
+      context,
+    );
+    if (!sheetId) {
+      throw new ParamsErrorException('飞书 Sheet 地址缺少 sheet 参数。');
+    }
     const sheets = await this.sheetsClient.listSheets(spreadsheetToken, context);
-    if (!sheets.some((sheet) => sheet.sheet_id === target.sheetId)) {
-      throw new ParamsErrorException(`飞书 Sheet 不存在：${target.sheetId}。`);
+    if (!sheets.some((sheet) => sheet.sheet_id === sheetId)) {
+      throw new ParamsErrorException(`飞书 Sheet 不存在：${sheetId}。`);
     }
 
-    const lookupRange = `${target.sheetId}!${target.lookupRange}`;
+    const lookupRange = `${sheetId}!${FEISHU_DEFAULT_LOOKUP_RANGE}`;
     const lookupValues = await this.sheetsClient.readValues(spreadsheetToken, lookupRange, context);
     const weekdayStart = result.dailySections[0].date;
     const weekdayEnd = result.dailySections[4].date;
     const targetRow = findWeeklyReportTargetRow(
       lookupValues,
-      target.lookupRange,
+      FEISHU_DEFAULT_LOOKUP_RANGE,
       weekdayStart,
       weekdayEnd,
       person,
     );
-    const targetRange = `${target.sheetId}!C${targetRow.row}:G${targetRow.row}`;
+    const targetRange = `${sheetId}!C${targetRow.row}:G${targetRow.row}`;
     const currentValues = await this.sheetsClient.readValues(
       spreadsheetToken,
       targetRange,
@@ -111,18 +107,27 @@ export class WeeklyReportPublicationService {
 
   protected readSettings(input?: WeeklyReportPublishSettingsInput): FeishuPublishSettings {
     if (input) {
-      const appId = String(input.appId ?? '').trim();
-      const appSecret = String(input.appSecret ?? '').trim();
+      const appId = readCredential(
+        input.appId,
+        WeeklyReportConfigKeys.FeishuCliAppId,
+        WeeklyReportConfigKeys.FeishuAppId,
+      );
+      const appSecret = readCredential(
+        input.appSecret,
+        WeeklyReportConfigKeys.FeishuCliAppSecret,
+        WeeklyReportConfigKeys.FeishuAppSecret,
+      );
       if (!appId || !appSecret) {
         throw new ProjectException('飞书周报发布缺少应用凭据。', 503);
       }
+      const target = parsePublishTarget(input);
       return {
         enabled: true,
         appId,
         appSecret,
-        requestTimeoutMs: validPositive(input.requestTimeoutMs, DEFAULT_FEISHU_REQUEST_TIMEOUT_MS),
-        maxRetries: validNonNegativeInteger(input.maxRetries, DEFAULT_FEISHU_MAX_RETRIES),
-        targets: parseTargets(input.monthlyTargets),
+        requestTimeoutMs: readRequestTimeout(),
+        maxRetries: readMaxRetries(),
+        ...target,
       };
     }
 
@@ -134,30 +139,34 @@ export class WeeklyReportPublicationService {
         appSecret: '',
         requestTimeoutMs: DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
-        targets: [],
+        wikiUrl: '',
       };
     }
 
-    const appId = getConfig<string>(WeeklyReportConfigKeys.FeishuAppId, '', false).trim();
-    const appSecret = getConfig<string>(WeeklyReportConfigKeys.FeishuAppSecret, '', false).trim();
-    const requestTimeoutMs = getConfig<number>(
-      WeeklyReportConfigKeys.FeishuRequestTimeoutMs,
-      DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
-      false,
+    const appId = readCredential(
+      undefined,
+      WeeklyReportConfigKeys.FeishuCliAppId,
+      WeeklyReportConfigKeys.FeishuAppId,
     );
-    const maxRetries = getConfig<number>(
-      WeeklyReportConfigKeys.FeishuMaxRetries,
-      DEFAULT_FEISHU_MAX_RETRIES,
-      false,
+    const appSecret = readCredential(
+      undefined,
+      WeeklyReportConfigKeys.FeishuCliAppSecret,
+      WeeklyReportConfigKeys.FeishuAppSecret,
     );
-    const rawTargets = getConfig<unknown>(
-      WeeklyReportConfigKeys.FeishuMonthlyTargets,
-      [],
+    const requestTimeoutMs = readRequestTimeout();
+    const maxRetries = readMaxRetries();
+    const configuredTarget = getConfig<unknown>(
+      WeeklyReportConfigKeys.FeishuTarget,
+      null,
       false,
       'json',
     );
-    const targets = parseTargets(rawTargets);
-    if (enabled && (!appId || !appSecret)) {
+    const legacyTarget =
+      configuredTarget == null
+        ? getConfig<unknown>(WeeklyReportConfigKeys.FeishuMonthlyTargets, null, false, 'json')
+        : null;
+    const target = parsePublishTarget(configuredTarget ?? legacyTarget);
+    if (!appId || !appSecret) {
       throw new ProjectException('飞书周报发布缺少应用凭据。', 503);
     }
     return {
@@ -166,16 +175,16 @@ export class WeeklyReportPublicationService {
       appSecret,
       requestTimeoutMs: validPositive(requestTimeoutMs, DEFAULT_FEISHU_REQUEST_TIMEOUT_MS),
       maxRetries: validNonNegativeInteger(maxRetries, DEFAULT_FEISHU_MAX_RETRIES),
-      targets,
+      ...target,
     };
   }
 
   private resolvePerson(
     result: WeeklyReportResult,
     input: WeeklyReportPublishInput | undefined,
-    target: FeishuMonthlyTarget,
+    configuredName?: string,
   ): string {
-    const explicitPerson = input?.person?.trim() || target.name?.trim();
+    const explicitPerson = input?.person?.trim() || configuredName?.trim();
     if (explicitPerson) return explicitPerson;
 
     const people = [
@@ -186,37 +195,69 @@ export class WeeklyReportPublicationService {
   }
 }
 
-function parseTargets(value: unknown): FeishuMonthlyTarget[] {
-  if (!Array.isArray(value)) {
-    throw new ParamsErrorException('飞书月度 Sheet 配置必须是数组。');
-  }
-  if (value.length > FEISHU_MAX_MONTHLY_TARGETS) {
-    throw new ParamsErrorException(
-      `飞书月度 Sheet 配置最多支持 ${FEISHU_MAX_MONTHLY_TARGETS} 项。`,
-    );
-  }
-  const targets = value.map((item, index) => {
-    if (!item || typeof item !== 'object') {
-      throw new ParamsErrorException(`飞书月度 Sheet 配置第 ${index + 1} 项无效。`);
+function readCredential(value: unknown, primaryKey: string, fallbackKey: string): string {
+  const requested = String(value ?? '').trim();
+  if (requested) return requested;
+  const environmentValue = getConfig<string>(primaryKey, '', false).trim();
+  if (environmentValue) return environmentValue;
+  return getConfig<string>(fallbackKey, '', false).trim();
+}
+
+function readRequestTimeout(): number {
+  return validPositive(
+    getConfig<number>(
+      WeeklyReportConfigKeys.FeishuRequestTimeoutMs,
+      DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
+      false,
+    ),
+    DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
+  );
+}
+
+function readMaxRetries(): number {
+  return validNonNegativeInteger(
+    getConfig<number>(WeeklyReportConfigKeys.FeishuMaxRetries, DEFAULT_FEISHU_MAX_RETRIES, false),
+    DEFAULT_FEISHU_MAX_RETRIES,
+  );
+}
+
+function parsePublishTarget(value: unknown): Pick<FeishuPublishSettings, 'wikiUrl' | 'name'> {
+  let targetValue = value;
+  if (Array.isArray(targetValue)) {
+    if (targetValue.length !== 1) {
+      throw new ParamsErrorException(
+        '旧版飞书月度目标配置无法自动迁移，请改为配置单个 Wiki 地址。',
+      );
     }
-    const record = item as Record<string, unknown>;
-    const month = String(record.month ?? '').trim();
-    const wikiUrl = String(record.wikiUrl ?? '').trim();
-    const sheetId = String(record.sheetId ?? '').trim();
-    const lookupRange = String(record.lookupRange ?? FEISHU_DEFAULT_LOOKUP_RANGE).trim();
-    const name = record.name === undefined ? undefined : String(record.name).trim();
-    if (!/^\d{4}-\d{2}$/.test(month) || !wikiUrl || !sheetId || !/^A\d+:B\d+$/i.test(lookupRange)) {
-      throw new ParamsErrorException(`飞书月度 Sheet 配置第 ${index + 1} 项字段无效。`);
-    }
-    return { month, wikiUrl, sheetId, lookupRange, name };
-  });
-  const months = new Set<string>();
-  for (const target of targets) {
-    if (months.has(target.month))
-      throw new ParamsErrorException(`重复配置飞书月份：${target.month}。`);
-    months.add(target.month);
+    targetValue = targetValue[0];
   }
-  return targets;
+  if (!targetValue || typeof targetValue !== 'object') {
+    throw new ParamsErrorException('飞书周报发布缺少 Wiki 地址。');
+  }
+
+  const record = targetValue as Record<string, unknown>;
+  const wikiUrl = String(record.wikiUrl ?? '').trim();
+  if (!wikiUrl) {
+    throw new ParamsErrorException('飞书周报发布缺少 Wiki 地址。');
+  }
+  const name = record.name === undefined ? undefined : String(record.name).trim() || undefined;
+  return {
+    wikiUrl: addLegacySheetId(wikiUrl, record.sheetId),
+    name,
+  };
+}
+
+function addLegacySheetId(wikiUrl: string, sheetId: unknown): string {
+  const legacySheetId = String(sheetId ?? '').trim();
+  if (!legacySheetId) return wikiUrl;
+  try {
+    const url = new URL(wikiUrl);
+    if (url.searchParams.get('sheet')?.trim()) return wikiUrl;
+    url.searchParams.set('sheet', legacySheetId);
+    return url.toString();
+  } catch {
+    return wikiUrl;
+  }
 }
 
 function sameCells(current: unknown[], desired: string[]): boolean {

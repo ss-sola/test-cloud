@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  extractSheetId,
   extractSheetToken,
   extractWikiToken,
   FeishuWikiClientService,
@@ -13,8 +14,10 @@ describe('extractWikiToken', () => {
     const service = new FeishuWikiClientService(httpClient as never, authClient as never);
 
     expect(extractSheetToken(url)).toBe('ZVPMsdbHphQOdetitZbcMu7NnEd');
+    expect(extractSheetId(url)).toBe('a0ab9d');
     await expect(service.resolveSpreadsheet(url)).resolves.toEqual({
       spreadsheetToken: 'ZVPMsdbHphQOdetitZbcMu7NnEd',
+      sheetId: 'a0ab9d',
     });
     expect(httpClient.request).not.toHaveBeenCalled();
     expect(authClient.getTenantAccessToken).not.toHaveBeenCalled();

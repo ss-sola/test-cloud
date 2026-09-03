@@ -29,9 +29,6 @@
   })
   const STORAGE_VERSION = 1
   const MAX_COMPARE_DRAFT_LENGTH = 500_000
-  const MAX_FEISHU_TARGETS = 24
-  const DEFAULT_FEISHU_TIMEOUT = 15_000
-  const DEFAULT_FEISHU_RETRIES = 2
 
   const appShell = document.querySelector('.app-shell')
   const sidebar = document.querySelector('#sidebar')
@@ -197,9 +194,8 @@
     return {
       appId: '',
       appSecret: '',
-      requestTimeoutMs: DEFAULT_FEISHU_TIMEOUT,
-      maxRetries: DEFAULT_FEISHU_RETRIES,
-      monthlyTargets: [{ month: '', wikiUrl: '', sheetId: '', lookupRange: 'A1:B200', name: '' }],
+      wikiUrl: '',
+      name: '',
     }
   }
 
@@ -207,31 +203,30 @@
     const defaults = createDefaultFeishuSettings()
     if (!value || typeof value !== 'object') return defaults
     const settings = value
-    const targets = Array.isArray(settings.monthlyTargets)
-      ? settings.monthlyTargets.slice(0, MAX_FEISHU_TARGETS).map((target) => {
-        if (!target || typeof target !== 'object') return null
-        return {
-          id: typeof target.id === 'string' && target.id ? target.id : createClientId(),
-          month: typeof target.month === 'string' ? target.month.slice(0, 7) : '',
-          wikiUrl: typeof target.wikiUrl === 'string' ? target.wikiUrl.slice(0, 2048) : '',
-          sheetId: typeof target.sheetId === 'string' ? target.sheetId.slice(0, 128) : '',
-          lookupRange: typeof target.lookupRange === 'string' && target.lookupRange
-            ? target.lookupRange.slice(0, 32)
-            : 'A1:B200',
-          name: typeof target.name === 'string' ? target.name.slice(0, 128) : '',
+    const legacyTarget = Array.isArray(settings.monthlyTargets) && settings.monthlyTargets.length === 1
+      ? settings.monthlyTargets[0]
+      : null
+    const target = legacyTarget && typeof legacyTarget === 'object'
+      ? legacyTarget
+      : Array.isArray(settings.monthlyTargets) ? {} : settings
+    let wikiUrl = typeof target.wikiUrl === 'string' ? target.wikiUrl.slice(0, 2048) : ''
+    const legacySheetId = typeof target.sheetId === 'string' ? target.sheetId.trim().slice(0, 128) : ''
+    if (wikiUrl && legacySheetId) {
+      try {
+        const url = new URL(wikiUrl)
+        if (!url.searchParams.get('sheet')?.trim()) {
+          url.searchParams.set('sheet', legacySheetId)
+          wikiUrl = url.toString()
         }
-      }).filter(Boolean)
-      : defaults.monthlyTargets
+      } catch {
+        // The server will report malformed Wiki addresses when publishing.
+      }
+    }
     return {
       appId: typeof settings.appId === 'string' ? settings.appId.slice(0, 256) : '',
       appSecret: typeof settings.appSecret === 'string' ? settings.appSecret.slice(0, 512) : '',
-      requestTimeoutMs: Number.isInteger(settings.requestTimeoutMs)
-        && settings.requestTimeoutMs >= 1000 && settings.requestTimeoutMs <= 300000
-        ? settings.requestTimeoutMs : DEFAULT_FEISHU_TIMEOUT,
-      maxRetries: Number.isInteger(settings.maxRetries)
-        && settings.maxRetries >= 0 && settings.maxRetries <= 10
-        ? settings.maxRetries : DEFAULT_FEISHU_RETRIES,
-      monthlyTargets: targets.length > 0 ? targets : defaults.monthlyTargets,
+      wikiUrl,
+      name: typeof target.name === 'string' ? target.name.slice(0, 128) : '',
     }
   }
 
@@ -251,12 +246,15 @@
         branch: project.branch || '',
       }
     })
+    const publishSettings = normalizeFeishuSettings(draft.publishSettings)
+    const hasLegacyMultipleTargets = Array.isArray(draft.publishSettings?.monthlyTargets)
+      && draft.publishSettings.monthlyTargets.length > 1
     return projects.every(Boolean)
       ? {
           period: draft.period === 'this-week' ? 'this-week' : 'last-week',
           projects,
-          publishEnabled: draft.publishEnabled === true,
-          publishSettings: normalizeFeishuSettings(draft.publishSettings),
+          publishEnabled: draft.publishEnabled === true && !hasLegacyMultipleTargets,
+          publishSettings,
         }
       : null
   }
@@ -270,9 +268,8 @@
       publishSettings: {
         appId: settings.appId,
         appSecret: settings.appSecret,
-        requestTimeoutMs: settings.requestTimeoutMs,
-        maxRetries: settings.maxRetries,
-        monthlyTargets: settings.monthlyTargets.map(({ id, ...target }) => ({ id, ...target })),
+        wikiUrl: settings.wikiUrl,
+        name: settings.name,
       },
       projects: projects.map((project) => ({
         id: project.id,
@@ -873,11 +870,8 @@
     const feishuSettings = root.querySelector('#weekly-feishu-settings')
     const feishuAppId = root.querySelector('#weekly-feishu-app-id')
     const feishuAppSecret = root.querySelector('#weekly-feishu-app-secret')
-    const feishuTimeout = root.querySelector('#weekly-feishu-timeout')
-    const feishuRetries = root.querySelector('#weekly-feishu-retries')
-    const feishuTargetList = root.querySelector('#weekly-feishu-target-list')
-    const feishuTargetTemplate = root.querySelector('#weekly-feishu-target-template')
-    const feishuTargetAdd = root.querySelector('#weekly-feishu-target-add')
+    const feishuWikiUrl = root.querySelector('#weekly-feishu-wiki-url')
+    const feishuName = root.querySelector('#weekly-feishu-name')
     const errorElement = root.querySelector('#weekly-report-error')
     const projectErrorsElement = root.querySelector('#weekly-report-project-errors')
     const statusBadge = root.querySelector('#weekly-report-status')
@@ -898,9 +892,7 @@
       || !(publishCheckbox instanceof HTMLInputElement)
       || !(feishuSettings instanceof HTMLFieldSetElement)
       || !(feishuAppId instanceof HTMLInputElement) || !(feishuAppSecret instanceof HTMLInputElement)
-      || !(feishuTimeout instanceof HTMLInputElement) || !(feishuRetries instanceof HTMLInputElement)
-      || !(feishuTargetList instanceof HTMLElement) || !(feishuTargetTemplate instanceof HTMLTemplateElement)
-      || !(feishuTargetAdd instanceof HTMLButtonElement)
+      || !(feishuWikiUrl instanceof HTMLInputElement) || !(feishuName instanceof HTMLInputElement)
       || !(errorElement instanceof HTMLElement) || !(projectErrorsElement instanceof HTMLElement)
       || !(statusBadge instanceof HTMLElement) || !(statusLabel instanceof HTMLElement)
       || !(meta instanceof HTMLElement) || !(progress instanceof HTMLElement)
@@ -1061,70 +1053,23 @@
     }
 
     function setFeishuFieldsRequired(required) {
-      ;[feishuAppId, feishuAppSecret, feishuTimeout, feishuRetries].forEach((input) => {
-        input.required = required
-      })
-      feishuTargetList.querySelectorAll('[data-weekly-feishu-field]').forEach((input) => {
-        if (!(input instanceof HTMLInputElement)) return
-        input.required = required && input.dataset.weeklyFeishuField !== 'name'
-      })
-    }
-
-    function updateFeishuTargetMeta() {
-      const targets = [...feishuTargetList.querySelectorAll('[data-weekly-feishu-target]')]
-      targets.forEach((target, index) => {
-        const indexElement = target.querySelector('[data-weekly-feishu-target-index]')
-        const remove = target.querySelector('[data-weekly-feishu-target-remove]')
-        if (indexElement instanceof HTMLElement) indexElement.textContent = String(index + 1).padStart(2, '0')
-        if (remove instanceof HTMLButtonElement) {
-          remove.disabled = targets.length <= 1
-          remove.setAttribute('aria-label', `移除第 ${index + 1} 个飞书月份目标`)
-        }
-      })
-      feishuTargetAdd.disabled = targets.length >= MAX_FEISHU_TARGETS
-    }
-
-    function appendFeishuTarget(target = {}) {
-      const card = feishuTargetTemplate.content.firstElementChild.cloneNode(true)
-      card.dataset.weeklyFeishuTargetId = target.id || createClientId()
-      Object.entries({
-        month: target.month || '',
-        wikiUrl: target.wikiUrl || '',
-        sheetId: target.sheetId || '',
-        lookupRange: target.lookupRange || 'A1:B200',
-        name: target.name || '',
-      }).forEach(([field, value]) => {
-        const input = card.querySelector(`[data-weekly-feishu-field="${field}"]`)
-        if (input instanceof HTMLInputElement) input.value = value
-      })
-      feishuTargetList.append(card)
+      feishuWikiUrl.required = required
+      feishuName.required = false
     }
 
     function renderFeishuSettings(settings) {
       feishuAppId.value = settings.appId
       feishuAppSecret.value = settings.appSecret
-      feishuTimeout.value = String(settings.requestTimeoutMs)
-      feishuRetries.value = String(settings.maxRetries)
-      feishuTargetList.replaceChildren()
-      settings.monthlyTargets.forEach((target) => appendFeishuTarget(target))
-      updateFeishuTargetMeta()
+      feishuWikiUrl.value = settings.wikiUrl
+      feishuName.value = settings.name
     }
 
     function readFeishuSettingsFromDom() {
-      const monthlyTargets = [...feishuTargetList.querySelectorAll('[data-weekly-feishu-target]')].map((card) => ({
-        id: card.dataset.weeklyFeishuTargetId || createClientId(),
-        month: card.querySelector('[data-weekly-feishu-field="month"]')?.value || '',
-        wikiUrl: card.querySelector('[data-weekly-feishu-field="wikiUrl"]')?.value.trim() || '',
-        sheetId: card.querySelector('[data-weekly-feishu-field="sheetId"]')?.value.trim() || '',
-        lookupRange: card.querySelector('[data-weekly-feishu-field="lookupRange"]')?.value.trim() || '',
-        name: card.querySelector('[data-weekly-feishu-field="name"]')?.value.trim() || '',
-      }))
       return normalizeFeishuSettings({
         appId: feishuAppId.value.trim(),
         appSecret: feishuAppSecret.value.trim(),
-        requestTimeoutMs: Number.parseInt(feishuTimeout.value, 10),
-        maxRetries: Number.parseInt(feishuRetries.value, 10),
-        monthlyTargets,
+        wikiUrl: feishuWikiUrl.value.trim(),
+        name: feishuName.value.trim(),
       })
     }
 
@@ -1133,17 +1078,8 @@
       return {
         appId: settings.appId,
         appSecret: settings.appSecret,
-        requestTimeoutMs: settings.requestTimeoutMs,
-        maxRetries: settings.maxRetries,
-        monthlyTargets: settings.monthlyTargets.map(({ id, ...target }) => target),
-      }
-    }
-
-    function extractSheetId(wikiUrl) {
-      try {
-        return new URL(wikiUrl).searchParams.get('sheet')?.trim() || ''
-      } catch {
-        return ''
+        wikiUrl: settings.wikiUrl,
+        name: settings.name,
       }
     }
 
@@ -1329,37 +1265,7 @@
       saveProjects()
       projectList.querySelector('[data-weekly-project]:last-child [data-weekly-field="repo"]')?.focus()
     })
-    feishuTargetList.addEventListener('click', (event) => {
-      const target = event.target
-      if (!(target instanceof HTMLElement)) return
-      const remove = target.closest('[data-weekly-feishu-target-remove]')
-      if (!(remove instanceof HTMLButtonElement)
-        || feishuTargetList.querySelectorAll('[data-weekly-feishu-target]').length <= 1) return
-      remove.closest('[data-weekly-feishu-target]')?.remove()
-      updateFeishuTargetMeta()
-      saveProjects()
-    })
-    feishuTargetList.addEventListener('input', (event) => {
-      if (!(event.target instanceof HTMLInputElement)
-        || !event.target.matches('[data-weekly-feishu-field]')) return
-      if (event.target.dataset.weeklyFeishuField === 'wikiUrl') {
-        const card = event.target.closest('[data-weekly-feishu-target]')
-        const sheetId = card?.querySelector('[data-weekly-feishu-field="sheetId"]')
-        if (sheetId instanceof HTMLInputElement && !sheetId.value.trim()) {
-          const value = extractSheetId(event.target.value.trim())
-          if (value) sheetId.value = value
-        }
-      }
-      saveProjects()
-    })
-    feishuTargetAdd.addEventListener('click', () => {
-      if (feishuTargetList.querySelectorAll('[data-weekly-feishu-target]').length >= MAX_FEISHU_TARGETS) return
-      appendFeishuTarget()
-      updateFeishuTargetMeta()
-      saveProjects()
-      feishuTargetList.querySelector('[data-weekly-feishu-target]:last-child [data-weekly-feishu-field="month"]')?.focus()
-    })
-    ;[feishuAppId, feishuAppSecret, feishuTimeout, feishuRetries].forEach((input) => {
+    ;[feishuAppId, feishuAppSecret, feishuWikiUrl, feishuName].forEach((input) => {
       input.addEventListener('input', saveProjects)
       input.addEventListener('change', saveProjects)
     })

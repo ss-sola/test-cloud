@@ -85,17 +85,10 @@ export interface WeeklyReportResult {
 }
 
 export interface WeeklyReportPublishSettingsInput {
-  appId: string;
-  appSecret: string;
-  requestTimeoutMs: number;
-  maxRetries: number;
-  monthlyTargets: Array<{
-    month: string;
-    wikiUrl: string;
-    sheetId: string;
-    lookupRange: string;
-    name?: string;
-  }>;
+  appId?: string;
+  appSecret?: string;
+  wikiUrl: string;
+  name?: string;
 }
 
 export interface WeeklyReportPublishInput {

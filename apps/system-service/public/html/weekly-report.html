@@ -1,4 +1,5 @@
-<section class="view tool-view weekly-report-view" data-view="weekly-report" aria-labelledby="weekly-report-title" hidden>
+<section class="view tool-view weekly-report-view" data-view="weekly-report" aria-labelledby="weekly-report-title"
+  hidden>
   <div class="page-heading">
     <div>
       <p class="eyebrow">WEEKLY REPORT / GITHUB API</p>
@@ -11,13 +12,18 @@
   <div class="weekly-report-layout">
     <form class="weekly-report-config" id="weekly-report-form">
       <div class="section-heading-row section-heading-row-compact">
-        <div><p class="section-kicker">REPORT PERIOD</p><h2>选择周期</h2></div>
+        <div>
+          <p class="section-kicker">REPORT PERIOD</p>
+          <h2>选择周期</h2>
+        </div>
         <span class="section-count">API</span>
       </div>
       <fieldset class="weekly-period-options">
         <legend class="visually-hidden">周报周期</legend>
-        <label class="weekly-period-option"><input type="radio" name="weekly-period" value="last-week" checked /><span><strong>上周</strong><small>完整的上一周，等同于 week:last</small></span></label>
-        <label class="weekly-period-option"><input type="radio" name="weekly-period" value="this-week" /><span><strong>本周</strong><small>本周一至当前日期，等同于 week:this</small></span></label>
+        <label class="weekly-period-option"><input type="radio" name="weekly-period" value="last-week"
+            checked /><span><strong>上周</strong><small>完整的上一周，等同于 week:last</small></span></label>
+        <label class="weekly-period-option"><input type="radio" name="weekly-period"
+            value="this-week" /><span><strong>本周</strong><small>本周一至当前日期，等同于 week:this</small></span></label>
       </fieldset>
       <label class="weekly-publish-option" for="weekly-report-publish">
         <input id="weekly-report-publish" type="checkbox" name="weekly-report-publish" />
@@ -27,95 +33,109 @@
         <legend>飞书同步配置</legend>
         <div class="weekly-feishu-settings__grid">
           <label>App ID<input id="weekly-feishu-app-id" type="text" maxlength="256" autocomplete="off" /></label>
-          <label>App Secret<input id="weekly-feishu-app-secret" type="password" maxlength="512" autocomplete="new-password" /></label>
-          <label>API 请求超时（毫秒）<input id="weekly-feishu-timeout" type="number" min="1000" max="300000" step="1" value="15000" /></label>
-          <label>临时错误重试次数<input id="weekly-feishu-retries" type="number" min="0" max="10" step="1" value="2" /></label>
+          <label>App Secret<input id="weekly-feishu-app-secret" type="password" maxlength="512"
+              autocomplete="new-password" /></label>
+          <label>Wiki 地址<input id="weekly-feishu-wiki-url" type="url" data-weekly-feishu-field="wikiUrl"
+              maxlength="2048" placeholder="https://example.feishu.cn/wiki/...?sheet=a0ab9d" required /></label>
+          <label>表格 B 列姓名<input id="weekly-feishu-name" type="text" data-weekly-feishu-field="name" maxlength="128"
+              placeholder="张三" /></label>
         </div>
-        <p class="tool-note weekly-feishu-warning"><span class="metric-dot metric-dot-orange"></span><span>App Secret 会保存到当前浏览器的 localStorage，仅适用于受信任的内部管理台。</span></p>
-        <div class="weekly-feishu-target-heading">
-          <div><p class="section-kicker">MONTHLY TARGETS</p><h3>月度表格目标</h3></div>
-          <button class="compare-button compare-button--secondary" id="weekly-feishu-target-add" type="button">添加月份</button>
-        </div>
-        <div class="weekly-feishu-target-list" id="weekly-feishu-target-list">
-          <article class="weekly-feishu-target" data-weekly-feishu-target data-weekly-feishu-target-id="default-0">
-            <div class="weekly-feishu-target__header"><span data-weekly-feishu-target-index>01</span><strong>当前月份目标</strong><button type="button" data-weekly-feishu-target-remove>移除</button></div>
-            <div class="weekly-feishu-target__grid">
-              <label>月份<input type="month" data-weekly-feishu-field="month" required /></label>
-              <label>Wiki 地址<input type="url" data-weekly-feishu-field="wikiUrl" maxlength="2048" placeholder="https://example.feishu.cn/wiki/..." required /></label>
-              <label>Sheet ID<input type="text" data-weekly-feishu-field="sheetId" maxlength="128" placeholder="a0ab9d" required /></label>
-              <label>查找范围<input type="text" data-weekly-feishu-field="lookupRange" maxlength="32" value="A1:B200" pattern="A[0-9]+:B[0-9]+" required /></label>
-              <label>表格 B 列姓名<input type="text" data-weekly-feishu-field="name" maxlength="128" placeholder="张三" /></label>
-            </div>
-          </article>
-        </div>
-        <template id="weekly-feishu-target-template">
-          <article class="weekly-feishu-target" data-weekly-feishu-target>
-            <div class="weekly-feishu-target__header"><span data-weekly-feishu-target-index></span><strong>新月份目标</strong><button type="button" data-weekly-feishu-target-remove>移除</button></div>
-            <div class="weekly-feishu-target__grid">
-              <label>月份<input type="month" data-weekly-feishu-field="month" required /></label>
-              <label>Wiki 地址<input type="url" data-weekly-feishu-field="wikiUrl" maxlength="2048" placeholder="https://example.feishu.cn/wiki/..." required /></label>
-              <label>Sheet ID<input type="text" data-weekly-feishu-field="sheetId" maxlength="128" placeholder="a0ab9d" required /></label>
-              <label>查找范围<input type="text" data-weekly-feishu-field="lookupRange" maxlength="32" value="A1:B200" pattern="A[0-9]+:B[0-9]+" required /></label>
-              <label>表格 B 列姓名<input type="text" data-weekly-feishu-field="name" maxlength="128" placeholder="张三" /></label>
-            </div>
-          </article>
-        </template>
+
       </fieldset>
-      <button class="compare-button weekly-report-submit" id="weekly-report-submit" type="submit">生成周报 <span aria-hidden="true">→</span></button>
+      <button class="compare-button weekly-report-submit" id="weekly-report-submit" type="submit">生成周报 <span
+          aria-hidden="true">→</span></button>
       <p class="tool-error" id="weekly-report-error" role="alert" hidden></p>
-      <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>项目配置和对比内容保存在当前浏览器；GitHub Token 只由服务端环境提供。</span></p>
+      <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>项目配置和对比内容保存在当前浏览器；GitHub Token
+          只由服务端环境提供。</span></p>
     </form>
 
     <section class="weekly-report-result" aria-labelledby="weekly-report-result-title">
       <div class="particle-stage-header">
-        <div><p class="section-kicker">REPORT OUTPUT</p><h2 id="weekly-report-result-title">生成结果</h2></div>
-        <span class="status-badge" id="weekly-report-status"><span></span><span id="weekly-report-status-label">等待</span></span>
+        <div>
+          <p class="section-kicker">REPORT OUTPUT</p>
+          <h2 id="weekly-report-result-title">生成结果</h2>
+        </div>
+        <span class="status-badge" id="weekly-report-status"><span></span><span
+            id="weekly-report-status-label">等待</span></span>
       </div>
       <div class="weekly-report-meta" id="weekly-report-meta" aria-live="polite">选择周期并生成一份报告。</div>
-      <div class="tool-error weekly-report-project-errors" id="weekly-report-project-errors" role="alert" aria-live="polite" hidden></div>
+      <div class="tool-error weekly-report-project-errors" id="weekly-report-project-errors" role="alert"
+        aria-live="polite" hidden></div>
       <div class="weekly-report-progress" id="weekly-report-progress" aria-live="polite" hidden>
         <div class="weekly-report-progress__label" id="weekly-report-progress-label">任务排队中</div>
-        <div class="weekly-report-progress__track" role="progressbar" aria-label="周报生成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="任务排队中"><span></span></div>
+        <div class="weekly-report-progress__track" role="progressbar" aria-label="周报生成进度" aria-valuemin="0"
+          aria-valuemax="100" aria-valuenow="0" aria-valuetext="任务排队中"><span></span></div>
       </div>
       <pre class="weekly-report-output" id="weekly-report-output" tabindex="0" aria-label="周报 Markdown 内容" hidden></pre>
       <div class="weekly-report-actions" id="weekly-report-actions" hidden>
         <button class="compare-button" id="weekly-report-copy" type="button">复制 Markdown</button>
-        <button class="compare-button compare-button--secondary" id="weekly-report-download" type="button">下载 Markdown</button>
+        <button class="compare-button compare-button--secondary" id="weekly-report-download" type="button">下载
+          Markdown</button>
       </div>
     </section>
   </div>
 
   <section class="weekly-project-config-card" aria-labelledby="weekly-project-config-title">
     <div class="section-heading-row section-heading-row-compact">
-      <div><p class="section-kicker">PROJECT SOURCES</p><h2 id="weekly-project-config-title">项目配置</h2></div>
-      <div class="weekly-project-config-actions"><span class="section-count" id="weekly-project-count">0 项</span><button class="compare-button compare-button--secondary" id="weekly-project-add" type="button" aria-controls="weekly-project-list">添加项目</button></div>
+      <div>
+        <p class="section-kicker">PROJECT SOURCES</p>
+        <h2 id="weekly-project-config-title">项目配置</h2>
+      </div>
+      <div class="weekly-project-config-actions"><span class="section-count" id="weekly-project-count">0 项</span><button
+          class="compare-button compare-button--secondary" id="weekly-project-add" type="button"
+          aria-controls="weekly-project-list">添加项目</button></div>
     </div>
     <div class="weekly-project-list" id="weekly-project-list">
       <article class="weekly-project-card" data-weekly-project data-weekly-project-id="default-0">
-        <div class="weekly-project-card__header"><span class="weekly-project-index" data-weekly-project-index>01</span><strong data-weekly-project-label>wzj-nodejs-v2</strong><button type="button" class="weekly-project-remove" data-weekly-project-remove aria-label="移除 wzj-nodejs-v2">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form" value="https://github.com/whtthd/wzj-nodejs-v2.git" required maxlength="2048" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com" required maxlength="128" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="merge/wzj-temp" maxlength="256" /></label>
+        <div class="weekly-project-card__header"><span class="weekly-project-index"
+            data-weekly-project-index>01</span><strong data-weekly-project-label>wzj-nodejs-v2</strong><button
+            type="button" class="weekly-project-remove" data-weekly-project-remove
+            aria-label="移除 wzj-nodejs-v2">移除</button></div>
+        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form"
+            value="https://github.com/whtthd/wzj-nodejs-v2.git" required maxlength="2048" /></label>
+        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com"
+            required maxlength="128" /></label>
+        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="merge/wzj-temp"
+            maxlength="256" /></label>
       </article>
       <article class="weekly-project-card" data-weekly-project data-weekly-project-id="default-1">
-        <div class="weekly-project-card__header"><span class="weekly-project-index" data-weekly-project-index>02</span><strong data-weekly-project-label>resource-portal-and-manage-backend</strong><button type="button" class="weekly-project-remove" data-weekly-project-remove aria-label="移除 resource-portal-and-manage-backend">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form" value="https://github.com/whtthd/resource-portal-and-manage-backend.git" required maxlength="2048" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com" required maxlength="128" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="dev/master" maxlength="256" /></label>
+        <div class="weekly-project-card__header"><span class="weekly-project-index"
+            data-weekly-project-index>02</span><strong
+            data-weekly-project-label>resource-portal-and-manage-backend</strong><button type="button"
+            class="weekly-project-remove" data-weekly-project-remove
+            aria-label="移除 resource-portal-and-manage-backend">移除</button></div>
+        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form"
+            value="https://github.com/whtthd/resource-portal-and-manage-backend.git" required
+            maxlength="2048" /></label>
+        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com"
+            required maxlength="128" /></label>
+        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="dev/master"
+            maxlength="256" /></label>
       </article>
       <article class="weekly-project-card" data-weekly-project data-weekly-project-id="default-2">
-        <div class="weekly-project-card__header"><span class="weekly-project-index" data-weekly-project-index>03</span><strong data-weekly-project-label>wzj-pc-frontend-next</strong><button type="button" class="weekly-project-remove" data-weekly-project-remove aria-label="移除 wzj-pc-frontend-next">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form" value="https://github.com/whtthd/wzj-pc-frontend-next.git" required maxlength="2048" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com" required maxlength="128" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="publish/integration" maxlength="256" /></label>
+        <div class="weekly-project-card__header"><span class="weekly-project-index"
+            data-weekly-project-index>03</span><strong data-weekly-project-label>wzj-pc-frontend-next</strong><button
+            type="button" class="weekly-project-remove" data-weekly-project-remove
+            aria-label="移除 wzj-pc-frontend-next">移除</button></div>
+        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form"
+            value="https://github.com/whtthd/wzj-pc-frontend-next.git" required maxlength="2048" /></label>
+        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com"
+            required maxlength="128" /></label>
+        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="publish/integration"
+            maxlength="256" /></label>
       </article>
     </div>
     <template id="weekly-project-template">
       <article class="weekly-project-card" data-weekly-project>
-        <div class="weekly-project-card__header"><span class="weekly-project-index" data-weekly-project-index></span><strong data-weekly-project-label>新项目</strong><button type="button" class="weekly-project-remove" data-weekly-project-remove aria-label="移除新项目">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form" required maxlength="2048" placeholder="https://github.com/owner/repository.git" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" required maxlength="128" placeholder="name@example.com" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" maxlength="256" placeholder="main" /></label>
+        <div class="weekly-project-card__header"><span class="weekly-project-index"
+            data-weekly-project-index></span><strong data-weekly-project-label>新项目</strong><button type="button"
+            class="weekly-project-remove" data-weekly-project-remove aria-label="移除新项目">移除</button></div>
+        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form" required maxlength="2048"
+            placeholder="https://github.com/owner/repository.git" /></label>
+        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" required maxlength="128"
+            placeholder="name@example.com" /></label>
+        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" maxlength="256"
+            placeholder="main" /></label>
       </article>
     </template>
   </section>

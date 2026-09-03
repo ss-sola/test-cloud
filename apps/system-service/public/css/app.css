@@ -2399,64 +2399,11 @@ a:focus-visible {
   font-size: 0.8125rem;
 }
 
-.weekly-feishu-target-heading .compare-button {
-  min-height: 2rem;
-  padding: 0.4rem 0.65rem;
-}
-
-.weekly-feishu-target-list {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
-}
-
 .weekly-feishu-target {
   padding: 0.75rem;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
-}
-
-.weekly-feishu-target__header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.625rem;
-  color: var(--color-ink);
-  font-size: 0.75rem;
-}
-
-.weekly-feishu-target__header span {
-  display: grid;
-  width: 1.5rem;
-  height: 1.5rem;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  background: #e7f1ff;
-  color: var(--color-primary);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.625rem;
-}
-
-.weekly-feishu-target__header strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weekly-feishu-target__header button {
-  margin-left: auto;
-  padding: 0.2rem 0.35rem;
-  border: 0;
-  background: transparent;
-  color: var(--color-danger, #dc3545);
-  cursor: pointer;
-  font-size: 0.6875rem;
-}
-
-.weekly-feishu-target__header button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
 }
 
 .weekly-project-heading {

@@ -16,6 +16,10 @@ export const WeeklyReportConfigKeys = {
   FeishuPublishEnabled: 'WeeklyReportFeishuPublishEnabled',
   FeishuAppId: 'WeeklyReportFeishuAppId',
   FeishuAppSecret: 'WeeklyReportFeishuAppSecret',
+  FeishuCliAppId: 'FEISHU_CLI_APP_ID',
+  FeishuCliAppSecret: 'FEISHU_CLI_APP_SECRET',
+  FeishuTarget: 'WeeklyReportFeishuTarget',
+  /** @deprecated Read only to migrate the previous monthly-target format. */
   FeishuMonthlyTargets: 'WeeklyReportFeishuMonthlyTargets',
   FeishuRequestTimeoutMs: 'WeeklyReportFeishuRequestTimeoutMs',
   FeishuMaxRetries: 'WeeklyReportFeishuMaxRetries',
@@ -35,8 +39,8 @@ export const DEFAULT_FEISHU_MAX_RETRIES = 2;
 export const FEISHU_RETRY_BASE_DELAY_MS = 250;
 export const FEISHU_TOKEN_REFRESH_SKEW_MS = 60_000;
 export const FEISHU_WEEKDAY_COLUMNS = ['C', 'D', 'E', 'F', 'G'] as const;
+/** 周报发布固定只读的日期/姓名查找范围。 */
 export const FEISHU_DEFAULT_LOOKUP_RANGE = 'A1:B200';
-export const FEISHU_MAX_MONTHLY_TARGETS = 24;
 export const FEISHU_MAX_CELL_CHARACTERS = 8_000;
 
 export const DEFAULT_WEEKLY_REPORT_PROJECTS: WeeklyReportProjectConfig[] = [

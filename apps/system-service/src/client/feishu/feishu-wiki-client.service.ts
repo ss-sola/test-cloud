@@ -18,9 +18,11 @@ export class FeishuWikiClientService {
   async resolveSpreadsheet(
     wikiUrl: string,
     context?: FeishuRequestContext,
-  ): Promise<{ spreadsheetToken: string; title?: string }> {
+  ): Promise<{ spreadsheetToken: string; sheetId?: string; title?: string }> {
     const resource = parseFeishuResourceUrl(wikiUrl);
-    if (resource.type === 'sheet') return { spreadsheetToken: resource.token };
+    if (resource.type === 'sheet') {
+      return { spreadsheetToken: resource.token, sheetId: resource.sheetId };
+    }
 
     const nodeToken = resource.token;
     let refreshed = false;
@@ -45,7 +47,7 @@ export class FeishuWikiClientService {
         if (!spreadsheetToken) {
           throw new FeishuApiException('飞书 Sheet 节点缺少对象标识。', 502, false);
         }
-        return { spreadsheetToken, title: node.title };
+        return { spreadsheetToken, sheetId: resource.sheetId, title: node.title };
       } catch (error) {
         if (!refreshed && isUnauthorized(error)) {
           this.authClient.invalidate(context);
@@ -61,6 +63,7 @@ export class FeishuWikiClientService {
 interface FeishuResourceUrl {
   type: 'wiki' | 'sheet';
   token: string;
+  sheetId?: string;
 }
 
 function parseFeishuResourceUrl(value: string): FeishuResourceUrl {
@@ -82,7 +85,17 @@ function parseFeishuResourceUrl(value: string): FeishuResourceUrl {
   if (!allowed || (type !== 'wiki' && type !== 'sheets') || !segments[1]) {
     throw new ParamsErrorException('飞书 Wiki 或 Sheet 地址域名或路径不受支持。');
   }
-  return { type: type === 'wiki' ? 'wiki' : 'sheet', token: segments[1] };
+  const sheetId = url.searchParams.get('sheet')?.trim() || undefined;
+  if (
+    sheetId &&
+    [...sheetId].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    })
+  ) {
+    throw new ParamsErrorException('飞书 Sheet 地址中的 sheet 参数无效。');
+  }
+  return { type: type === 'wiki' ? 'wiki' : 'sheet', token: segments[1], sheetId };
 }
 
 export function extractWikiToken(value: string): string {
@@ -99,6 +112,10 @@ export function extractSheetToken(value: string): string {
     throw new ParamsErrorException('飞书 Sheet 地址域名或路径不受支持。');
   }
   return resource.token;
+}
+
+export function extractSheetId(value: string): string | undefined {
+  return parseFeishuResourceUrl(value).sheetId;
 }
 
 function isUnauthorized(error: unknown): boolean {

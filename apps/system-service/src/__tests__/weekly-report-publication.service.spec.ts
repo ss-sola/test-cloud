@@ -43,21 +43,22 @@ class TestPublicationService extends WeeklyReportPublicationService {
       appSecret: 'app-secret',
       requestTimeoutMs: 15_000,
       maxRetries: 2,
-      targets: [
-        {
-          month: '2026-08',
-          wikiUrl: 'https://tthdtech.feishu.cn/wiki/wiki-token',
-          sheetId: 'sheet-august',
-          lookupRange: 'A1:B20',
-        },
-      ],
+      wikiUrl: 'https://tthdtech.feishu.cn/wiki/wiki-token?sheet=sheet-august',
+      name: '张三',
     };
+  }
+
+  readSettingsForTest(input?: WeeklyReportPublishSettingsInput): FeishuPublishSettings {
+    return super.readSettings(input);
   }
 }
 
 function createService(lookupValues: unknown[][], currentValues: unknown[][]) {
   const wikiClient = {
-    resolveSpreadsheet: vi.fn().mockResolvedValue({ spreadsheetToken: 'spreadsheet-token' }),
+    resolveSpreadsheet: vi.fn().mockResolvedValue({
+      spreadsheetToken: 'spreadsheet-token',
+      sheetId: 'sheet-august',
+    }),
   };
   const sheetsClient = {
     listSheets: vi.fn().mockResolvedValue([{ sheet_id: 'sheet-august' }]),
@@ -70,6 +71,23 @@ function createService(lookupValues: unknown[][], currentValues: unknown[][]) {
     new WeeklyReportSheetMapper(),
   );
   return { service, sheetsClient, wikiClient };
+}
+
+function preserveConfigEnvironment() {
+  const keys = [
+    'WeeklyReportFeishuPublishEnabled',
+    'WeeklyReportFeishuTarget',
+    'WeeklyReportFeishuMonthlyTargets',
+    'FEISHU_CLI_APP_ID',
+    'FEISHU_CLI_APP_SECRET',
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  return () => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
 }
 
 describe('WeeklyReportPublicationService', () => {
@@ -98,7 +116,7 @@ describe('WeeklyReportPublicationService', () => {
     expect(sheetsClient.updateValues).not.toHaveBeenCalled();
   });
 
-  it('uses request-level Feishu settings when provided', async () => {
+  it('uses the flat request-level Wiki and name settings', async () => {
     const { service, sheetsClient, wikiClient } = createService(
       [['8.24-8.28', '张三']],
       [['旧内容', '保留', '不变', '旧内容', '旧内容']],
@@ -106,36 +124,150 @@ describe('WeeklyReportPublicationService', () => {
     const settings: WeeklyReportPublishSettingsInput = {
       appId: 'request-app-id',
       appSecret: 'request-app-secret',
-      requestTimeoutMs: 8_000,
-      maxRetries: 1,
-      monthlyTargets: [
-        {
-          month: '2026-08',
-          wikiUrl: 'https://tthdtech.feishu.cn/wiki/request-wiki-token',
-          sheetId: 'sheet-august',
-          lookupRange: 'A1:B20',
-          name: '张三',
-        },
-      ],
+      wikiUrl: 'https://tthdtech.feishu.cn/wiki/request-wiki-token?sheet=sheet-august',
+      name: '张三',
     };
 
     await service.publishIfEnabled(result, { enabled: true, settings });
 
     expect(wikiClient.resolveSpreadsheet).toHaveBeenCalledWith(
-      settings.monthlyTargets[0].wikiUrl,
+      settings.wikiUrl,
       expect.objectContaining({
         appId: settings.appId,
         appSecret: settings.appSecret,
-        requestTimeoutMs: settings.requestTimeoutMs,
-        maxRetries: settings.maxRetries,
       }),
+    );
+    expect(sheetsClient.readValues).toHaveBeenNthCalledWith(
+      1,
+      'spreadsheet-token',
+      'sheet-august!A1:B200',
+      expect.anything(),
     );
     expect(sheetsClient.updateValues).toHaveBeenCalledWith(
       'spreadsheet-token',
       'sheet-august!C1:G1',
       [['1. 完成接口', '1. 补充测试', '1. 整理文档', '1. 修复导出', '1. 发布验证']],
-      expect.objectContaining({ appId: settings.appId, maxRetries: settings.maxRetries }),
+      expect.objectContaining({ appId: settings.appId, appSecret: settings.appSecret }),
     );
+  });
+
+  it('reads the canonical single target from server configuration', () => {
+    const restore = preserveConfigEnvironment();
+    Object.assign(process.env, {
+      WeeklyReportFeishuPublishEnabled: 'true',
+      WeeklyReportFeishuTarget: JSON.stringify({
+        wikiUrl: 'https://example.feishu.cn/wiki/server-target?sheet=server-sheet',
+        name: '服务端姓名',
+      }),
+      FEISHU_CLI_APP_ID: 'env-app-id',
+      FEISHU_CLI_APP_SECRET: 'env-app-secret',
+    });
+
+    try {
+      const { service } = createService([], []);
+      expect(service.readSettingsForTest()).toMatchObject({
+        enabled: true,
+        wikiUrl: 'https://example.feishu.cn/wiki/server-target?sheet=server-sheet',
+        name: '服务端姓名',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it('migrates one legacy target and rejects multiple legacy targets', () => {
+    const restore = preserveConfigEnvironment();
+    Object.assign(process.env, {
+      WeeklyReportFeishuPublishEnabled: 'true',
+      FEISHU_CLI_APP_ID: 'env-app-id',
+      FEISHU_CLI_APP_SECRET: 'env-app-secret',
+      WeeklyReportFeishuMonthlyTargets: JSON.stringify([
+        {
+          month: '2026-08',
+          wikiUrl: 'https://example.feishu.cn/wiki/legacy-target',
+          sheetId: 'legacy-sheet',
+          lookupRange: 'A1:B20',
+          name: '旧姓名',
+        },
+      ]),
+    });
+
+    try {
+      const { service } = createService([], []);
+      expect(service.readSettingsForTest()).toMatchObject({
+        wikiUrl: 'https://example.feishu.cn/wiki/legacy-target?sheet=legacy-sheet',
+        name: '旧姓名',
+      });
+
+      process.env.WeeklyReportFeishuMonthlyTargets = JSON.stringify([
+        { wikiUrl: 'https://example.feishu.cn/wiki/one?sheet=one' },
+        { wikiUrl: 'https://example.feishu.cn/wiki/two?sheet=two' },
+      ]);
+      expect(() => service.readSettingsForTest()).toThrow(/无法自动迁移/);
+    } finally {
+      restore();
+    }
+  });
+
+  it('uses the configured Wiki when the report week crosses a month boundary', async () => {
+    const crossMonthResult: WeeklyReportResult = {
+      ...result,
+      weekStart: '2026-08-31',
+      weekEnd: '2026-09-06',
+      dailySections: result.dailySections?.map((section, index) => ({
+        ...section,
+        date: ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04'][index],
+      })),
+    };
+    const { service, wikiClient, sheetsClient } = createService(
+      [['8.31-9.04', '张三']],
+      [['旧内容', '旧内容', '旧内容', '旧内容', '旧内容']],
+    );
+
+    await service.publishIfEnabled(crossMonthResult, { person: '张三' });
+
+    expect(wikiClient.resolveSpreadsheet).toHaveBeenCalledWith(
+      'https://tthdtech.feishu.cn/wiki/wiki-token?sheet=sheet-august',
+      expect.anything(),
+    );
+    expect(sheetsClient.readValues).toHaveBeenNthCalledWith(
+      1,
+      'spreadsheet-token',
+      'sheet-august!A1:B200',
+      expect.anything(),
+    );
+  });
+
+  it('falls back to CLI environment credentials when request values are absent', async () => {
+    const previousAppId = process.env.FEISHU_CLI_APP_ID;
+    const previousAppSecret = process.env.FEISHU_CLI_APP_SECRET;
+    process.env.FEISHU_CLI_APP_ID = 'env-app-id';
+    process.env.FEISHU_CLI_APP_SECRET = 'env-app-secret';
+
+    try {
+      const { service, wikiClient } = createService(
+        [['8.24-8.28', '张三']],
+        [['旧内容', '保留', '不变', '旧内容', '旧内容']],
+      );
+      const settings: WeeklyReportPublishSettingsInput = {
+        appId: '',
+        appSecret: '',
+        wikiUrl: 'https://tthdtech.feishu.cn/sheets/spreadsheet-token?sheet=sheet-august',
+        name: '张三',
+      };
+
+      await service.publishIfEnabled(result, { enabled: true, settings });
+
+      expect(wikiClient.resolveSpreadsheet).toHaveBeenCalledWith(
+        settings.wikiUrl,
+        expect.objectContaining({ appId: 'env-app-id', appSecret: 'env-app-secret' }),
+      );
+    } finally {
+      if (previousAppId === undefined) delete process.env.FEISHU_CLI_APP_ID;
+      else process.env.FEISHU_CLI_APP_ID = previousAppId;
+      if (previousAppSecret === undefined) delete process.env.FEISHU_CLI_APP_SECRET;
+      else process.env.FEISHU_CLI_APP_SECRET = previousAppSecret;
+    }
   });
 
   it('does not auto-publish a this-week result', async () => {
@@ -158,7 +290,7 @@ describe('WeeklyReportPublicationService', () => {
     expect(sheetsClient.readValues).toHaveBeenNthCalledWith(
       1,
       'spreadsheet-token',
-      'sheet-august!A1:B20',
+      'sheet-august!A1:B200',
       expect.objectContaining({ appId: 'app-id', requestTimeoutMs: 15_000 }),
     );
     expect(sheetsClient.readValues).toHaveBeenNthCalledWith(

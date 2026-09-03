@@ -106,4 +106,35 @@ describe('config-center loadConfig', () => {
     expect(configCenter.getConfig('missing.value', 'fallback', false)).toBe('fallback');
     expect(() => configCenter.getConfig('Port')).toThrow('Config key not found: Port');
   });
+
+  it('falls back to process environment values when file config is absent', async () => {
+    const configCenter = await importConfigCenter();
+    const previous = process.env.FEISHU_CLI_APP_ID;
+    process.env.FEISHU_CLI_APP_ID = 'env-app-id';
+
+    try {
+      loadExistsSyncMock.mockReturnValue(false);
+      configCenter.loadConfig(['missing.env']);
+      expect(configCenter.getConfig('FEISHU_CLI_APP_ID', '', false)).toBe('env-app-id');
+    } finally {
+      if (previous === undefined) delete process.env.FEISHU_CLI_APP_ID;
+      else process.env.FEISHU_CLI_APP_ID = previous;
+    }
+  });
+
+  it('prefers file config over process environment values', async () => {
+    const configCenter = await importConfigCenter();
+    const previous = process.env.FEISHU_CLI_APP_ID;
+    process.env.FEISHU_CLI_APP_ID = 'env-app-id';
+
+    try {
+      loadExistsSyncMock.mockReturnValue(true);
+      loadReadFileSyncMock.mockReturnValue(JSON.stringify({ FEISHU_CLI_APP_ID: 'file-app-id' }));
+      configCenter.loadConfig(['base.json']);
+      expect(configCenter.getConfig('FEISHU_CLI_APP_ID', '', false)).toBe('file-app-id');
+    } finally {
+      if (previous === undefined) delete process.env.FEISHU_CLI_APP_ID;
+      else process.env.FEISHU_CLI_APP_ID = previous;
+    }
+  });
 });

@@ -24,14 +24,6 @@ export interface FeishuValueRange {
   values?: unknown[][];
 }
 
-export interface FeishuMonthlyTarget {
-  month: string;
-  wikiUrl: string;
-  sheetId: string;
-  lookupRange: string;
-  name?: string;
-}
-
 export interface FeishuRequestContext {
   appId: string;
   appSecret: string;
@@ -41,7 +33,8 @@ export interface FeishuRequestContext {
 
 export interface FeishuPublishSettings extends FeishuRequestContext {
   enabled: boolean;
-  targets: FeishuMonthlyTarget[];
+  wikiUrl: string;
+  name?: string;
 }
 
 export interface FeishuPublishTargetInput {

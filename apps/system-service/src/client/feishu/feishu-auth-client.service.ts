@@ -74,13 +74,29 @@ export class FeishuAuthClientService {
   }
 
   private resolveCredentials(context?: FeishuRequestContext): FeishuRequestContext {
-    if (context) return context;
-    const appId = getConfig<string>(WeeklyReportConfigKeys.FeishuAppId, '', false).trim();
-    const appSecret = getConfig<string>(WeeklyReportConfigKeys.FeishuAppSecret, '', false).trim();
+    const appId =
+      context?.appId?.trim() ||
+      getConfig<string>(
+        WeeklyReportConfigKeys.FeishuCliAppId,
+        getConfig<string>(WeeklyReportConfigKeys.FeishuAppId, '', false),
+        false,
+      ).trim();
+    const appSecret =
+      context?.appSecret?.trim() ||
+      getConfig<string>(
+        WeeklyReportConfigKeys.FeishuCliAppSecret,
+        getConfig<string>(WeeklyReportConfigKeys.FeishuAppSecret, '', false),
+        false,
+      ).trim();
     if (!appId || !appSecret) {
       throw new ProjectException('未配置飞书应用凭据，无法发布周报。', 503);
     }
-    return { appId, appSecret, requestTimeoutMs: 0, maxRetries: -1 };
+    return {
+      appId,
+      appSecret,
+      requestTimeoutMs: context?.requestTimeoutMs ?? 0,
+      maxRetries: context?.maxRetries ?? -1,
+    };
   }
 
   private getCacheKey(context: Pick<FeishuRequestContext, 'appId' | 'appSecret'>): string {
