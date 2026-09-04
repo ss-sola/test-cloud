@@ -1,0 +1,49 @@
+<section class="view tool-view release-automation-view" data-view="release-automation" aria-labelledby="release-automation-title" hidden>
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">RELEASE / 1.9.0</p>
+      <h1 id="release-automation-title">1.9.0 发布计划</h1>
+      <p class="page-description">通过 GitHub API 生成远程合并与发布计划；Jenkins 仅负责后续验证和打包。</p>
+    </div>
+    <span class="heading-mark" aria-hidden="true">08</span>
+  </div>
+
+  <form class="release-automation-form" id="release-automation-form">
+    <div class="form-field-grid">
+      <label class="form-field">
+        <span>目标分支</span>
+        <input id="release-target-branch" name="targetBranch" required maxlength="256" pattern="custom/.+" placeholder="custom/production" />
+        <small>仅支持 custom/*；分支合并通过 GitHub API 完成。</small>
+      </label>
+      <label class="form-field">
+        <span>候选 commit SHA</span>
+        <input id="release-candidate-sha" name="candidateSha" required minlength="7" maxlength="64" pattern="[0-9a-fA-F]{7,64}" placeholder="候选 immutable SHA" autocomplete="off" />
+        <small>不会下载代码到本地；缺少远程候选 SHA 时任务会阻断。</small>
+      </label>
+    </div>
+    <div class="release-automation-meta" aria-label="发布配置">
+      <span class="status-badge status-badge--ready" data-release-version>版本 1.9.0</span>
+      <span class="status-badge status-badge--ready">默认 dry-run</span>
+      <span class="release-automation-note">Jenkins 凭据或完整 Pipeline 地址缺失时不会发起请求。</span>
+    </div>
+    <div class="compare-actions">
+      <button class="compare-button" id="release-automation-submit" type="submit">创建发布计划 <span aria-hidden="true">→</span></button>
+      <span class="compare-hint">重复提交会复用同一幂等 Job</span>
+    </div>
+  </form>
+
+  <section class="release-automation-progress" id="release-automation-progress" aria-live="polite" aria-busy="false" hidden>
+    <div class="compare-result-header">
+      <div>
+        <p class="result-kicker">服务端阶段进度</p>
+        <h2 id="release-automation-stage-label">等待执行</h2>
+      </div>
+      <span class="status-badge status-badge--empty" id="release-automation-status">等待</span>
+    </div>
+    <div class="release-progress-track" aria-hidden="true"><span id="release-automation-progress-bar"></span></div>
+    <p class="release-automation-message" id="release-automation-message">尚未创建发布 Job。</p>
+    <p class="release-automation-job" id="release-automation-job" data-job-id></p>
+    <ol class="release-automation-stages" id="release-automation-stages" aria-label="发布阶段"></ol>
+  </section>
+  <p class="compare-error" id="release-automation-error" role="alert" hidden></p>
+</section>

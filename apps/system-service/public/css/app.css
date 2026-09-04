@@ -2952,6 +2952,119 @@ a:focus-visible {
   margin-top: var(--space-2);
 }
 
+.release-automation-view {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.release-automation-form,
+.release-automation-progress {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.form-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.form-field {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.form-field input {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.form-field input:focus {
+  border-color: var(--color-primary);
+  outline: 2px solid rgb(0 123 255 / 15%);
+  outline-offset: 1px;
+}
+
+.form-field small,
+.release-automation-note,
+.release-automation-job {
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.release-automation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.release-progress-track {
+  height: 0.35rem;
+  margin: var(--space-2) 0;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #dbeafe;
+}
+
+.release-progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 200ms ease-out;
+}
+
+.release-automation-message {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.release-automation-job {
+  margin: 0.25rem 0 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.release-automation-stages {
+  display: grid;
+  gap: 0.35rem;
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
+  color: var(--color-ink-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6875rem;
+}
+
+.release-automation-stages li[data-status='succeeded'],
+.release-automation-stages li[data-status='completed'] {
+  color: var(--color-success);
+}
+
+.release-automation-stages li[data-status='failed'],
+.release-automation-stages li[data-status='blocked'] {
+  color: #a61e2a;
+}
+
+@media (max-width: 767px) {
+  .form-field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 767px) {
   .config-file-preview-config,
   .config-file-preview-result {

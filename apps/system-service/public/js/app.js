@@ -10,6 +10,7 @@
     'weekly-report': { title: '周报生成', documentTitle: '周报生成 · NestCloud' },
     bullmq: { title: 'BullMQ 面板', documentTitle: 'BullMQ 面板 · NestCloud' },
     'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
+    'release-automation': { title: '1.9.0 发布计划', documentTitle: '1.9.0 发布计划 · NestCloud' },
   }
   const FRAGMENT_PATHS = Object.freeze({
     overview: '/public/html/overview.html',
@@ -19,6 +20,7 @@
     'weekly-report': '/public/html/weekly-report.html',
     bullmq: '/public/html/bullmq.html',
     'config-file-preview': '/public/html/config-file-preview.html',
+    'release-automation': '/public/html/release-automation.html',
   })
   const STATUS_LABELS = { empty: '等待', loading: '处理中', ready: '就绪', error: '错误' }
   const DIFF_LABELS = { added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' }
@@ -135,6 +137,10 @@
       if (typeof window.NestCloudConfigFilePreview?.mount === 'function') {
         const configView = viewHost.querySelector('[data-view="config-file-preview"]')
         if (configView instanceof HTMLElement) window.NestCloudConfigFilePreview.mount(configView)
+      }
+      if (typeof window.NestCloudReleaseAutomation?.mount === 'function') {
+        const releaseView = viewHost.querySelector('[data-view="release-automation"]')
+        if (releaseView instanceof HTMLElement) window.NestCloudReleaseAutomation.mount(releaseView)
       }
       renderRoute(normalizeRoute())
     } catch (error) {

@@ -151,6 +151,7 @@ describe('static shell and fragment contract', () => {
       'weekly-report',
       'bullmq',
       'config-file-preview',
+      'release-automation',
     ];
 
     expect(html).toContain('id="main-content"');
@@ -273,5 +274,28 @@ describe('config file preview menu contract', () => {
     expect(preview).toContain('window.NestCloudConfigFilePreview');
     expect(preview).toContain('output.textContent = latestContent');
     expect(preview).not.toContain('innerHTML');
+  });
+});
+
+describe('release automation menu contract', () => {
+  it('connects the 1.9.0 page and keeps the dry-run/idempotency contract', () => {
+    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const fragment = readFileSync(
+      resolve(process.cwd(), 'public/html/release-automation.html'),
+      'utf8',
+    );
+    const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
+    const script = readFileSync(resolve(process.cwd(), 'public/js/release-automation.js'), 'utf8');
+
+    expect(html).toContain('href="#release-automation" data-route="release-automation"');
+    expect(fragment).toContain('data-view="release-automation"');
+    expect(fragment).toContain('1.9.0 发布计划');
+    expect(fragment).toContain('id="release-automation-progress"');
+    expect(app).toContain("'release-automation': { title: '1.9.0 发布计划'");
+    expect(app).toContain("'release-automation': '/public/html/release-automation.html'");
+    expect(html).toContain('<script src="/public/js/release-automation.js" defer></script>');
+    expect(script).toContain("'Idempotency-Key'");
+    expect(script).toContain("mode: 'dry-run'");
+    expect(script).not.toContain('innerHTML');
   });
 });
