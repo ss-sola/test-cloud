@@ -10,7 +10,8 @@
     'weekly-report': { title: '周报生成', documentTitle: '周报生成 · NestCloud' },
     bullmq: { title: 'BullMQ 面板', documentTitle: 'BullMQ 面板 · NestCloud' },
     'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
-    'release-automation': { title: '1.9.0 发布计划', documentTitle: '1.9.0 发布计划 · NestCloud' },
+    'release-automation': { title: '发布版本', documentTitle: '发布版本 · NestCloud' },
+    'token-config': { title: 'Token 配置', documentTitle: 'Token 配置 · NestCloud' },
   }
   const FRAGMENT_PATHS = Object.freeze({
     overview: '/public/html/overview.html',
@@ -21,6 +22,7 @@
     bullmq: '/public/html/bullmq.html',
     'config-file-preview': '/public/html/config-file-preview.html',
     'release-automation': '/public/html/release-automation.html',
+    'token-config': '/public/html/token-config.html',
   })
   const STATUS_LABELS = { empty: '等待', loading: '处理中', ready: '就绪', error: '错误' }
   const DIFF_LABELS = { added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' }
@@ -29,6 +31,7 @@
     env: 'nestcloud:compare:env:v1',
     weekly: 'nestcloud:weekly-report:v1',
   })
+  const TOKEN_STORAGE_KEY = 'nestcloud:release-tokens:v1'
   const STORAGE_VERSION = 1
   const MAX_COMPARE_DRAFT_LENGTH = 500_000
 
@@ -142,6 +145,10 @@
         const releaseView = viewHost.querySelector('[data-view="release-automation"]')
         if (releaseView instanceof HTMLElement) window.NestCloudReleaseAutomation.mount(releaseView)
       }
+      if (typeof window.NestCloudTokenConfig?.mount === 'function') {
+        const tokenView = viewHost.querySelector('[data-view="token-config"]')
+        if (tokenView instanceof HTMLElement) window.NestCloudTokenConfig.mount(tokenView)
+      }
       renderRoute(normalizeRoute())
     } catch (error) {
       if (generation !== fragmentGeneration) return
@@ -162,6 +169,18 @@
       return raw ? JSON.parse(raw) : null
     } catch {
       return null
+    }
+  }
+
+  function readReleaseTokenConfig() {
+    const value = readStoredValue(TOKEN_STORAGE_KEY)
+    if (!value || typeof value !== 'object') return { githubToken: '', jenkinsToken: '', jenkinsBaseUrl: '', feishuAppId: '', feishuAppSecret: '' }
+    return {
+      githubToken: typeof value.githubToken === 'string' ? value.githubToken : '',
+      jenkinsToken: typeof value.jenkinsToken === 'string' ? value.jenkinsToken : '',
+      jenkinsBaseUrl: typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : '',
+      feishuAppId: typeof value.feishuAppId === 'string' ? value.feishuAppId : '',
+      feishuAppSecret: typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : '',
     }
   }
 
@@ -197,9 +216,10 @@
   }
 
   function createDefaultFeishuSettings() {
+    const tokens = readReleaseTokenConfig()
     return {
-      appId: '',
-      appSecret: '',
+      appId: tokens.feishuAppId,
+      appSecret: tokens.feishuAppSecret,
       wikiUrl: '',
       name: '',
     }
@@ -228,9 +248,10 @@
         // The server will report malformed Wiki addresses when publishing.
       }
     }
+    const tokens = readReleaseTokenConfig()
     return {
-      appId: typeof settings.appId === 'string' ? settings.appId.slice(0, 256) : '',
-      appSecret: typeof settings.appSecret === 'string' ? settings.appSecret.slice(0, 512) : '',
+      appId: tokens.feishuAppId,
+      appSecret: tokens.feishuAppSecret,
       wikiUrl,
       name: typeof target.name === 'string' ? target.name.slice(0, 128) : '',
     }
@@ -1064,16 +1085,22 @@
     }
 
     function renderFeishuSettings(settings) {
-      feishuAppId.value = settings.appId
-      feishuAppSecret.value = settings.appSecret
+      const tokens = readReleaseTokenConfig()
+      feishuAppId.value = tokens.feishuAppId
+      feishuAppSecret.value = tokens.feishuAppSecret
+      feishuAppId.readOnly = true
+      feishuAppSecret.readOnly = true
+      feishuAppId.title = '请在 Token 配置页面修改'
+      feishuAppSecret.title = '请在 Token 配置页面修改'
       feishuWikiUrl.value = settings.wikiUrl
       feishuName.value = settings.name
     }
 
     function readFeishuSettingsFromDom() {
+      const tokens = readReleaseTokenConfig()
       return normalizeFeishuSettings({
-        appId: feishuAppId.value.trim(),
-        appSecret: feishuAppSecret.value.trim(),
+        appId: tokens.feishuAppId,
+        appSecret: tokens.feishuAppSecret,
         wikiUrl: feishuWikiUrl.value.trim(),
         name: feishuName.value.trim(),
       })
@@ -1281,6 +1308,11 @@
     }))
     publishCheckbox.addEventListener('change', () => {
       updatePublishOption()
+      saveProjects()
+    })
+    window.addEventListener('nestcloud:tokens-updated', () => {
+      const settings = readFeishuSettingsFromDom()
+      renderFeishuSettings(settings)
       saveProjects()
     })
     form.addEventListener('submit', generate)

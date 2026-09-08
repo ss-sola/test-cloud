@@ -6,7 +6,6 @@ import {
   RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
   RELEASE_AUTOMATION_SHA_PATTERN,
   RELEASE_AUTOMATION_TAG_PATTERN,
-  RELEASE_AUTOMATION_VERSION,
 } from './release-automation.constants';
 import { readReleaseAutomationConfig } from './release-automation.config';
 import { redactSensitiveText, resolveSecret, sha256 } from './release-automation.security';
@@ -80,6 +79,7 @@ export interface GitHubMergeOptions {
   message: string;
   mode: ReleaseMode;
   sideEffectGate?: string;
+  config?: ReleaseAutomationConfig;
 }
 
 export interface GitHubTagOptions {
@@ -88,6 +88,7 @@ export interface GitHubTagOptions {
   sha: string;
   mode: ReleaseMode;
   sideEffectGate?: string;
+  config?: ReleaseAutomationConfig;
 }
 
 export interface GitHubMergeResult {
@@ -174,7 +175,11 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     return commits;
   }
 
-  async getRef(repositoryInput: string, refInput: string): Promise<GitHubRef> {
+  async getRef(
+    repositoryInput: string,
+    refInput: string,
+    config?: ReleaseAutomationConfig,
+  ): Promise<GitHubRef> {
     const repository = this.assertRepository(repositoryInput);
     const ref = this.assertRef(refInput);
     const normalizedRef = ref.startsWith('refs/') ? ref.slice(5) : ref;
@@ -182,6 +187,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       'GET',
       `/repos/${repository.slug}/git/ref/${this.encodePath(normalizedRef)}`,
       '读取 GitHub ref',
+      undefined,
+      config,
     );
     if (!isRecord(payload) || typeof payload.ref !== 'string' || !isRecord(payload.object)) {
       throw this.invalidResponse('读取 GitHub ref');
@@ -234,7 +241,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const repository = this.assertRepository(options.repository);
     const base = this.assertBranch(options.base);
     const head = this.assertBranch(options.head);
-    if (!options.message || options.message.length > 256 || /[ -]/.test(options.message)) {
+    if (!options.message || options.message.length > 256 || hasControlCharacter(options.message)) {
       throw new ProjectException('GitHub 合并提交消息无效。', 400);
     }
     const response = await this.requestWithStatus(
@@ -244,6 +251,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       { base, head, commit_message: options.message },
       [201, 204],
       false,
+      options.config,
     );
     if (response.status === 204) return { status: 'already-applied' };
     const payload = parseJson(response.text);
@@ -256,11 +264,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   async createTag(options: GitHubTagOptions): Promise<GitHubRef> {
     this.assertWriteGate(options.mode, options.sideEffectGate);
     const repository = this.assertRepository(options.repository);
-    if (
-      options.tag !== RELEASE_AUTOMATION_VERSION ||
-      !RELEASE_AUTOMATION_TAG_PATTERN.test(options.tag)
-    ) {
-      throw new ProjectException(`GitHub tag 必须固定为 ${RELEASE_AUTOMATION_VERSION}。`, 400);
+    if (!RELEASE_AUTOMATION_TAG_PATTERN.test(options.tag)) {
+      throw new ProjectException('GitHub tag 格式无效。', 400);
     }
     if (!RELEASE_AUTOMATION_SHA_PATTERN.test(options.sha)) {
       throw new ProjectException('GitHub tag 对象 SHA 格式无效。', 400);
@@ -272,6 +277,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       { ref: `refs/tags/${options.tag}`, sha: options.sha },
       [201],
       false,
+      options.config,
     );
     const payload = parseJson(response.text);
     if (!isRecord(payload) || typeof payload.ref !== 'string' || !isRecord(payload.object)) {
@@ -293,8 +299,17 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     path: string,
     operation: string,
     body?: unknown,
+    config?: ReleaseAutomationConfig,
   ): Promise<T> {
-    const response = await this.requestWithStatus(method, path, operation, body, [200]);
+    const response = await this.requestWithStatus(
+      method,
+      path,
+      operation,
+      body,
+      [200],
+      true,
+      config,
+    );
     if (!response.text.trim()) throw this.invalidResponse(operation);
     const payload = parseJson(response.text);
     return payload as T;
@@ -307,16 +322,20 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     body: unknown,
     expectedStatuses: number[],
     retryable = method === 'GET',
+    config?: ReleaseAutomationConfig,
   ): Promise<{ status: number; text: string; headers: Headers }> {
-    const config = this.getConfig();
-    const url = this.buildUrl(config, path);
-    const token = await resolveSecret(config.githubTokenRef, this.getSecretProvider());
+    const resolvedConfig = this.getConfig(config);
+    const url = this.buildUrl(resolvedConfig, path);
+    const token =
+      resolvedConfig.githubToken ??
+      (await resolveSecret(resolvedConfig.githubTokenRef, this.getSecretProvider()));
     const fetchImpl = this.getFetch();
     const maxRetries = retryable
-      ? (config.githubMaxRetries ?? RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES)
+      ? (resolvedConfig.githubMaxRetries ?? RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES)
       : 0;
-    const timeoutMs = config.githubTimeoutMs ?? RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS;
-    const maxBytes = config.githubMaxResponseBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES;
+    const timeoutMs = resolvedConfig.githubTimeoutMs ?? RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS;
+    const maxBytes =
+      resolvedConfig.githubMaxResponseBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES;
 
     for (let attempt = 0; ; attempt += 1) {
       const controller = new AbortController();
@@ -416,11 +435,9 @@ export class GitHubReleaseClientService extends RemoteClientBase {
 
   private assertRepository(value: string): GitHubRepository {
     const slug = normalizeRepository(value);
-    const config = this.getConfig();
-    const allowlist = config.githubAllowedRepositories.map(normalizeRepository);
-    if (!slug || allowlist.length === 0 || !allowlist.includes(slug)) {
-      throw new GitHubApiException('GitHub repository 不在 allowlist。', {
-        status: 403,
+    if (!slug) {
+      throw new GitHubApiException('GitHub repository 格式无效。', {
+        status: 400,
         retryable: false,
         operation: '校验 GitHub repository',
       });
@@ -435,7 +452,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       value.startsWith('/') ||
       value.includes('..') ||
       value.includes('\\') ||
-      /[ -]/.test(value)
+      hasControlCharacter(value)
     ) {
       throw new ProjectException('GitHub 文件路径无效。', 400);
     }
@@ -448,7 +465,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       value.length > 256 ||
       value.includes('..') ||
       value.includes('\\') ||
-      /[ -]/.test(value)
+      hasControlCharacter(value)
     ) {
       throw new ProjectException('GitHub ref 无效。', 400);
     }
@@ -527,8 +544,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     return this.options?.secretProvider;
   }
 
-  private getConfig(): ReleaseAutomationConfig {
-    return this.options?.config ?? readReleaseAutomationConfig();
+  private getConfig(config?: ReleaseAutomationConfig): ReleaseAutomationConfig {
+    return config ?? this.options?.config ?? readReleaseAutomationConfig();
   }
 
   private boundInteger(value: number, min: number, max: number): number {
@@ -541,6 +558,14 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       .map((segment) => encodeURIComponent(segment))
       .join('/');
   }
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
 }
 
 function normalizeRepository(value: string): string {

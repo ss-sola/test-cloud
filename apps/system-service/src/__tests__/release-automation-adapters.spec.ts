@@ -13,10 +13,8 @@ const sha = 'a'.repeat(40);
 function config(overrides: Partial<ReleaseAutomationConfig> = {}): ReleaseAutomationConfig {
   return {
     version: '1.9.0',
-    dryRun: true,
     githubBaseUrl: 'https://api.github.test',
     githubAllowedHosts: ['api.github.test'],
-    githubAllowedRepositories: ['acme/project'],
     githubTokenRef: 'secret://github/token',
     githubTimeoutMs: 100,
     githubMaxRetries: 0,
@@ -70,6 +68,49 @@ describe('release automation remote adapters', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('performs guarded GitHub merge and tag writes with runtime credentials', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(201, JSON.stringify({ sha })))
+      .mockResolvedValueOnce(
+        response(201, JSON.stringify({ ref: 'refs/tags/1.9.0', object: { sha, type: 'commit' } })),
+      );
+    const client = new GitHubReleaseClientService({
+      config: config({ githubToken: 'runtime-token' }),
+      fetchImpl,
+    });
+
+    await expect(
+      client.merge({
+        repository: 'acme/project',
+        base: 'custom/prod',
+        head: 'dev',
+        message: 'Merge dev into custom/prod for Release Version 1.9.0',
+        mode: 'apply',
+        sideEffectGate: 'gate-' + 'x'.repeat(20),
+      }),
+    ).resolves.toMatchObject({ status: 'merged', sha });
+    await expect(
+      client.createTag({
+        repository: 'acme/project',
+        tag: '1.9.0',
+        sha,
+        mode: 'apply',
+        sideEffectGate: 'gate-' + 'x'.repeat(20),
+      }),
+    ).resolves.toMatchObject({ ref: 'refs/tags/1.9.0', sha });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({ Authorization: 'Bearer runtime-token' }),
+    });
+    expect(fetchImpl.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({ Authorization: 'Bearer runtime-token' }),
+    });
+  });
+
   it('accepts only a same-origin dynamic queue Location', () => {
     expect(
       parseQueueId('http://jenkins.test:8080/queue/item/777/', 'http://jenkins.test:8080'),
@@ -92,12 +133,18 @@ describe('release automation remote adapters', () => {
     ].join('\n');
     expect(parsePipelineTag(text)).toBe('1.9.0');
     expect(RELEASE_AUTOMATION_TAG_PATTERN.test('1.9.0')).toBe(true);
+    expect(RELEASE_AUTOMATION_TAG_PATTERN.test('v1.9.0-2026-09-04')).toBe(true);
+    expect(
+      parsePipelineTag(
+        '+ docker push registry.cn-hangzhou.aliyuncs.com/weizhujiao/backend-wzj-nodejs-v2:x86_dev_master_0e98b10ef6_v1.9.0-2026-09-04\nFinished: SUCCESS',
+      ),
+    ).toBe('x86_dev_master_0e98b10ef6_v1.9.0-2026-09-04');
     expect(() => parsePipelineTag('backend-wzj-nodejs-v2: 1.9.0\nFinished: FAILURE')).toThrow(
       'Finished: SUCCESS',
     );
   });
 
-  it('does not verify a successful build without a source SHA', async () => {
+  it('does not require a source SHA to package with Jenkins', async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -115,7 +162,8 @@ describe('release automation remote adapters', () => {
             actions: [],
           }),
         ),
-      );
+      )
+      .mockResolvedValueOnce(response(200, 'backend-wzj-nodejs-v2: 1.9.0\nFinished: SUCCESS\n'));
     const client = new JenkinsClientService({
       config: config(),
       fetchImpl,
@@ -123,20 +171,12 @@ describe('release automation remote adapters', () => {
       secretProvider: { resolve: vi.fn().mockResolvedValue('Authorization sentinel') },
     });
 
-    await expect(
-      client.package({
-        releaseUnit: {
-          repository: 'acme/project',
-          targetBranch: 'custom/prod',
-          candidateSha: sha,
-          version: '1.9.0',
-        },
-        planHash: 'b'.repeat(64),
-        mode: 'apply',
-        sideEffectGate: 'gate-' + 'x'.repeat(20),
-      }),
-    ).resolves.toMatchObject({ status: 'manual-intervention', queueId: '779', buildNumber: 889 });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    await expect(client.package()).resolves.toMatchObject({
+      status: 'verified',
+      queueId: '779',
+      buildNumber: 889,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
   it('rejects a build response without the executable build number', async () => {
@@ -164,19 +204,7 @@ describe('release automation remote adapters', () => {
       secretProvider: { resolve: vi.fn().mockResolvedValue('Authorization sentinel') },
     });
 
-    await expect(
-      client.package({
-        releaseUnit: {
-          repository: 'acme/project',
-          targetBranch: 'custom/prod',
-          candidateSha: sha,
-          version: '1.9.0',
-        },
-        planHash: 'b'.repeat(64),
-        mode: 'apply',
-        sideEffectGate: 'gate-' + 'x'.repeat(20),
-      }),
-    ).rejects.toThrow('number');
+    await expect(client.package()).rejects.toThrow('number');
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
   it('uses the trigger Location and executable number, never fixed example ids', async () => {
@@ -212,17 +240,12 @@ describe('release automation remote adapters', () => {
       sleep: vi.fn().mockResolvedValue(undefined),
       secretProvider: { resolve: vi.fn().mockResolvedValue('Authorization sentinel') },
     });
-    const result = await client.package({
-      releaseUnit: {
-        repository: 'acme/project',
-        targetBranch: 'custom/prod',
-        candidateSha: sha,
-        version: '1.9.0',
-      },
-      planHash: 'b'.repeat(64),
-      mode: 'apply',
-      sideEffectGate: 'gate-' + 'x'.repeat(20),
-    });
+    const result = await client.package(
+      config({
+        jenkinsTriggerPath: '/job/override/buildWithParameters',
+        jenkinsToken: 'runtime-token',
+      }),
+    );
     expect(result).toMatchObject({
       status: 'verified',
       queueId: '777',
@@ -231,5 +254,10 @@ describe('release automation remote adapters', () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(String(fetchImpl.mock.calls[0][0])).not.toContain('Authorization sentinel');
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/job/override/buildWithParameters');
+    expect(fetchImpl.mock.calls[0][1]?.headers).toMatchObject({
+      Authorization: `Basic ${Buffer.from('root:runtime-token').toString('base64')}`,
+    });
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('skipTest=true');
   });
 });

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ProjectException } from '@nest-cloud/common';
 import { diffEnv } from './env-diff.util';
-import { GitHubReleaseClientService } from './github-release-client.service';
+import { GitHubApiException, GitHubReleaseClientService } from './github-release-client.service';
 import { JenkinsClientService } from './jenkins-client.service';
 import { ModifyLogArchiveService } from './modify-log-archive.service';
 import { ModifyLogGatewayService } from './modify-log-gateway.service';
@@ -66,9 +66,73 @@ export class ReleaseAutomationService {
     private readonly archive: ModifyLogArchiveService,
   ) {}
 
+  async ensureTag(options: {
+    repository: string;
+    tag: string;
+    sourceBranch: string;
+    mode: ReleaseMode;
+    sideEffectGate: string;
+    config?: ReleaseAutomationConfig;
+    expectedSha?: string;
+  }): Promise<{ status: 'created' | 'skipped' | 'planned' | 'reconciled'; sha: string }> {
+    let existing: GitHubRef | undefined;
+    try {
+      existing = await this.github.getRef(
+        options.repository,
+        `tags/${options.tag}`,
+        options.config,
+      );
+    } catch (error) {
+      if (!(error instanceof GitHubApiException) || error.getStatus() !== 404) throw error;
+    }
+    if (existing) return { status: 'skipped', sha: existing.sha };
+
+    const source = await this.github.getRef(
+      options.repository,
+      `heads/${options.sourceBranch}`,
+      options.config,
+    );
+    if (options.expectedSha && source.sha !== options.expectedSha) {
+      throw new ProjectException('Git tag 来源 SHA 已变化，必须重新 plan。', 409);
+    }
+    if (options.mode === 'dry-run') return { status: 'planned', sha: source.sha };
+
+    try {
+      const created = await this.github.createTag({
+        repository: options.repository,
+        tag: options.tag,
+        sha: source.sha,
+        mode: options.mode,
+        sideEffectGate: options.sideEffectGate,
+        config: options.config,
+      });
+      return { status: 'created', sha: created.sha };
+    } catch (error) {
+      if (!(error instanceof GitHubApiException) || error.getStatus() !== 422) throw error;
+      try {
+        const reconciled = await this.github.getRef(
+          options.repository,
+          `tags/${options.tag}`,
+          options.config,
+        );
+        return { status: 'reconciled', sha: reconciled.sha };
+      } catch (readError) {
+        if (readError instanceof GitHubApiException && readError.getStatus() === 404) throw error;
+        throw readError;
+      }
+    }
+  }
+
+  async getBranchRef(options: {
+    repository: string;
+    branch: string;
+    config?: ReleaseAutomationConfig;
+  }): Promise<GitHubRef> {
+    return this.github.getRef(options.repository, `heads/${options.branch}`, options.config);
+  }
   async getEnvironmentDiff(options: EnvironmentDiffOptions = {}): Promise<EnvironmentDiffReport> {
     const config = readReleaseAutomationConfig();
-    const repository = selectRepository(options.repository, config);
+    const repository = selectRepository(options.repository);
     if (
       !config.environmentBeforeRef ||
       !config.environmentAfterRef ||
@@ -94,8 +158,7 @@ export class ReleaseAutomationService {
   }
 
   async planBranches(options: { repository?: string } = {}): Promise<BranchPlanReport> {
-    const config = readReleaseAutomationConfig();
-    const repository = selectRepository(options.repository, config);
+    const repository = selectRepository(options.repository);
     const [dev, master, targets] = await Promise.all([
       this.github.getRef(repository, 'heads/dev'),
       this.github.getRef(repository, 'heads/master'),
@@ -133,49 +196,37 @@ export class ReleaseAutomationService {
   async mergeBranch(options: {
     repository: string;
     targetBranch: string;
-    sourceBranch: 'dev' | 'master';
+    sourceBranch: string;
     mode: ReleaseMode;
     sideEffectGate?: string;
+    config?: ReleaseAutomationConfig;
     expectedTargetSha?: string;
     expectedSourceSha?: string;
   }) {
-    if (!options.targetBranch.startsWith('custom/')) {
+    if (!/^custom\/(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+$/.test(options.targetBranch)) {
       throw new ProjectException('远程合并目标必须是 custom/*。', 400);
     }
-    if (options.mode === 'apply') {
-      const [targetBefore, source] = await Promise.all([
-        this.github.getRef(options.repository, `heads/${options.targetBranch}`),
-        this.github.getRef(options.repository, `heads/${options.sourceBranch}`),
-      ]);
-      if (options.expectedTargetSha && targetBefore.sha !== options.expectedTargetSha) {
-        throw new ProjectException('远程合并目标 SHA 已变化，必须重新 plan。', 409);
-      }
-      if (options.expectedSourceSha && source.sha !== options.expectedSourceSha) {
-        throw new ProjectException('远程合并来源 SHA 已变化，必须重新 plan。', 409);
-      }
-      const result = await this.github.merge({
-        repository: options.repository,
-        base: options.targetBranch,
-        head: options.sourceBranch,
-        message: `Merge ${options.sourceBranch} into ${options.targetBranch} for Release Version ${RELEASE_AUTOMATION_VERSION}`,
-        mode: options.mode,
-        sideEffectGate: options.sideEffectGate,
-      });
-      const targetAfter = await this.github.getRef(
-        options.repository,
-        `heads/${options.targetBranch}`,
-      );
-      if (result.status === 'merged' && result.sha && targetAfter.sha !== result.sha) {
-        throw new ProjectException('远程合并后目标 SHA 与响应不一致。', 409);
-      }
+    const [targetBefore, source] = await Promise.all([
+      this.github.getRef(options.repository, `heads/${options.targetBranch}`, options.config),
+      this.github.getRef(options.repository, `heads/${options.sourceBranch}`, options.config),
+    ]);
+    if (options.expectedTargetSha && targetBefore.sha !== options.expectedTargetSha) {
+      throw new ProjectException('远程合并目标 SHA 已变化，必须重新 plan。', 409);
+    }
+    if (options.expectedSourceSha && source.sha !== options.expectedSourceSha) {
+      throw new ProjectException('远程合并来源 SHA 已变化，必须重新 plan。', 409);
+    }
+    if (options.mode === 'dry-run') {
       return {
-        ...result,
+        status: 'planned' as const,
         beforeSha: targetBefore.sha,
-        afterSha: targetAfter.sha,
+        afterSha: targetBefore.sha,
+        sourceSha: source.sha,
         targetBranch: options.targetBranch,
         sourceBranch: options.sourceBranch,
       };
     }
+
     const result = await this.github.merge({
       repository: options.repository,
       base: options.targetBranch,
@@ -183,8 +234,27 @@ export class ReleaseAutomationService {
       message: `Merge ${options.sourceBranch} into ${options.targetBranch} for Release Version ${RELEASE_AUTOMATION_VERSION}`,
       mode: options.mode,
       sideEffectGate: options.sideEffectGate,
+      config: options.config,
     });
-    return { ...result, targetBranch: options.targetBranch, sourceBranch: options.sourceBranch };
+    const targetAfter = await this.github.getRef(
+      options.repository,
+      `heads/${options.targetBranch}`,
+      options.config,
+    );
+    if (result.status === 'merged' && (!result.sha || targetAfter.sha !== result.sha)) {
+      throw new ProjectException('远程合并后目标 SHA 与响应不一致。', 409);
+    }
+    if (result.status === 'already-applied' && targetAfter.sha !== targetBefore.sha) {
+      throw new ProjectException('远程合并返回已完成但目标 SHA 发生变化。', 409);
+    }
+    return {
+      ...result,
+      beforeSha: targetBefore.sha,
+      afterSha: targetAfter.sha,
+      sourceSha: source.sha,
+      targetBranch: options.targetBranch,
+      sourceBranch: options.sourceBranch,
+    };
   }
 
   async prepareModifyLog(options: {
@@ -194,7 +264,7 @@ export class ReleaseAutomationService {
   }): Promise<ModifyLogPreparation> {
     const source = await this.modifyLogGateway.readSource();
     const sql = this.renderer.render({
-      version: RELEASE_AUTOMATION_VERSION,
+      version: options.releaseUnit.gitTag ?? options.releaseUnit.version,
       sourceChecksum: source.checksum,
       records: source.records,
       releaseUnit: options.releaseUnit,
@@ -221,17 +291,13 @@ export class ReleaseAutomationService {
     return this.archive.compareAndClear(options);
   }
 
-  async packageWithJenkins(options: {
-    releaseUnit: ReleaseUnit;
-    planHash: string;
-    mode: ReleaseMode;
-    sideEffectGate?: string;
-  }): Promise<JenkinsPackageResult> {
-    return this.jenkins.package(options);
+  async packageWithJenkins(config: ReleaseAutomationConfig): Promise<JenkinsPackageResult> {
+    return this.jenkins.package(config);
   }
 
   async createReleaseTag(options: {
     repository: string;
+    tag: string;
     sha: string;
     mode: ReleaseMode;
     sideEffectGate?: string;
@@ -240,7 +306,7 @@ export class ReleaseAutomationService {
       throw new ProjectException('创建 release tag 需要独立 apply gate。', 403);
     return this.github.createTag({
       repository: options.repository,
-      tag: RELEASE_AUTOMATION_VERSION,
+      tag: options.tag,
       sha: options.sha,
       mode: options.mode,
       sideEffectGate: options.sideEffectGate,
@@ -248,17 +314,11 @@ export class ReleaseAutomationService {
   }
 }
 
-function selectRepository(input: string | undefined, config: ReleaseAutomationConfig): string {
-  const repositories = config.githubAllowedRepositories.map(normalizeRepository).filter(Boolean);
-  if (input) {
-    const normalized = normalizeRepository(input);
-    if (!normalized || !repositories.includes(normalized))
-      throw new ProjectException('repository 不在 GitHub allowlist。', 403);
-    return normalized;
-  }
-  if (repositories.length !== 1)
-    throw new ProjectException('必须配置或指定唯一的 GitHub repository。', 400);
-  return repositories[0];
+function selectRepository(input: string | undefined): string {
+  if (!input) throw new ProjectException('必须指定 GitHub repository。', 400);
+  const normalized = normalizeRepository(input);
+  if (!normalized) throw new ProjectException('repository 格式无效。', 400);
+  return normalized;
 }
 
 function normalizeRepository(value: string): string {

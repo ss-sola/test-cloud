@@ -1,6 +1,6 @@
 # 发布自动化架构边界
 
-`system-service` 的 release-automation 由自动注册扫描 `@Injectable` 和 `@Controller`，不新增业务 Module。Controller 只创建 dry-run Job 和读取状态；业务编排位于 `ReleaseAutomationService`，外部访问位于 `GitHubReleaseClientService`/`JenkinsClientService`，纯转换位于 ENV diff 与 SQL renderer。
+`system-service` 的 release-automation 由自动注册扫描 `@Injectable` 和 `@Controller`，不新增业务 Module。Controller 提供持久化 Job、状态查询和测试同步执行三类入口；同步入口只在请求内存中运行，不创建 Redis/BullMQ Job。业务编排位于 `ReleaseAutomationService`/`ReleaseAutomationExecutionService`，外部访问位于 `GitHubReleaseClientService`/`JenkinsClientService`，纯转换位于 ENV diff 与 SQL renderer。
 
 外部副作用矩阵：
 

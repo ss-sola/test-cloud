@@ -1,0 +1,111 @@
+import { describe, expect, it, vi } from 'vitest';
+import { GitHubReleaseClientService } from '../modules/release-automation/github-release-client.service';
+import { ReleaseAutomationService } from '../modules/release-automation/release-automation.service';
+import type { ReleaseAutomationConfig } from '../modules/release-automation/release-automation.config';
+
+const sha = 'a'.repeat(40);
+
+function config(): ReleaseAutomationConfig {
+  return {
+    version: '1.9.0',
+    githubBaseUrl: 'https://api.github.test',
+    githubAllowedHosts: ['api.github.test'],
+    githubToken: 'runtime-token',
+    githubTimeoutMs: 100,
+    githubMaxRetries: 0,
+    githubMaxResponseBytes: 100_000,
+    modifyLogPath: 'modify-log.sql',
+    modifyLogArchiveDir: 'var/archive',
+    modifyLogMaxBytes: 100_000,
+    modifyLogMaxLines: 100,
+    jenkinsTimeoutMs: 100,
+    jenkinsMaxRetries: 0,
+    jenkinsPollIntervalMs: 1,
+    jenkinsQueueTimeoutMs: 100,
+    jenkinsBuildTimeoutMs: 100,
+    redisKeyPrefix: 'release-automation',
+  };
+}
+
+function response(status: number, body: string) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers(),
+    text: vi.fn().mockResolvedValue(body),
+  };
+}
+
+function refResponse(ref: string) {
+  return JSON.stringify({ ref, object: { sha, type: 'commit' } });
+}
+
+describe('release automation Git service', () => {
+  it('reconciles a concurrent tag creation without retrying POST', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(404, JSON.stringify({ message: 'Not Found' })))
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/dev/master')))
+      .mockResolvedValueOnce(response(422, JSON.stringify({ message: 'Reference exists' })))
+      .mockResolvedValueOnce(response(200, refResponse('refs/tags/1.9.0')));
+    const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
+    const service = new ReleaseAutomationService(
+      github,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.ensureTag({
+        repository: 'acme/project',
+        tag: '1.9.0',
+        sourceBranch: 'dev/master',
+        mode: 'apply',
+        sideEffectGate: 'release-gate-' + 'x'.repeat(20),
+        config: config(),
+      }),
+    ).resolves.toEqual({ status: 'reconciled', sha });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(fetchImpl.mock.calls.map(([, init]) => init?.method ?? 'GET')).toEqual([
+      'GET',
+      'GET',
+      'POST',
+      'GET',
+    ]);
+  });
+
+  it('treats an existing tag as idempotent without comparing source SHA', async () => {
+    const existingSha = 'b'.repeat(40);
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      response(
+        200,
+        JSON.stringify({
+          ref: 'refs/tags/v1.9.0-2026-09-04',
+          object: { sha: existingSha, type: 'commit' },
+        }),
+      ),
+    );
+    const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
+    const service = new ReleaseAutomationService(
+      github,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.ensureTag({
+        repository: 'acme/project',
+        tag: 'v1.9.0-2026-09-04',
+        sourceBranch: 'dev/master',
+        mode: 'apply',
+        sideEffectGate: 'release-gate-' + 'x'.repeat(20),
+        config: config(),
+      }),
+    ).resolves.toEqual({ status: 'skipped', sha: existingSha });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

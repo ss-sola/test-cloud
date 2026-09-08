@@ -22,11 +22,8 @@ export class SystemServiceConfig {
   @IsIn([RELEASE_AUTOMATION_VERSION])
   ReleaseAutomationVersion?: typeof RELEASE_AUTOMATION_VERSION;
 
-  /** 发布自动化键登记；具体格式、默认值和条件关系由模块配置解析器校验。 */
-  @IsOptional() ReleaseAutomationDryRun?: unknown;
   @IsOptional() @IsString() ReleaseAutomationGitHubBaseUrl?: string;
   @IsOptional() @IsString() ReleaseAutomationGitHubAllowedHosts?: string;
-  @IsOptional() @IsString() ReleaseAutomationGitHubAllowedRepositories?: string;
   @IsOptional() @IsString() ReleaseAutomationGitHubTokenRef?: string;
   @IsOptional() @Type(() => Number) @IsNumber() ReleaseAutomationGitHubTimeoutMs?: number;
   @IsOptional() @Type(() => Number) @IsNumber() ReleaseAutomationGitHubMaxRetries?: number;

@@ -141,8 +141,18 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
   private safeRecord(record: ReleaseJobRecord): ReleaseJobRecord {
     return {
       ...record,
-      releaseUnit: { ...record.releaseUnit },
-      progress: { ...record.progress, releaseUnit: { ...record.progress.releaseUnit } },
+      logs: record.logs?.map((entry) => ({
+        ...entry,
+        message: redactSensitiveText(entry.message),
+      })),
+      progress: {
+        ...record.progress,
+        releaseUnit: { ...record.progress.releaseUnit },
+        logs: record.logs?.map((entry) => ({
+          ...entry,
+          message: redactSensitiveText(entry.message),
+        })),
+      },
       error: record.error
         ? {
             ...record.error,

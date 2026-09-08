@@ -2,7 +2,7 @@
   <div class="page-heading">
     <div>
       <p class="eyebrow">RELEASE / 1.9.0</p>
-      <h1 id="release-automation-title">1.9.0 发布计划</h1>
+      <h1 id="release-automation-title">发布版本</h1>
       <p class="page-description">通过 GitHub API 生成远程合并与发布计划；Jenkins 仅负责后续验证和打包。</p>
     </div>
     <span class="heading-mark" aria-hidden="true">08</span>
@@ -11,31 +11,36 @@
   <form class="release-automation-form" id="release-automation-form">
     <div class="form-field-grid">
       <label class="form-field">
-        <span>目标分支</span>
-        <input id="release-target-branch" name="targetBranch" required maxlength="256" pattern="custom/.+" placeholder="custom/production" />
-        <small>仅支持 custom/*；分支合并通过 GitHub API 完成。</small>
+        <span>Git 地址</span>
+        <input id="release-git-address" name="gitAddress" required maxlength="2048" placeholder="https://github.com/org/repository.git" autocomplete="url" />
       </label>
       <label class="form-field">
-        <span>候选 commit SHA</span>
-        <input id="release-candidate-sha" name="candidateSha" required minlength="7" maxlength="64" pattern="[0-9a-fA-F]{7,64}" placeholder="候选 immutable SHA" autocomplete="off" />
-        <small>不会下载代码到本地；缺少远程候选 SHA 时任务会阻断。</small>
+        <span>Git tag</span>
+        <input id="release-git-tag" name="gitTag" required maxlength="128" pattern="[0-9A-Za-z][0-9A-Za-z._+-]*" value="1.9.0" placeholder="1.9.0" />
+        <small>本次创建的 release tag，创建位置由发布流程控制。</small>
+      </label>
+      <label class="form-field">
+        <span>Git 分支</span>
+        <input id="release-target-branch" name="branch" required maxlength="256" pattern="custom/.+" placeholder="custom/production" />
+        <small>仅支持 custom/*；分支合并通过 GitHub API 完成。</small>
       </label>
     </div>
     <div class="release-automation-meta" aria-label="发布配置">
       <span class="status-badge status-badge--ready" data-release-version>版本 1.9.0</span>
-      <span class="status-badge status-badge--ready">默认 dry-run</span>
-      <span class="release-automation-note">Jenkins 凭据或完整 Pipeline 地址缺失时不会发起请求。</span>
+      <span class="status-badge status-badge--ready">真实执行</span>
+      <a class="compare-hint" href="#token-config">前往 Token 配置</a>
+      <span class="release-automation-note">Jenkins 完整 Pipeline 地址缺失时不会发起请求。</span>
     </div>
     <div class="compare-actions">
-      <button class="compare-button" id="release-automation-submit" type="submit">创建发布计划 <span aria-hidden="true">→</span></button>
-      <span class="compare-hint">重复提交会复用同一幂等 Job</span>
+      <button class="compare-button" id="release-automation-submit" type="submit">执行发布 <span aria-hidden="true">→</span></button>
+      <span class="compare-hint">按勾选步骤执行真实发布；重复提交会复用同一幂等 Job</span>
     </div>
   </form>
 
-  <section class="release-automation-progress" id="release-automation-progress" aria-live="polite" aria-busy="false" hidden>
+  <section class="release-automation-progress" id="release-automation-progress" aria-live="polite" aria-busy="false">
     <div class="compare-result-header">
       <div>
-        <p class="result-kicker">服务端阶段进度</p>
+        <p class="result-kicker">执行任务列表</p>
         <h2 id="release-automation-stage-label">等待执行</h2>
       </div>
       <span class="status-badge status-badge--empty" id="release-automation-status">等待</span>
@@ -44,6 +49,8 @@
     <p class="release-automation-message" id="release-automation-message">尚未创建发布 Job。</p>
     <p class="release-automation-job" id="release-automation-job" data-job-id></p>
     <ol class="release-automation-stages" id="release-automation-stages" aria-label="发布阶段"></ol>
+    <div class="release-log-heading"><h3>执行日志</h3><span>服务端全量日志</span></div>
+    <pre class="release-automation-log" id="release-automation-log" aria-live="polite" aria-label="发布任务全量日志">尚未开始执行。</pre>
   </section>
   <p class="compare-error" id="release-automation-error" role="alert" hidden></p>
 </section>

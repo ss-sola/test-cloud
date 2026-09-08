@@ -14,14 +14,14 @@ import {
   ReleaseAutomationConfigKeys,
 } from './release-automation.constants';
 import { isSecretReference } from './release-automation.security';
+import type { ReleasePageConfig } from './release-automation.types';
 
 export interface ReleaseAutomationConfig {
   version: typeof RELEASE_AUTOMATION_VERSION;
-  dryRun: boolean;
   githubBaseUrl: string;
   githubAllowedHosts: string[];
-  githubAllowedRepositories: string[];
   githubTokenRef?: string;
+  githubToken?: string;
   githubTimeoutMs: number;
   githubMaxRetries: number;
   githubMaxResponseBytes: number;
@@ -38,6 +38,9 @@ export interface ReleaseAutomationConfig {
   jenkinsBuildPathTemplate?: string;
   jenkinsPipelineTextPathTemplate?: string;
   jenkinsCredentialRef?: string;
+  jenkinsToken?: string;
+  jenkinsProjectName?: string;
+  jenkinsBranch?: string;
   jenkinsTimeoutMs: number;
   jenkinsMaxRetries: number;
   jenkinsPollIntervalMs: number;
@@ -49,16 +52,16 @@ export interface ReleaseAutomationConfig {
   redisKeyPrefix: string;
 }
 
-export function readReleaseAutomationConfig(): ReleaseAutomationConfig {
+export function readReleaseAutomationConfig(
+  overrides?: ReleasePageConfig,
+): ReleaseAutomationConfig {
   const config: ReleaseAutomationConfig = {
     version: readVersion(),
-    dryRun: getConfig<boolean>(ReleaseAutomationConfigKeys.DryRun, true, false),
     githubBaseUrl: readBaseUrl(
       getConfig<string>(ReleaseAutomationConfigKeys.GitHubBaseUrl, 'https://api.github.com', false),
       'GitHub',
     ),
     githubAllowedHosts: readList(ReleaseAutomationConfigKeys.GitHubAllowedHosts, 'api.github.com'),
-    githubAllowedRepositories: readList(ReleaseAutomationConfigKeys.GitHubAllowedRepositories, ''),
     githubTokenRef: readOptional(ReleaseAutomationConfigKeys.GitHubTokenRef),
     githubTimeoutMs: readPositiveNumber(
       ReleaseAutomationConfigKeys.GitHubTimeoutMs,
@@ -125,8 +128,96 @@ export function readReleaseAutomationConfig(): ReleaseAutomationConfig {
       readOptional(ReleaseAutomationConfigKeys.RedisKeyPrefix) ?? RELEASE_AUTOMATION_QUEUE_PREFIX,
   };
 
+  applyPageOverrides(config, overrides);
   validateReleaseAutomationConfig(config);
   return config;
+}
+
+function applyPageOverrides(config: ReleaseAutomationConfig, overrides?: ReleasePageConfig): void {
+  if (!overrides) return;
+  config.githubToken = overrides.githubToken.trim() || undefined;
+  config.jenkinsToken = overrides.jenkinsToken.trim() || undefined;
+  config.jenkinsProjectName = overrides.projectName?.trim() || undefined;
+  config.jenkinsBranch = overrides.branch.trim() || undefined;
+  const jenkinsJob = overrides.jenkinsBaseUrl.trim()
+    ? parseJenkinsJobUrl(overrides.jenkinsBaseUrl.trim())
+    : undefined;
+  config.jenkinsBaseUrl = jenkinsJob?.baseUrl ?? config.jenkinsBaseUrl;
+  if (jenkinsJob) {
+    config.jenkinsTriggerPath = `${jenkinsJob.jobPath}/buildWithParameters`;
+    config.jenkinsQueuePathTemplate = '/queue/item/{queueId}/api/json';
+    config.jenkinsBuildPathTemplate = `${jenkinsJob.jobPath}/{buildNumber}/api/json`;
+    config.jenkinsPipelineTextPathTemplate = `${jenkinsJob.jobPath}/{buildNumber}/consoleText`;
+  } else if (config.jenkinsProjectName) {
+    const jobPath = encodeJenkinsJobPath(config.jenkinsProjectName);
+    config.jenkinsTriggerPath ??= `/job/${jobPath}/buildWithParameters`;
+    config.jenkinsQueuePathTemplate ??= '/queue/item/{queueId}/api/json';
+    config.jenkinsBuildPathTemplate ??= `/job/${jobPath}/{buildNumber}/api/json`;
+  }
+}
+
+export interface JenkinsJobAddress {
+  baseUrl: string;
+  jobPath: string;
+}
+
+export function parseJenkinsJobUrl(value: string): JenkinsJobAddress {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new ProjectException('Jenkins 任务地址无效。', 400);
+  }
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new ProjectException('Jenkins 任务地址必须是无凭据、无查询参数的 HTTP(S) 地址。', 400);
+  }
+  const rawSegments = url.pathname.replace(/\/$/, '').split('/').filter(Boolean);
+  const segments =
+    rawSegments.at(-1) === 'buildWithParameters' ? rawSegments.slice(0, -1) : rawSegments;
+  if (
+    segments.length < 2 ||
+    segments.length % 2 !== 0 ||
+    segments.some((segment, index) =>
+      index % 2 === 0 ? segment !== 'job' : !isSafeJenkinsPathSegment(segment),
+    )
+  ) {
+    throw new ProjectException('Jenkins 任务地址必须包含 /job/{name} 路径。', 400);
+  }
+  return {
+    baseUrl: `${url.origin}`,
+    jobPath: `/${segments.join('/')}`,
+  };
+}
+
+function isSafeJenkinsPathSegment(value: string): boolean {
+  return (
+    Boolean(value) &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('..') &&
+    /^[A-Za-z0-9._~!$&'()*+,;=:@%~-]+$/.test(value)
+  );
+}
+
+function encodeJenkinsJobPath(value: string): string {
+  if (
+    !/^[A-Za-z0-9._/-]+$/.test(value) ||
+    value.includes('..') ||
+    value.startsWith('/') ||
+    value.endsWith('/')
+  ) {
+    throw new ProjectException('Jenkins 项目名称无效。', 400);
+  }
+  return value
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
 }
 
 export function validateReleaseAutomationConfig(config: ReleaseAutomationConfig): void {
@@ -151,15 +242,6 @@ export function validateReleaseAutomationConfig(config: ReleaseAutomationConfig)
       throw new ProjectException('GitHub host allowlist 配置无效。', 500);
     }
   }
-  for (const repository of config.githubAllowedRepositories) {
-    const normalized = repository
-      .replace(/^https:\/\/github\.com\//i, '')
-      .replace(/\.git$/i, '')
-      .replace(/\/$/, '');
-    if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(normalized)) {
-      throw new ProjectException('GitHub repository allowlist 配置无效。', 500);
-    }
-  }
   if (config.githubTokenRef && !isSecretReference(config.githubTokenRef)) {
     throw new ProjectException('GitHub 凭据必须使用 secret:// 引用。', 500);
   }
@@ -176,7 +258,7 @@ export function isJenkinsReady(config: ReleaseAutomationConfig): boolean {
     config.jenkinsQueuePathTemplate &&
     config.jenkinsBuildPathTemplate &&
     config.jenkinsPipelineTextPathTemplate &&
-    config.jenkinsCredentialRef,
+    (config.jenkinsCredentialRef || config.jenkinsToken),
   );
 }
 

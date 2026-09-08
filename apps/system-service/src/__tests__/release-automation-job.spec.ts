@@ -1,29 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ReleaseAutomationJobService } from '../modules/release-automation/release-automation-job.service';
-import type { ReleaseAutomationConfig } from '../modules/release-automation/release-automation.config';
 import type { ReleaseJobRecord } from '../modules/release-automation/release-automation.types';
 import type { ReleaseQueueGateway } from '../modules/release-automation/release-automation-queue.service';
-
-const config: ReleaseAutomationConfig = {
-  version: '1.9.0',
-  dryRun: true,
-  githubBaseUrl: 'https://api.github.test',
-  githubAllowedHosts: ['api.github.test'],
-  githubAllowedRepositories: ['acme/project'],
-  githubTimeoutMs: 100,
-  githubMaxRetries: 0,
-  githubMaxResponseBytes: 100_000,
-  modifyLogPath: 'modify-log.sql',
-  modifyLogArchiveDir: 'var/archive',
-  modifyLogMaxBytes: 100_000,
-  modifyLogMaxLines: 100,
-  jenkinsTimeoutMs: 100,
-  jenkinsMaxRetries: 0,
-  jenkinsPollIntervalMs: 1,
-  jenkinsQueueTimeoutMs: 100,
-  jenkinsBuildTimeoutMs: 100,
-  redisKeyPrefix: 'release-automation',
-};
 
 class FakeQueue implements ReleaseQueueGateway {
   readonly records = new Map<string, ReleaseJobRecord>();
@@ -44,7 +22,7 @@ class FakeQueue implements ReleaseQueueGateway {
 describe('release automation job idempotency', () => {
   it('returns the same job for the same key and rejects a different payload', async () => {
     const queue = new FakeQueue();
-    const service = new ReleaseAutomationJobService(queue, { config });
+    const service = new ReleaseAutomationJobService(queue);
     const first = {
       idempotencyKey: 'release-test-001',
       plan: {

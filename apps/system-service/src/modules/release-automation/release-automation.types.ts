@@ -1,26 +1,55 @@
-import type { RELEASE_AUTOMATION_VERSION } from './release-automation.constants';
-
-export type ReleaseVersion = typeof RELEASE_AUTOMATION_VERSION;
+export type ReleaseVersion = string;
 export type ReleaseMode = 'dry-run' | 'apply';
 
 export interface ReleaseUnit {
   repository: string;
   targetBranch: string;
-  candidateSha: string;
+  gitTag?: string;
+  candidateSha?: string;
   version: ReleaseVersion;
+}
+
+export type ReleaseTaskKey =
+  | 'git-tag'
+  | 'github-merge'
+  | 'jenkins'
+  | 'release-docs'
+  | 'modify-log'
+  | 'feishu';
+
+export type ReleaseTaskStatus =
+  | 'pending'
+  | 'planned'
+  | 'running'
+  | 'succeeded'
+  | 'skipped'
+  | 'blocked';
+
+export interface ReleasePageConfig {
+  gitAddress: string;
+  branch: string;
+  projectName?: string;
+  githubToken: string;
+  jenkinsToken: string;
+  jenkinsBaseUrl: string;
+  feishuAppId: string;
+  feishuAppSecret: string;
 }
 
 export interface ReleasePlanInput {
   repository?: string;
   targetBranch: string;
-  candidateSha: string;
+  gitTag?: string;
+  candidateSha?: string;
   version?: string;
   mode?: ReleaseMode;
+  pageConfig?: ReleasePageConfig;
+  selectedTasks?: ReleaseTaskKey[];
 }
 
 export interface ReleasePlanPayload {
   releaseUnit: ReleaseUnit;
-  mode: 'dry-run';
+  mode: ReleaseMode;
   payloadHash: string;
   planHash: string;
 }
@@ -44,6 +73,13 @@ export type ReleaseStage =
   | 'partial-success'
   | 'failed';
 
+export interface ReleaseLogEntry {
+  sequence: number;
+  timestamp: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+}
+
 export interface ReleaseProgress {
   stage: ReleaseStage;
   sequence: number;
@@ -51,6 +87,8 @@ export interface ReleaseProgress {
   message: string;
   updatedAt: string;
   releaseUnit: ReleaseUnit;
+  taskStatuses?: Partial<Record<ReleaseTaskKey, ReleaseTaskStatus>>;
+  logs?: ReleaseLogEntry[];
 }
 
 export interface ReleaseJobError {
@@ -64,7 +102,10 @@ export interface ReleaseJobRecord {
   idempotencyKey: string;
   payloadHash: string;
   releaseUnit: ReleaseUnit;
-  mode: 'dry-run';
+  mode: ReleaseMode;
+  pageConfig?: ReleasePageConfig;
+  selectedTasks?: ReleaseTaskKey[];
+  logs?: ReleaseLogEntry[];
   progress: ReleaseProgress;
   error: ReleaseJobError | null;
   createdAt: string;
@@ -160,13 +201,6 @@ export interface ClearModifyLogOptions {
   version: ReleaseVersion;
   confirmationToken: string;
   mode: ReleaseMode;
-}
-
-export interface JenkinsReleaseOptions {
-  releaseUnit: ReleaseUnit;
-  planHash: string;
-  mode: ReleaseMode;
-  sideEffectGate?: string;
 }
 
 export interface JenkinsPackageResult {

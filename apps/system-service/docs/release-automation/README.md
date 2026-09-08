@@ -1,9 +1,9 @@
 # 发布自动化
 
-本模块为 `1.9.0` 发布单元提供可测试的 dry-run 计划能力和受控适配器。发布单元由以下不可变字段组成：
+本模块为输入 `gitTag` 的发布单元提供真实执行能力和受控适配器。发布单元由以下字段组成：
 
 ```text
-repository + targetBranch + candidateSha + version(固定 1.9.0)
+repository + targetBranch + gitTag
 ```
 
 ## 文档导航
@@ -20,8 +20,9 @@ repository + targetBranch + candidateSha + version(固定 1.9.0)
 - GitHub Contents、commits、branches、refs、compare、merge 和 tag API client；分支合并只表达远程 API 调用，不下载代码。
 - `modify-log.sql` 受控读取、确定性 SQL、SHA-256、原子归档和 compare-and-clear。
 - Jenkins queue/build/text 轮询与 Pipeline tag 解析，全部使用本次动态 queue/build 编号。
-- 默认 dry-run Job、Redis 缺失时拒绝入队、独立 Redis prefix、服务端 sequence 进度和幂等冲突检测。
+- 真实执行 Job、Redis 缺失时拒绝入队、独立 Redis prefix、服务端 sequence 进度和幂等冲突检测。dry-run/apply 由 Job 的 mode 决定；apply 仍需独立 gate。Feishu 当前按要求跳过。
+- 提供测试用同步执行入口 `POST /api/release-automation/test/execute`；默认 dry-run、不创建 BullMQ Job，不能替代生产 Job 的持久化与跨请求幂等流程。
 
-## 明确不做
+## 当前限制
 
-本模块不会执行本地 Git merge、clone、pull、fetch、checkout 或 worktree，不默认创建远程 merge/tag，不执行 SQL，不清空 modify-log，不调用真实 Jenkins/Feishu/数据库。创建 Job 的 HTTP 接口只允许 dry-run；apply、tag、Jenkins POST 和 clear 由独立 gate 方法保护。
+本模块不会执行本地 Git merge、clone、pull、fetch、checkout 或 worktree；远程分支操作全部通过 GitHub API。Feishu 当前不执行，modify-log database tree commit 和 AI Markdown 需要对应外部配置；未配置时任务进入 blocked，不伪造成功。

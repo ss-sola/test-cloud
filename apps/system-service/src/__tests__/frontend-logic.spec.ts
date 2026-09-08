@@ -152,6 +152,7 @@ describe('static shell and fragment contract', () => {
       'bullmq',
       'config-file-preview',
       'release-automation',
+      'token-config',
     ];
 
     expect(html).toContain('id="main-content"');
@@ -289,13 +290,47 @@ describe('release automation menu contract', () => {
 
     expect(html).toContain('href="#release-automation" data-route="release-automation"');
     expect(fragment).toContain('data-view="release-automation"');
-    expect(fragment).toContain('1.9.0 发布计划');
-    expect(fragment).toContain('id="release-automation-progress"');
-    expect(app).toContain("'release-automation': { title: '1.9.0 发布计划'");
+    expect(fragment).toContain('发布版本');
+    expect(fragment).toContain('id="release-git-address"');
+    expect(fragment).toContain('id="release-git-tag"');
+    expect(fragment).not.toContain('id="release-project-name"');
+    expect(fragment).not.toContain('id="release-candidate-sha"');
+    expect(fragment).toContain('href="#token-config"');
+    expect(script).toContain('githubToken');
+    expect(script).toContain('jenkinsToken');
+    expect(script).toContain('feishuAppId');
+    expect(script).toContain('feishuAppSecret');
+    expect(script).toContain('localStorage');
+    expect(fragment).toContain('id="release-automation-log"');
+    expect(fragment).toContain('执行任务列表');
+    expect(fragment).toContain('执行发布');
+    expect(script).toContain('EXECUTION_TASKS');
+    expect(script).toContain("checkbox.type = 'checkbox'");
+    expect(script).toContain('selectedTasks');
+    expect(app).toContain("'release-automation': { title: '发布版本'");
     expect(app).toContain("'release-automation': '/public/html/release-automation.html'");
     expect(html).toContain('<script src="/public/js/release-automation.js" defer></script>');
     expect(script).toContain("'Idempotency-Key'");
-    expect(script).toContain("mode: 'dry-run'");
+    expect(script).not.toContain("mode: 'dry-run'");
     expect(script).not.toContain('innerHTML');
+  });
+});
+
+describe('token config menu contract', () => {
+  it('provides separate localStorage configuration for GitHub, Jenkins and Feishu', () => {
+    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const fragment = readFileSync(resolve(process.cwd(), 'public/html/token-config.html'), 'utf8');
+    const script = readFileSync(resolve(process.cwd(), 'public/js/token-config.js'), 'utf8');
+    const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
+
+    expect(html).toContain('href="#token-config" data-route="token-config"');
+    expect(fragment).toContain('data-view="token-config"');
+    expect(fragment).toContain('id="token-github"');
+    expect(fragment).toContain('id="token-jenkins"');
+    expect(fragment).toContain('id="token-feishu-app-id"');
+    expect(fragment).toContain('id="token-feishu-app-secret"');
+    expect(script).toContain('nestcloud:release-tokens:v1');
+    expect(script).toContain('localStorage');
+    expect(app).toContain("'token-config': { title: 'Token 配置'");
   });
 });

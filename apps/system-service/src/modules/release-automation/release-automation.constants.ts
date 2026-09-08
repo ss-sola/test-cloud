@@ -1,4 +1,5 @@
 export const RELEASE_AUTOMATION_VERSION = '1.9.0' as const;
+export const RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH = 'dev/master' as const;
 export const RELEASE_AUTOMATION_QUEUE_NAME = 'release-automation';
 export const RELEASE_AUTOMATION_QUEUE_PREFIX = 'release-automation';
 export const RELEASE_AUTOMATION_QUEUE_JOB_NAME = 'release-plan';
@@ -17,7 +18,7 @@ export const RELEASE_AUTOMATION_GENERATOR_VERSION = '1.0.0';
 export const RELEASE_AUTOMATION_REDACTED_VALUE = '[REDACTED]';
 export const RELEASE_AUTOMATION_IDEMPOTENCY_HEADER = 'Idempotency-Key';
 export const RELEASE_AUTOMATION_TAG_PATTERN =
-  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+  /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 export const RELEASE_AUTOMATION_SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
 export const RELEASE_AUTOMATION_BRANCH_PATTERN = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 export const RELEASE_AUTOMATION_QUEUE_ID_PATTERN = /^\d+$/;
@@ -27,10 +28,8 @@ export const RELEASE_AUTOMATION_SENSITIVE_KEY_PATTERN =
 
 export const ReleaseAutomationConfigKeys = {
   Version: 'ReleaseAutomationVersion',
-  DryRun: 'ReleaseAutomationDryRun',
   GitHubBaseUrl: 'ReleaseAutomationGitHubBaseUrl',
   GitHubAllowedHosts: 'ReleaseAutomationGitHubAllowedHosts',
-  GitHubAllowedRepositories: 'ReleaseAutomationGitHubAllowedRepositories',
   GitHubTokenRef: 'ReleaseAutomationGitHubTokenRef',
   GitHubTimeoutMs: 'ReleaseAutomationGitHubTimeoutMs',
   GitHubMaxRetries: 'ReleaseAutomationGitHubMaxRetries',
@@ -62,6 +61,6 @@ export const ReleaseAutomationConfigKeys = {
 export const RELEASE_AUTOMATION_TERMINAL_JOB_STAGES = [
   'completed',
   'partial-success',
-  'manual-intervention',
+  'manual_intervention',
   'failed',
 ] as const;

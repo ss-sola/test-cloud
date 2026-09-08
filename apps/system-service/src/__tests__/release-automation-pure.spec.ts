@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseJenkinsJobUrl } from '../modules/release-automation/release-automation.config';
 import { diffEnv, normalizeEnvValue, parseEnv } from '../modules/release-automation/env-diff.util';
 import { RELEASE_AUTOMATION_REDACTED_VALUE } from '../modules/release-automation/release-automation.constants';
 import {
@@ -45,5 +46,27 @@ describe('release automation pure security and ENV rules', () => {
   it('uses sorted JSON for stable idempotency hashes', () => {
     expect(stableStringify({ z: 1, a: { y: true, x: 2 } })).toBe('{"a":{"x":2,"y":true},"z":1}');
     expect(payloadHash({ b: 2, a: 1 })).toBe(payloadHash({ a: 1, b: 2 }));
+  });
+
+  it('parses a dynamic Jenkins job URL into API paths', () => {
+    expect(
+      parseJenkinsJobUrl(
+        'http://192.168.88.223:8080/job/%E5%BE%AE%E5%8A%A9%E6%95%99/job/wzj-nodejs-v2/',
+      ),
+    ).toEqual({
+      baseUrl: 'http://192.168.88.223:8080',
+      jobPath: '/job/%E5%BE%AE%E5%8A%A9%E6%95%99/job/wzj-nodejs-v2',
+    });
+    expect(
+      parseJenkinsJobUrl(
+        'http://192.168.88.223:8080/job/%E5%BE%AE%E5%8A%A9%E6%95%99/job/wzj-nodejs-v2/buildWithParameters',
+      ),
+    ).toEqual({
+      baseUrl: 'http://192.168.88.223:8080',
+      jobPath: '/job/%E5%BE%AE%E5%8A%A9%E6%95%99/job/wzj-nodejs-v2',
+    });
+    expect(() => parseJenkinsJobUrl('http://jenkins.test/job/demo?token=secret')).toThrow(
+      'Jenkins',
+    );
   });
 });

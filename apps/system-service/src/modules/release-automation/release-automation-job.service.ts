@@ -1,12 +1,11 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConflictException, ProjectException } from '@nest-cloud/common';
 import { createHash } from 'node:crypto';
 import {
   RELEASE_AUTOMATION_MAX_ACTIVE_JOBS,
+  RELEASE_AUTOMATION_TAG_PATTERN,
   RELEASE_AUTOMATION_VERSION,
 } from './release-automation.constants';
-import { readReleaseAutomationConfig } from './release-automation.config';
-import type { ReleaseAutomationConfig } from './release-automation.config';
 import { payloadHash } from './release-automation.security';
 import {
   ReleaseAutomationQueueService,
@@ -20,57 +19,21 @@ import type {
   ReleaseProgress,
 } from './release-automation.types';
 
-export const RELEASE_AUTOMATION_JOB_OPTIONS = Symbol('RELEASE_AUTOMATION_JOB_OPTIONS');
-
-export interface ReleaseAutomationJobOptions {
-  config?: ReleaseAutomationConfig;
-}
-
 @Injectable()
 export class ReleaseAutomationJobService {
   private admissionTail = Promise.resolve();
 
   constructor(
-    @Inject(ReleaseAutomationQueueService) private readonly queue: ReleaseQueueGateway,
-    @Inject(RELEASE_AUTOMATION_JOB_OPTIONS)
-    @Optional()
-    private readonly options?: ReleaseAutomationJobOptions,
+    @Inject(ReleaseAutomationQueueService)
+    private readonly queue: ReleaseQueueGateway,
   ) {}
 
   async create(input: {
     idempotencyKey: string;
     plan: ReleasePlanInput;
   }): Promise<ReleaseJobCreateResult> {
-    const key = input.idempotencyKey.trim();
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(key))
-      throw new ProjectException('Idempotency-Key 格式无效。', 400);
-    const config = this.options?.config ?? readReleaseAutomationConfig();
-    const repository = this.selectRepository(
-      input.plan.repository,
-      config.githubAllowedRepositories,
-    );
-    const version = input.plan.version ?? RELEASE_AUTOMATION_VERSION;
-    if (version !== RELEASE_AUTOMATION_VERSION)
-      throw new ProjectException(`版本必须固定为 ${RELEASE_AUTOMATION_VERSION}。`, 400);
-    if (
-      !/^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,256}$/.test(input.plan.targetBranch) ||
-      !input.plan.targetBranch.startsWith('custom/')
-    )
-      throw new ProjectException('目标分支必须是 custom/* 且格式有效。', 400);
-    if (!/^[0-9a-f]{7,64}$/i.test(input.plan.candidateSha))
-      throw new ProjectException('candidateSha 格式无效。', 400);
-    if (input.plan.mode && input.plan.mode !== 'dry-run')
-      throw new ProjectException('apply 必须经过独立授权接口，不能由创建请求体触发。', 403);
-    const releaseUnit = {
-      repository,
-      targetBranch: input.plan.targetBranch,
-      candidateSha: input.plan.candidateSha.toLowerCase(),
-      version: RELEASE_AUTOMATION_VERSION,
-    } as const;
-    const safePayload = { releaseUnit, mode: 'dry-run' as const };
-    const hash = payloadHash(safePayload);
-    // 一个 Idempotency-Key 只能绑定一个 payload；不同 payload 必须走冲突分支，不能生成第二个 Job。
-    const jobId = deriveReleaseJobId(key);
+    const record = this.createExecutionRecord(input);
+    const { jobId, payloadHash: hash } = record;
     const existing = await this.queue.get(jobId);
     if (existing) {
       if (existing.payloadHash !== hash)
@@ -92,31 +55,66 @@ export class ReleaseAutomationJobService {
       }
       if ((await this.queue.getActiveCount()) >= RELEASE_AUTOMATION_MAX_ACTIVE_JOBS)
         throw new ProjectException('当前发布任务过多，请稍后重试。', 429);
-      const now = new Date().toISOString();
-      const progress: ReleaseProgress = {
-        stage: 'planned',
-        sequence: 0,
-        percent: 0,
-        message: '发布任务已排队。',
-        updatedAt: now,
-        releaseUnit,
-      };
-      const record: ReleaseJobRecord = {
-        jobId,
-        idempotencyKey: key,
-        payloadHash: hash,
-        releaseUnit,
-        mode: 'dry-run',
-        progress,
-        error: null,
-        createdAt: now,
-        updatedAt: now,
-      };
       await this.queue.add(record);
       return this.toCreateResult(record, false, this.hashPlan(record));
     } finally {
       release();
     }
+  }
+
+  createExecutionRecord(
+    input: { idempotencyKey: string; plan: ReleasePlanInput },
+    defaultMode: 'dry-run' | 'apply' = 'apply',
+  ): ReleaseJobRecord {
+    const key = input.idempotencyKey.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(key))
+      throw new ProjectException('Idempotency-Key 格式无效。', 400);
+    const repository = this.selectRepository(
+      input.plan.repository ?? input.plan.pageConfig?.gitAddress,
+    );
+    const gitTag = input.plan.gitTag ?? input.plan.version ?? RELEASE_AUTOMATION_VERSION;
+    if (!RELEASE_AUTOMATION_TAG_PATTERN.test(gitTag))
+      throw new ProjectException('gitTag 格式无效。', 400);
+    if (!/^custom\/(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+$/.test(input.plan.targetBranch))
+      throw new ProjectException('目标分支必须是 custom/* 且格式有效。', 400);
+    const mode = input.plan.mode ?? defaultMode;
+    const releaseUnit = {
+      repository,
+      targetBranch: input.plan.targetBranch,
+      gitTag,
+      ...(input.plan.candidateSha ? { candidateSha: input.plan.candidateSha.toLowerCase() } : {}),
+      version: gitTag,
+    } as const;
+    const safePayload = {
+      releaseUnit,
+      mode,
+      pageConfig: input.plan.pageConfig,
+      selectedTasks: input.plan.selectedTasks,
+    };
+    const hash = payloadHash(safePayload);
+    const jobId = deriveReleaseJobId(key);
+    const now = new Date().toISOString();
+    const progress: ReleaseProgress = {
+      stage: 'planned',
+      sequence: 0,
+      percent: 0,
+      message: '发布任务已排队。',
+      updatedAt: now,
+      releaseUnit,
+    };
+    return {
+      jobId,
+      idempotencyKey: key,
+      payloadHash: hash,
+      releaseUnit,
+      mode,
+      pageConfig: input.plan.pageConfig,
+      selectedTasks: input.plan.selectedTasks,
+      progress,
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
   async getStatus(jobId: string): Promise<ReleaseJobStatusView> {
@@ -127,17 +125,11 @@ export class ReleaseAutomationJobService {
     return { ...record, planHash: this.hashPlan(record) };
   }
 
-  private selectRepository(input: string | undefined, allowlist: string[]): string {
-    const normalizedAllowlist = allowlist.map(normalizeRepository).filter(Boolean);
-    if (input) {
-      const repository = normalizeRepository(input);
-      if (!repository || !normalizedAllowlist.includes(repository))
-        throw new ProjectException('repository 不在 GitHub allowlist。', 403);
-      return repository;
-    }
-    if (normalizedAllowlist.length !== 1)
-      throw new ProjectException('必须明确选择唯一的 GitHub allowlist repository。', 400);
-    return normalizedAllowlist[0];
+  private selectRepository(input: string | undefined): string {
+    if (!input) throw new ProjectException('必须指定 GitHub repository 或 gitAddress。', 400);
+    const repository = normalizeRepository(input);
+    if (!repository) throw new ProjectException('repository 格式无效。', 400);
+    return repository;
   }
 
   private hashPlan(record: ReleaseJobRecord): string {

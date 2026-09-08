@@ -1,0 +1,26 @@
+<section class="view tool-view token-config-view" data-view="token-config" aria-labelledby="token-config-title" hidden>
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">SETTINGS / TOKENS</p>
+      <h1 id="token-config-title">Token 配置</h1>
+      <p class="page-description">配置发布执行所需的 GitHub、Jenkins 和 Feishu CLI 凭据。</p>
+    </div>
+    <span class="heading-mark" aria-hidden="true">09</span>
+  </div>
+
+  <form class="token-config-form" id="token-config-form">
+    <div class="form-field-grid">
+      <label class="form-field"><span>GitHub token</span><input id="token-github" type="password" autocomplete="off" /></label>
+      <label class="form-field"><span>Jenkins 任务地址</span><input id="token-jenkins-url" type="url" autocomplete="url" placeholder="http://192.168.88.223:8080/job/%E5%BE%AE%E5%8A%A9%E6%95%99/job/wzj-nodejs-v2/" /></label>
+      <label class="form-field"><span>Jenkins token</span><input id="token-jenkins" type="password" autocomplete="off" /></label>
+      <label class="form-field"><span>Feishu App ID</span><input id="token-feishu-app-id" type="text" autocomplete="off" /></label>
+      <label class="form-field"><span>Feishu App Secret</span><input id="token-feishu-app-secret" type="password" autocomplete="off" /></label>
+    </div>
+    <p class="release-credential-warning" role="note">凭据保存在当前浏览器 localStorage。请只在受控浏览器使用，离开环境前清空。</p>
+    <div class="compare-actions">
+      <button class="compare-button" id="token-config-save" type="submit">保存 Token 配置</button>
+      <button class="compare-button compare-button--secondary" id="token-config-clear" type="button">清空凭据</button>
+      <span class="compare-hint" id="token-config-status" aria-live="polite">尚未保存</span>
+    </div>
+  </form>
+</section>
