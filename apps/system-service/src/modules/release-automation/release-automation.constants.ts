@@ -26,38 +26,6 @@ export const RELEASE_AUTOMATION_PATH_TEMPLATE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*
 export const RELEASE_AUTOMATION_SENSITIVE_KEY_PATTERN =
   /(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session)/i;
 
-export const ReleaseAutomationConfigKeys = {
-  Version: 'ReleaseAutomationVersion',
-  GitHubBaseUrl: 'ReleaseAutomationGitHubBaseUrl',
-  GitHubAllowedHosts: 'ReleaseAutomationGitHubAllowedHosts',
-  GitHubTokenRef: 'ReleaseAutomationGitHubTokenRef',
-  GitHubTimeoutMs: 'ReleaseAutomationGitHubTimeoutMs',
-  GitHubMaxRetries: 'ReleaseAutomationGitHubMaxRetries',
-  GitHubMaxResponseBytes: 'ReleaseAutomationGitHubMaxResponseBytes',
-  EnvironmentBeforeRef: 'ReleaseAutomationEnvironmentBeforeRef',
-  EnvironmentAfterRef: 'ReleaseAutomationEnvironmentAfterRef',
-  EnvironmentFilePath: 'ReleaseAutomationEnvironmentFilePath',
-  ModifyLogPath: 'ReleaseAutomationModifyLogPath',
-  ModifyLogArchiveDir: 'ReleaseAutomationModifyLogArchiveDir',
-  ModifyLogMaxBytes: 'ReleaseAutomationModifyLogMaxBytes',
-  ModifyLogMaxLines: 'ReleaseAutomationModifyLogMaxLines',
-  JenkinsBaseUrl: 'ReleaseAutomationJenkinsBaseUrl',
-  JenkinsTriggerPath: 'ReleaseAutomationJenkinsTriggerPath',
-  JenkinsQueuePathTemplate: 'ReleaseAutomationJenkinsQueuePathTemplate',
-  JenkinsBuildPathTemplate: 'ReleaseAutomationJenkinsBuildPathTemplate',
-  JenkinsPipelineTextPathTemplate: 'ReleaseAutomationJenkinsPipelineTextPathTemplate',
-  JenkinsCredentialRef: 'ReleaseAutomationJenkinsCredentialRef',
-  JenkinsTimeoutMs: 'ReleaseAutomationJenkinsTimeoutMs',
-  JenkinsMaxRetries: 'ReleaseAutomationJenkinsMaxRetries',
-  JenkinsPollIntervalMs: 'ReleaseAutomationJenkinsPollIntervalMs',
-  JenkinsQueueTimeoutMs: 'ReleaseAutomationJenkinsQueueTimeoutMs',
-  JenkinsBuildTimeoutMs: 'ReleaseAutomationJenkinsBuildTimeoutMs',
-  JenkinsMaxResponseBytes: 'ReleaseAutomationJenkinsMaxResponseBytes',
-  JenkinsPlatform: 'ReleaseAutomationJenkinsPlatform',
-  RedisUrl: 'ReleaseAutomationRedisUrl',
-  RedisKeyPrefix: 'ReleaseAutomationRedisKeyPrefix',
-} as const;
-
 export const RELEASE_AUTOMATION_TERMINAL_JOB_STAGES = [
   'completed',
   'partial-success',

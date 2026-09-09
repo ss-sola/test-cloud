@@ -17,13 +17,12 @@ export function readBullmqDashboardConfig(): BullmqDashboardConfig {
   const redisUrl = validateRedisUrl(
     getConfig<string>(ConfigKeys.SessionRedisUrl, '', false).trim(),
   );
-  const nodeEnv = getConfig<string>(ConfigKeys.NodeEnv, 'development', false).trim().toLowerCase();
 
   return {
     redisUrl,
     queueNames: [WEEKLY_REPORT_QUEUE_NAME],
     prefix: WEEKLY_REPORT_QUEUE_PREFIX,
-    requireAuth: nodeEnv === 'production',
+    requireAuth: false,
     permissionCode: BULLMQ_DEFAULT_PERMISSION,
   };
 }

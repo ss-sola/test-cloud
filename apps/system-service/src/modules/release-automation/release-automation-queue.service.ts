@@ -1,7 +1,6 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
-import { ProjectException } from '@nest-cloud/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { ConfigKeys, getConfig, ProjectException } from '@nest-cloud/common';
 import { Job, Queue, Worker, type ConnectionOptions } from 'bullmq';
-import { readReleaseAutomationConfig } from './release-automation.config';
 import { redactSensitiveText } from './release-automation.security';
 import {
   RELEASE_AUTOMATION_JOB_TTL_MS,
@@ -31,11 +30,11 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
   constructor(private readonly execution: ReleaseAutomationExecutionService) {}
 
   async add(record: ReleaseJobRecord): Promise<void> {
-    const config = readReleaseAutomationConfig();
-    if (!config.redisUrl) {
-      throw new ProjectException('发布自动化队列 Redis 未配置，拒绝回退到进程内存。', 503);
+    const redisUrl = getConfig<string>(ConfigKeys.SessionRedisUrl, '', false).trim();
+    if (!redisUrl) {
+      throw new ProjectException('未配置 SessionRedisUrl，拒绝回退到进程内存。', 503);
     }
-    const queue = this.ensureQueue(config.redisUrl, config.redisKeyPrefix);
+    const queue = this.ensureQueue(redisUrl, RELEASE_AUTOMATION_QUEUE_PREFIX);
     const existing = await queue.getJob(record.jobId);
     if (existing) throw new ProjectException('发布 Job 已存在。', 409);
     await queue.add(
@@ -51,11 +50,11 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
   }
 
   async get(jobId: string): Promise<ReleaseJobRecord | null> {
-    const config = readReleaseAutomationConfig();
-    if (!config.redisUrl) {
-      throw new ProjectException('发布自动化队列 Redis 未配置。', 503);
+    const redisUrl = getConfig<string>(ConfigKeys.SessionRedisUrl, '', false).trim();
+    if (!redisUrl) {
+      throw new ProjectException('未配置 SessionRedisUrl。', 503);
     }
-    const queue = this.ensureQueue(config.redisUrl, config.redisKeyPrefix);
+    const queue = this.ensureQueue(redisUrl, RELEASE_AUTOMATION_QUEUE_PREFIX);
     const job = await queue.getJob(jobId);
     if (!job) return null;
     const data = job.data.record;
@@ -69,11 +68,11 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
   }
 
   async getActiveCount(): Promise<number> {
-    const config = readReleaseAutomationConfig();
-    if (!config.redisUrl) {
-      throw new ProjectException('发布自动化队列 Redis 未配置。', 503);
+    const redisUrl = getConfig<string>(ConfigKeys.SessionRedisUrl, '', false).trim();
+    if (!redisUrl) {
+      throw new ProjectException('未配置 SessionRedisUrl。', 503);
     }
-    const queue = this.ensureQueue(config.redisUrl, config.redisKeyPrefix);
+    const queue = this.ensureQueue(redisUrl, RELEASE_AUTOMATION_QUEUE_PREFIX);
     const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
     return Object.values(counts).reduce((total, count) => total + count, 0);
   }
@@ -113,7 +112,8 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
     const record = job.data.record;
     try {
       record.error = await this.execution.execute(record, async (progress) => {
-        await job.updateProgress(progress);
+        const safeProgress = this.safeProgress(progress);
+        await job.updateProgress(safeProgress);
         await job.updateData({ record: this.safeRecord(record) });
       });
       await job.updateData({ record: this.safeRecord(record) });
@@ -132,10 +132,21 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
         message: '发布 Job 执行失败。',
         updatedAt: new Date().toISOString(),
       };
-      await job.updateProgress(record.progress);
+      await job.updateProgress(this.safeProgress(record.progress));
       await job.updateData({ record: this.safeRecord(record) });
       throw error;
     }
+  }
+
+  private safeProgress(progress: ReleaseProgress): ReleaseProgress {
+    return {
+      ...progress,
+      message: redactSensitiveText(progress.message),
+      logs: progress.logs?.map((entry) => ({
+        ...entry,
+        message: redactSensitiveText(entry.message),
+      })),
+    };
   }
 
   private safeRecord(record: ReleaseJobRecord): ReleaseJobRecord {
@@ -147,6 +158,7 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
       })),
       progress: {
         ...record.progress,
+        message: redactSensitiveText(record.progress.message),
         releaseUnit: { ...record.progress.releaseUnit },
         logs: record.logs?.map((entry) => ({
           ...entry,

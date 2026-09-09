@@ -82,7 +82,9 @@
         if (!value || typeof value !== 'object') return {}
         return {
           githubToken: typeof value.githubToken === 'string' ? value.githubToken : '',
+          jenkinsBaseUrl: typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : '',
           jenkinsToken: typeof value.jenkinsToken === 'string' ? value.jenkinsToken : '',
+          jenkinsTagMarker: typeof value.jenkinsTagMarker === 'string' ? value.jenkinsTagMarker : '',
           feishuAppId: typeof value.feishuAppId === 'string' ? value.feishuAppId : '',
           feishuAppSecret: typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : '',
         }
@@ -99,7 +101,7 @@
         ? EXECUTION_TASKS.map(([key]) => key).filter((key) => value.selectedTasks.includes(key))
         : EXECUTION_TASKS.map(([key]) => key))
       gitAddress.value = value.gitAddress || ''
-      gitTag.value = value.gitTag || '1.9.0'
+      gitTag.value = value.gitTag || ''
       branch.value = value.targetBranch || value.branch || ''
     }
 
@@ -243,6 +245,7 @@
             githubToken: tokens.githubToken,
             jenkinsToken: tokens.jenkinsToken,
             jenkinsBaseUrl: tokens.jenkinsBaseUrl,
+            jenkinsTagMarker: tokens.jenkinsTagMarker,
             feishuAppId: tokens.feishuAppId,
             feishuAppSecret: tokens.feishuAppSecret,
             tasks: [...selectedTasks],

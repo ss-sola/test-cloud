@@ -4,28 +4,8 @@ import {
   RELEASE_AUTOMATION_SENSITIVE_KEY_PATTERN,
 } from './release-automation.constants';
 
-export interface ReleaseSecretProvider {
-  resolve(reference: string): Promise<string | undefined>;
-}
-
-const SECRET_REFERENCE_PATTERN = /^secret:\/\/[A-Za-z0-9][A-Za-z0-9._:/-]{1,255}$/;
 const SECRET_TEXT_PATTERN =
   /(bearer\s+|token|password|secret|authorization|api[_-]?key|access[_-]?key)\s*[:=]\s*([^\s,;]+)/gi;
-
-export function isSecretReference(value: string): boolean {
-  return SECRET_REFERENCE_PATTERN.test(value.trim());
-}
-
-export async function resolveSecret(
-  reference: string | undefined,
-  provider: ReleaseSecretProvider | undefined,
-): Promise<string | undefined> {
-  if (!reference) return undefined;
-  const normalized = reference.trim();
-  if (!isSecretReference(normalized) || !provider) return undefined;
-  const value = await provider.resolve(normalized);
-  return value?.trim() || undefined;
-}
 
 export function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');

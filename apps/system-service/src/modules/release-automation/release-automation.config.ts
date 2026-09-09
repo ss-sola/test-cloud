@@ -1,4 +1,4 @@
-import { getConfig, ProjectException } from '@nest-cloud/common';
+import { ProjectException } from '@nest-cloud/common';
 import {
   RELEASE_AUTOMATION_DEFAULT_ARCHIVE_DIR,
   RELEASE_AUTOMATION_DEFAULT_BUILD_TIMEOUT_MS,
@@ -11,16 +11,13 @@ import {
   RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
   RELEASE_AUTOMATION_QUEUE_PREFIX,
   RELEASE_AUTOMATION_VERSION,
-  ReleaseAutomationConfigKeys,
 } from './release-automation.constants';
-import { isSecretReference } from './release-automation.security';
 import type { ReleasePageConfig } from './release-automation.types';
 
 export interface ReleaseAutomationConfig {
   version: typeof RELEASE_AUTOMATION_VERSION;
   githubBaseUrl: string;
   githubAllowedHosts: string[];
-  githubTokenRef?: string;
   githubToken?: string;
   githubTimeoutMs: number;
   githubMaxRetries: number;
@@ -37,8 +34,8 @@ export interface ReleaseAutomationConfig {
   jenkinsQueuePathTemplate?: string;
   jenkinsBuildPathTemplate?: string;
   jenkinsPipelineTextPathTemplate?: string;
-  jenkinsCredentialRef?: string;
   jenkinsToken?: string;
+  jenkinsTagMarker?: string;
   jenkinsProjectName?: string;
   jenkinsBranch?: string;
   jenkinsTimeoutMs: number;
@@ -52,80 +49,40 @@ export interface ReleaseAutomationConfig {
   redisKeyPrefix: string;
 }
 
-export function readReleaseAutomationConfig(
-  overrides?: ReleasePageConfig,
-): ReleaseAutomationConfig {
+export function readReleaseAutomationConfig(overrides: ReleasePageConfig): ReleaseAutomationConfig {
   const config: ReleaseAutomationConfig = {
-    version: readVersion(),
-    githubBaseUrl: readBaseUrl(
-      getConfig<string>(ReleaseAutomationConfigKeys.GitHubBaseUrl, 'https://api.github.com', false),
-      'GitHub',
-    ),
-    githubAllowedHosts: readList(ReleaseAutomationConfigKeys.GitHubAllowedHosts, 'api.github.com'),
-    githubTokenRef: readOptional(ReleaseAutomationConfigKeys.GitHubTokenRef),
-    githubTimeoutMs: readPositiveNumber(
-      ReleaseAutomationConfigKeys.GitHubTimeoutMs,
-      RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
-    ),
-    githubMaxRetries: readNonNegativeInteger(
-      ReleaseAutomationConfigKeys.GitHubMaxRetries,
-      RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES,
-    ),
-    githubMaxResponseBytes: readPositiveNumber(
-      ReleaseAutomationConfigKeys.GitHubMaxResponseBytes,
-      RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
-    ),
-    environmentBeforeRef: readOptional(ReleaseAutomationConfigKeys.EnvironmentBeforeRef),
-    environmentAfterRef: readOptional(ReleaseAutomationConfigKeys.EnvironmentAfterRef),
-    environmentFilePath: readOptional(ReleaseAutomationConfigKeys.EnvironmentFilePath),
-    modifyLogPath: readOptional(ReleaseAutomationConfigKeys.ModifyLogPath) ?? 'modify-log.sql',
+    version: RELEASE_AUTOMATION_VERSION,
+    githubBaseUrl: readBaseUrl(overrides.githubBaseUrl ?? 'https://api.github.com', 'GitHub'),
+    githubAllowedHosts: readList(overrides.githubAllowedHosts ?? 'api.github.com'),
+    githubToken: overrides.githubToken.trim() || undefined,
+    githubTimeoutMs: overrides.githubTimeoutMs ?? RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
+    githubMaxRetries: overrides.githubMaxRetries ?? RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES,
+    githubMaxResponseBytes:
+      overrides.githubMaxResponseBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
+    environmentBeforeRef: overrides.environmentBeforeRef?.trim() || undefined,
+    environmentAfterRef: overrides.environmentAfterRef?.trim() || undefined,
+    environmentFilePath: overrides.environmentFilePath?.trim() || undefined,
+    modifyLogPath: overrides.modifyLogPath?.trim() || 'modify-log.sql',
     modifyLogArchiveDir:
-      readOptional(ReleaseAutomationConfigKeys.ModifyLogArchiveDir) ??
-      RELEASE_AUTOMATION_DEFAULT_ARCHIVE_DIR,
-    modifyLogMaxBytes: readPositiveNumber(
-      ReleaseAutomationConfigKeys.ModifyLogMaxBytes,
-      RELEASE_AUTOMATION_DEFAULT_MAX_LOG_BYTES,
-    ),
-    modifyLogMaxLines: readPositiveInteger(
-      ReleaseAutomationConfigKeys.ModifyLogMaxLines,
-      RELEASE_AUTOMATION_DEFAULT_MAX_LOG_LINES,
-    ),
-    jenkinsBaseUrl: readOptionalBaseUrl(ReleaseAutomationConfigKeys.JenkinsBaseUrl),
-    jenkinsTriggerPath: readPath(ReleaseAutomationConfigKeys.JenkinsTriggerPath),
-    jenkinsQueuePathTemplate: readPath(ReleaseAutomationConfigKeys.JenkinsQueuePathTemplate),
-    jenkinsBuildPathTemplate: readPath(ReleaseAutomationConfigKeys.JenkinsBuildPathTemplate),
-    jenkinsPipelineTextPathTemplate: readPath(
-      ReleaseAutomationConfigKeys.JenkinsPipelineTextPathTemplate,
-    ),
-    jenkinsCredentialRef: readOptional(ReleaseAutomationConfigKeys.JenkinsCredentialRef),
-    jenkinsTimeoutMs: readPositiveNumber(
-      ReleaseAutomationConfigKeys.JenkinsTimeoutMs,
-      RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
-    ),
-    jenkinsMaxRetries: readNonNegativeInteger(
-      ReleaseAutomationConfigKeys.JenkinsMaxRetries,
-      RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES,
-    ),
-    jenkinsPollIntervalMs: readPositiveNumber(
-      ReleaseAutomationConfigKeys.JenkinsPollIntervalMs,
-      RELEASE_AUTOMATION_DEFAULT_POLL_INTERVAL_MS,
-    ),
-    jenkinsQueueTimeoutMs: readPositiveNumber(
-      ReleaseAutomationConfigKeys.JenkinsQueueTimeoutMs,
-      RELEASE_AUTOMATION_DEFAULT_QUEUE_TIMEOUT_MS,
-    ),
-    jenkinsBuildTimeoutMs: readPositiveNumber(
-      ReleaseAutomationConfigKeys.JenkinsBuildTimeoutMs,
-      RELEASE_AUTOMATION_DEFAULT_BUILD_TIMEOUT_MS,
-    ),
-    jenkinsMaxResponseBytes: readPositiveNumber(
-      ReleaseAutomationConfigKeys.JenkinsMaxResponseBytes,
-      RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
-    ),
-    jenkinsPlatform: readOptional(ReleaseAutomationConfigKeys.JenkinsPlatform),
-    redisUrl: readOptional(ReleaseAutomationConfigKeys.RedisUrl),
-    redisKeyPrefix:
-      readOptional(ReleaseAutomationConfigKeys.RedisKeyPrefix) ?? RELEASE_AUTOMATION_QUEUE_PREFIX,
+      overrides.modifyLogArchiveDir?.trim() ?? RELEASE_AUTOMATION_DEFAULT_ARCHIVE_DIR,
+    modifyLogMaxBytes: overrides.modifyLogMaxBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_LOG_BYTES,
+    modifyLogMaxLines: overrides.modifyLogMaxLines ?? RELEASE_AUTOMATION_DEFAULT_MAX_LOG_LINES,
+    jenkinsToken: overrides.jenkinsToken.trim() || undefined,
+    jenkinsTagMarker: overrides.jenkinsTagMarker?.trim() || undefined,
+    jenkinsProjectName: overrides.projectName?.trim() || undefined,
+    jenkinsTimeoutMs: overrides.jenkinsTimeoutMs ?? RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
+    jenkinsMaxRetries: overrides.jenkinsMaxRetries ?? RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES,
+    jenkinsPollIntervalMs:
+      overrides.jenkinsPollIntervalMs ?? RELEASE_AUTOMATION_DEFAULT_POLL_INTERVAL_MS,
+    jenkinsQueueTimeoutMs:
+      overrides.jenkinsQueueTimeoutMs ?? RELEASE_AUTOMATION_DEFAULT_QUEUE_TIMEOUT_MS,
+    jenkinsBuildTimeoutMs:
+      overrides.jenkinsBuildTimeoutMs ?? RELEASE_AUTOMATION_DEFAULT_BUILD_TIMEOUT_MS,
+    jenkinsMaxResponseBytes:
+      overrides.jenkinsMaxResponseBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
+    jenkinsPlatform: overrides.jenkinsPlatform?.trim() || undefined,
+    redisUrl: undefined,
+    redisKeyPrefix: RELEASE_AUTOMATION_QUEUE_PREFIX,
   };
 
   applyPageOverrides(config, overrides);
@@ -242,12 +199,6 @@ export function validateReleaseAutomationConfig(config: ReleaseAutomationConfig)
       throw new ProjectException('GitHub host allowlist 配置无效。', 500);
     }
   }
-  if (config.githubTokenRef && !isSecretReference(config.githubTokenRef)) {
-    throw new ProjectException('GitHub 凭据必须使用 secret:// 引用。', 500);
-  }
-  if (config.jenkinsCredentialRef && !isSecretReference(config.jenkinsCredentialRef)) {
-    throw new ProjectException('Jenkins 凭据必须使用 secret:// 引用。', 500);
-  }
   validateJenkinsPaths(config);
 }
 
@@ -258,7 +209,7 @@ export function isJenkinsReady(config: ReleaseAutomationConfig): boolean {
     config.jenkinsQueuePathTemplate &&
     config.jenkinsBuildPathTemplate &&
     config.jenkinsPipelineTextPathTemplate &&
-    (config.jenkinsCredentialRef || config.jenkinsToken),
+    config.jenkinsToken,
   );
 }
 
@@ -302,28 +253,6 @@ function validateJenkinsPaths(config: ReleaseAutomationConfig): void {
   }
 }
 
-function readVersion(): typeof RELEASE_AUTOMATION_VERSION {
-  const configured = getConfig<string>(
-    ReleaseAutomationConfigKeys.Version,
-    RELEASE_AUTOMATION_VERSION,
-    false,
-  ).trim();
-  if (configured !== RELEASE_AUTOMATION_VERSION) {
-    throw new ProjectException(`发布版本必须固定为 ${RELEASE_AUTOMATION_VERSION}。`, 500);
-  }
-  return RELEASE_AUTOMATION_VERSION;
-}
-
-function readOptional(key: string): string | undefined {
-  const value = getConfig<string>(key, '', false).trim();
-  return value || undefined;
-}
-
-function readOptionalBaseUrl(key: string): string | undefined {
-  const value = readOptional(key);
-  return value ? readBaseUrl(value, 'Jenkins', true) : undefined;
-}
-
 function readBaseUrl(value: string, label: string, allowHttp = false): string {
   const normalized = value.trim().replace(/\/$/, '');
   try {
@@ -342,63 +271,26 @@ function readBaseUrl(value: string, label: string, allowHttp = false): string {
     if (url.pathname !== '/') throw new Error('base path is not allowed');
     return url.toString().replace(/\/$/, '');
   } catch {
-    throw new ProjectException(`${label} API base URL 配置无效。`, 500);
+    throw new ProjectException(`${label} API base URL 配置无效。`, 400);
   }
 }
 
-function readList(key: string, fallback: string): string[] {
-  const value = getConfig<string>(key, fallback, false).trim();
-  if (!value) return [];
-  if (value.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) {
-        throw new Error('not string array');
-      }
-      return parsed
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .map((item) => item.toLowerCase());
-    } catch {
-      throw new ProjectException(`配置必须是字符串数组：${key}。`, 500);
+function readList(value: string): string[] {
+  const normalized = value.trim();
+  if (!normalized) return [];
+  if (normalized.startsWith('[')) {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) {
+      throw new ProjectException('GitHub host allowlist 必须是字符串数组。', 400);
     }
+    return parsed
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => item.toLowerCase());
   }
-  return value
+  return normalized
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => item.toLowerCase());
-}
-
-function readPath(key: string): string | undefined {
-  const value = readOptional(key);
-  if (!value) return undefined;
-  if (
-    !/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/{}-]+$/.test(value) ||
-    value.includes('..') ||
-    value.includes('://')
-  ) {
-    throw new ProjectException(`配置路径无效：${key}。`, 500);
-  }
-  return value;
-}
-
-function readPositiveNumber(key: string, fallback: number): number {
-  const value = getConfig<number>(key, fallback, false);
-  if (!Number.isFinite(value) || value <= 0)
-    throw new ProjectException(`配置必须为正数：${key}。`, 500);
-  return value;
-}
-
-function readPositiveInteger(key: string, fallback: number): number {
-  const value = readPositiveNumber(key, fallback);
-  if (!Number.isInteger(value)) throw new ProjectException(`配置必须为正整数：${key}。`, 500);
-  return value;
-}
-
-function readNonNegativeInteger(key: string, fallback: number): number {
-  const value = getConfig<number>(key, fallback, false);
-  if (!Number.isInteger(value) || value < 0)
-    throw new ProjectException(`配置必须为非负整数：${key}。`, 500);
-  return value;
 }

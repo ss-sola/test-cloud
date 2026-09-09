@@ -19,6 +19,7 @@ export class WeeklyCommitReportController {
       await this.jobService.create({
         period: body.period,
         configs: body.configs,
+        runtime: body.runtime,
         publish: body.publish,
       }),
       'queued',
@@ -36,6 +37,8 @@ export class WeeklyCommitReportController {
     const result = await this.weeklyCommitReportService.generate({
       period: body.period,
       configs: body.configs,
+      runtime: body.runtime,
+      publish: body.publish,
     });
     return ResponseUtil.success(result);
   }

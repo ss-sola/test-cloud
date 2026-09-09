@@ -30,8 +30,28 @@ export interface ReleasePageConfig {
   branch: string;
   projectName?: string;
   githubToken: string;
+  githubBaseUrl?: string;
+  githubAllowedHosts?: string;
+  githubTimeoutMs?: number;
+  githubMaxRetries?: number;
+  githubMaxResponseBytes?: number;
+  environmentBeforeRef?: string;
+  environmentAfterRef?: string;
+  environmentFilePath?: string;
+  modifyLogPath?: string;
+  modifyLogArchiveDir?: string;
+  modifyLogMaxBytes?: number;
+  modifyLogMaxLines?: number;
   jenkinsToken: string;
   jenkinsBaseUrl: string;
+  jenkinsTagMarker?: string;
+  jenkinsTimeoutMs?: number;
+  jenkinsMaxRetries?: number;
+  jenkinsPollIntervalMs?: number;
+  jenkinsQueueTimeoutMs?: number;
+  jenkinsBuildTimeoutMs?: number;
+  jenkinsMaxResponseBytes?: number;
+  jenkinsPlatform?: string;
   feishuAppId: string;
   feishuAppSecret: string;
 }
@@ -39,9 +59,8 @@ export interface ReleasePageConfig {
 export interface ReleasePlanInput {
   repository?: string;
   targetBranch: string;
-  gitTag?: string;
+  gitTag: string;
   candidateSha?: string;
-  version?: string;
   mode?: ReleaseMode;
   pageConfig?: ReleasePageConfig;
   selectedTasks?: ReleaseTaskKey[];
@@ -121,7 +140,7 @@ export interface ReleaseJobCreateResult {
   planHash: string;
 }
 
-export interface ReleaseJobStatusView extends ReleaseJobRecord {
+export interface ReleaseJobStatusView extends Omit<ReleaseJobRecord, 'pageConfig'> {
   planHash: string;
 }
 
@@ -201,6 +220,7 @@ export interface ClearModifyLogOptions {
   version: ReleaseVersion;
   confirmationToken: string;
   mode: ReleaseMode;
+  config?: import('./release-automation.config').ReleaseAutomationConfig;
 }
 
 export interface JenkinsPackageResult {

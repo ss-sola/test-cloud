@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ResponseUtil } from '@nest-cloud/common';
 import { ConfigFilePreviewDto } from './dto/config-file-preview.dto';
@@ -8,11 +8,6 @@ import { ConfigFilePreviewService } from './config-file-preview.service';
 @Controller('api/config-file-preview')
 export class ConfigFilePreviewController {
   constructor(private readonly previewService: ConfigFilePreviewService) {}
-
-  @Get('defaults')
-  getDefaults() {
-    return ResponseUtil.success(this.previewService.getDefaults());
-  }
 
   @Post('tags')
   @HttpCode(HttpStatus.OK)

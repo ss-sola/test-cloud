@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsNumber,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -9,20 +10,30 @@ import {
 import { Type } from 'class-transformer';
 
 export class WeeklyReportPublishSettingsDto {
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(256)
-  appId?: string;
+  appId!: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(512)
-  appSecret?: string;
+  appSecret!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(2048)
   wikiUrl!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  requestTimeoutMs?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  maxRetries?: number;
 
   @IsOptional()
   @IsString()
@@ -42,7 +53,7 @@ export class WeeklyReportPublishDto {
   @MaxLength(128)
   person?: string;
 
-  /** 前端传入的飞书发布配置；未提供时兼容服务端配置。 */
+  /** 前端传入的飞书发布配置；启用发布时必须提供。 */
   @IsOptional()
   @ValidateNested()
   @Type(() => WeeklyReportPublishSettingsDto)

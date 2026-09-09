@@ -5,4 +5,9 @@ export class ConfigFilePreviewTagsDto {
   @IsNotEmpty()
   @MaxLength(2048)
   repositoryUrl!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4096)
+  githubToken!: string;
 }

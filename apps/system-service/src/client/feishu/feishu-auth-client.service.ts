@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { getConfig, ProjectException } from '@nest-cloud/common';
-import {
-  FEISHU_TOKEN_REFRESH_SKEW_MS,
-  WeeklyReportConfigKeys,
-} from '../../modules/weekly-commit-report/weekly-report.constants';
+import { ProjectException } from '@nest-cloud/common';
+import { FEISHU_TOKEN_REFRESH_SKEW_MS } from '../../modules/weekly-commit-report/weekly-report.constants';
 import { FeishuHttpClientService } from './feishu-http-client.service';
 import type { FeishuApiResponse, FeishuRequestContext } from './feishu.types';
 
@@ -20,10 +17,7 @@ export class FeishuAuthClientService {
 
   constructor(private readonly httpClient: FeishuHttpClientService) {}
 
-  async getTenantAccessToken(
-    forceRefresh = false,
-    context?: FeishuRequestContext,
-  ): Promise<string> {
+  async getTenantAccessToken(forceRefresh = false, context: FeishuRequestContext): Promise<string> {
     const credentials = this.resolveCredentials(context);
     const cacheKey = this.getCacheKey(credentials);
     const cachedToken = this.cachedTokens.get(cacheKey);
@@ -51,7 +45,7 @@ export class FeishuAuthClientService {
   private async requestToken(
     appId: string,
     appSecret: string,
-    context?: FeishuRequestContext,
+    context: FeishuRequestContext,
   ): Promise<string> {
     const payload = await this.httpClient.request<TenantTokenResponse>(
       {
@@ -73,30 +67,11 @@ export class FeishuAuthClientService {
     return token;
   }
 
-  private resolveCredentials(context?: FeishuRequestContext): FeishuRequestContext {
-    const appId =
-      context?.appId?.trim() ||
-      getConfig<string>(
-        WeeklyReportConfigKeys.FeishuCliAppId,
-        getConfig<string>(WeeklyReportConfigKeys.FeishuAppId, '', false),
-        false,
-      ).trim();
-    const appSecret =
-      context?.appSecret?.trim() ||
-      getConfig<string>(
-        WeeklyReportConfigKeys.FeishuCliAppSecret,
-        getConfig<string>(WeeklyReportConfigKeys.FeishuAppSecret, '', false),
-        false,
-      ).trim();
-    if (!appId || !appSecret) {
+  private resolveCredentials(context: FeishuRequestContext): FeishuRequestContext {
+    if (!context.appId.trim() || !context.appSecret.trim()) {
       throw new ProjectException('未配置飞书应用凭据，无法发布周报。', 503);
     }
-    return {
-      appId,
-      appSecret,
-      requestTimeoutMs: context?.requestTimeoutMs ?? 0,
-      maxRetries: context?.maxRetries ?? -1,
-    };
+    return context;
   }
 
   private getCacheKey(context: Pick<FeishuRequestContext, 'appId' | 'appSecret'>): string {

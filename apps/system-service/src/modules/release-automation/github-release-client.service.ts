@@ -7,8 +7,7 @@ import {
   RELEASE_AUTOMATION_SHA_PATTERN,
   RELEASE_AUTOMATION_TAG_PATTERN,
 } from './release-automation.constants';
-import { readReleaseAutomationConfig } from './release-automation.config';
-import { redactSensitiveText, resolveSecret, sha256 } from './release-automation.security';
+import { redactSensitiveText, sha256 } from './release-automation.security';
 import type { ReleaseAutomationConfig } from './release-automation.config';
 import type {
   GitHubCommitSummary,
@@ -16,7 +15,6 @@ import type {
   GitHubRepository,
   ReleaseMode,
 } from './release-automation.types';
-import type { ReleaseSecretProvider as SecretProvider } from './release-automation.security';
 
 export const GITHUB_RELEASE_CLIENT_OPTIONS = Symbol('GITHUB_RELEASE_CLIENT_OPTIONS');
 
@@ -33,7 +31,6 @@ export type GitHubFetch = (input: string | URL, init?: RequestInit) => Promise<G
 export interface GitHubReleaseClientOptions {
   config?: ReleaseAutomationConfig;
   fetchImpl?: GitHubFetch;
-  secretProvider?: SecretProvider;
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
@@ -125,7 +122,10 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     this.options = options;
   }
 
-  async getContents(options: GitHubContentsOptions): Promise<GitHubContentsResult> {
+  async getContents(
+    options: GitHubContentsOptions,
+    config?: ReleaseAutomationConfig,
+  ): Promise<GitHubContentsResult> {
     const repository = this.assertRepository(options.repository);
     const path = this.assertFilePath(options.path);
     const ref = this.assertRef(options.ref);
@@ -133,6 +133,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       'GET',
       `/repos/${repository.slug}/contents/${this.encodePath(path)}?ref=${encodeURIComponent(ref)}`,
       '读取 GitHub Contents',
+      undefined,
+      config,
     );
     if (!isRecord(payload) || payload.type !== 'file' || typeof payload.content !== 'string') {
       throw this.invalidResponse('读取 GitHub Contents');
@@ -326,9 +328,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   ): Promise<{ status: number; text: string; headers: Headers }> {
     const resolvedConfig = this.getConfig(config);
     const url = this.buildUrl(resolvedConfig, path);
-    const token =
-      resolvedConfig.githubToken ??
-      (await resolveSecret(resolvedConfig.githubTokenRef, this.getSecretProvider()));
+    const token = resolvedConfig.githubToken;
     const fetchImpl = this.getFetch();
     const maxRetries = retryable
       ? (resolvedConfig.githubMaxRetries ?? RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES)
@@ -540,12 +540,10 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     return this.options?.fetchImpl ?? (globalThis.fetch.bind(globalThis) as GitHubFetch);
   }
 
-  private getSecretProvider(): SecretProvider | undefined {
-    return this.options?.secretProvider;
-  }
-
   private getConfig(config?: ReleaseAutomationConfig): ReleaseAutomationConfig {
-    return config ?? this.options?.config ?? readReleaseAutomationConfig();
+    const resolved = config ?? this.options?.config;
+    if (!resolved) throw new ProjectException('GitHub 调用缺少请求级运行配置。', 500);
+    return resolved;
   }
 
   private boundInteger(value: number, min: number, max: number): number {

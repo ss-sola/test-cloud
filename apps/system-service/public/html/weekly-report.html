@@ -86,46 +86,7 @@
           class="compare-button compare-button--secondary" id="weekly-project-add" type="button"
           aria-controls="weekly-project-list">添加项目</button></div>
     </div>
-    <div class="weekly-project-list" id="weekly-project-list">
-      <article class="weekly-project-card" data-weekly-project data-weekly-project-id="default-0">
-        <div class="weekly-project-card__header"><span class="weekly-project-index"
-            data-weekly-project-index>01</span><strong data-weekly-project-label>wzj-nodejs-v2</strong><button
-            type="button" class="weekly-project-remove" data-weekly-project-remove
-            aria-label="移除 wzj-nodejs-v2">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form"
-            value="https://github.com/whtthd/wzj-nodejs-v2.git" required maxlength="2048" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com"
-            required maxlength="128" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="merge/wzj-temp"
-            maxlength="256" /></label>
-      </article>
-      <article class="weekly-project-card" data-weekly-project data-weekly-project-id="default-1">
-        <div class="weekly-project-card__header"><span class="weekly-project-index"
-            data-weekly-project-index>02</span><strong
-            data-weekly-project-label>resource-portal-and-manage-backend</strong><button type="button"
-            class="weekly-project-remove" data-weekly-project-remove
-            aria-label="移除 resource-portal-and-manage-backend">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form"
-            value="https://github.com/whtthd/resource-portal-and-manage-backend.git" required
-            maxlength="2048" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com"
-            required maxlength="128" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="dev/master"
-            maxlength="256" /></label>
-      </article>
-      <article class="weekly-project-card" data-weekly-project data-weekly-project-id="default-2">
-        <div class="weekly-project-card__header"><span class="weekly-project-index"
-            data-weekly-project-index>03</span><strong data-weekly-project-label>wzj-pc-frontend-next</strong><button
-            type="button" class="weekly-project-remove" data-weekly-project-remove
-            aria-label="移除 wzj-pc-frontend-next">移除</button></div>
-        <label>仓库地址<input type="text" data-weekly-field="repo" form="weekly-report-form"
-            value="https://github.com/whtthd/wzj-pc-frontend-next.git" required maxlength="2048" /></label>
-        <label>提交人<input type="text" data-weekly-field="person" form="weekly-report-form" value="2451477516@qq.com"
-            required maxlength="128" /></label>
-        <label>分支<input type="text" data-weekly-field="branch" form="weekly-report-form" value="publish/integration"
-            maxlength="256" /></label>
-      </article>
-    </div>
+    <div class="weekly-project-list" id="weekly-project-list"></div>
     <template id="weekly-project-template">
       <article class="weekly-project-card" data-weekly-project>
         <div class="weekly-project-card__header"><span class="weekly-project-index"

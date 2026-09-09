@@ -10,6 +10,7 @@ import type {
 const input: GenerateWeeklyReportInput = {
   period: 'this-week',
   configs: [],
+  runtime: { githubToken: 'token' },
 };
 const initialProgress: WeeklyReportProgress = {
   phase: 'queued',
@@ -72,7 +73,7 @@ describe('WeeklyReportQueueService', () => {
       expect.objectContaining({ phase: 'completed', percent: 100 }),
     );
     expect(job.updateData).toHaveBeenCalledWith({
-      input,
+      input: { ...input, runtime: { githubToken: '' }, publish: undefined },
       initialProgress,
     });
   });
@@ -130,13 +131,13 @@ describe('WeeklyReportQueueService', () => {
       message: 'Token missing',
     });
     expect(job.updateData).toHaveBeenCalledWith({
-      input,
+      input: { ...input, runtime: { githubToken: '' }, publish: undefined },
       initialProgress,
       error: { code: 503, message: 'Token missing' },
     });
   });
 
-  it('does not publish a queued job whose in-memory publish settings are gone', async () => {
+  it('uses persisted request settings after the in-memory map is unavailable', async () => {
     const reportService = { generate: vi.fn().mockResolvedValue(result) };
     const publicationService = { publishIfEnabled: vi.fn() };
     const service = new WeeklyReportQueueService(
@@ -147,16 +148,13 @@ describe('WeeklyReportQueueService', () => {
       data: {
         input: { ...input, publish: { enabled: true, person: '张三' } },
         initialProgress,
-        requiresPublishSettings: true,
       },
     });
 
     await expect(processJob(service, job)).resolves.toMatchObject({
-      publication: {
-        status: 'failed',
-        message: '周报任务的飞书发布配置已不可用，请重新提交任务。',
-      },
+      result,
+      publication: undefined,
     });
-    expect(publicationService.publishIfEnabled).not.toHaveBeenCalled();
+    expect(publicationService.publishIfEnabled).toHaveBeenCalled();
   });
 });

@@ -2,21 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { ProjectException } from '@nest-cloud/common';
 import { ConfigFilePreviewDto } from './dto/config-file-preview.dto';
 import { ConfigFilePreviewTagsDto } from './dto/config-file-preview-tags.dto';
-import { CONFIG_FILE_PREVIEW_DEFAULTS } from './config-file-preview.defaults';
 
 @Injectable()
 export class ConfigFilePreviewService {
-  getDefaults() {
-    return { ...CONFIG_FILE_PREVIEW_DEFAULTS };
-  }
-
   async getTags(body: ConfigFilePreviewTagsDto, signal?: AbortSignal) {
     const repository = body.repositoryUrl
       .trim()
       .replace(/^https?:\/\/github\.com\//i, '')
       .replace(/\.git$/i, '')
       .replace(/\/$/, '');
-    const token = process.env.GITHUB_TAG_FILE_TOKEN ?? '';
+    const token = body.githubToken.trim();
     const response = await fetch('https://api.github.com/repos/' + repository + '/tags', {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -43,8 +38,8 @@ export class ConfigFilePreviewService {
       .replace(/\/$/, '');
     const filePath = body.filePath.trim();
     const branch = body.branch.trim();
-    const tag = body.tag?.trim() || CONFIG_FILE_PREVIEW_DEFAULTS.tag;
-    const token = process.env.GITHUB_TAG_FILE_TOKEN ?? '';
+    const tag = body.tag.trim();
+    const token = body.githubToken.trim();
     const url =
       'https://api.github.com/repos/' + repository + '/contents/' + filePath + '?ref=' + tag;
 

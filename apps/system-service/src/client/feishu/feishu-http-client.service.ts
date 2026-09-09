@@ -1,11 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { getConfig, ProjectException } from '@nest-cloud/common';
+import { ProjectException } from '@nest-cloud/common';
 import {
-  DEFAULT_FEISHU_MAX_RETRIES,
-  DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
   FEISHU_OPEN_API_BASE_URL,
   FEISHU_RETRY_BASE_DELAY_MS,
-  WeeklyReportConfigKeys,
 } from '../../modules/weekly-commit-report/weekly-report.constants';
 import type { FeishuApiResponse, FeishuRequestContext } from './feishu.types';
 
@@ -30,17 +27,9 @@ export class FeishuApiException extends ProjectException {
 
 @Injectable()
 export class FeishuHttpClientService {
-  async request<T>(options: FeishuRequestOptions, context?: FeishuRequestContext): Promise<T> {
-    const timeoutMs = this.getPositiveConfig(
-      WeeklyReportConfigKeys.FeishuRequestTimeoutMs,
-      DEFAULT_FEISHU_REQUEST_TIMEOUT_MS,
-      context?.requestTimeoutMs,
-    );
-    const maxRetries = this.getNonNegativeConfig(
-      WeeklyReportConfigKeys.FeishuMaxRetries,
-      DEFAULT_FEISHU_MAX_RETRIES,
-      context?.maxRetries,
-    );
+  async request<T>(options: FeishuRequestOptions, context: FeishuRequestContext): Promise<T> {
+    const timeoutMs = context.requestTimeoutMs;
+    const maxRetries = context.maxRetries;
     const url = this.buildUrl(options.path, options.query);
 
     for (let attempt = 0; ; attempt += 1) {
@@ -170,16 +159,6 @@ export class FeishuHttpClientService {
       url.searchParams.set(key, value);
     }
     return url.toString();
-  }
-
-  private getPositiveConfig(key: string, fallback: number, override?: number): number {
-    const value = override ?? getConfig<number>(key, fallback, false);
-    return Number.isFinite(value) && value > 0 ? value : fallback;
-  }
-
-  private getNonNegativeConfig(key: string, fallback: number, override?: number): number {
-    const value = override ?? getConfig<number>(key, fallback, false);
-    return Number.isInteger(value) && value >= 0 ? value : fallback;
   }
 
   private delay(timeoutMs: number): Promise<void> {

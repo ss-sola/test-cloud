@@ -23,13 +23,19 @@ Content-Type: application/json
   "jenkinsBaseUrl": "http://192.168.88.223:8080",
   "feishuAppId": "页面配置的 App ID",
   "feishuAppSecret": "页面配置的 App Secret",
+  "githubBaseUrl": "https://api.github.com",
+  "githubAllowedHosts": "api.github.com",
+  "environmentBeforeRef": "dev/master",
+  "environmentAfterRef": "master",
+  "environmentFilePath": "env/sample/app.env",
+  "modifyLogPath": "modify-log.sql",
   "tasks": ["git-tag", "github-merge", "jenkins", "release-docs", "modify-log", "feishu"]
 }
 ```
 
-`repository` 可省略并从 `gitAddress` 解析；`gitTag` 是用户输入的 release tag，格式例如 `v1.9.0-2026-09-04`，不再要求用户提交候选 commit SHA。创建 Job 会按勾选任务执行真实外部操作；Git tag 以选定 `targetBranch` 的当前 SHA 为快照，分支合并使用 `dev/master` 单一来源分支。`mode` 省略时默认为 `apply`；显式使用 `mode: "dry-run"` 时只跳过 GitHub tag/merge 写操作，但选中的 Jenkins package 仍会直接调用 Jenkins 接口。`apply` 仍要求幂等 key 满足 GitHub 写 gate，并通过 repository 格式、GitHub host、凭据和 SHA 校验。缺失/非法 Idempotency-Key、分支、gitTag 或 Git 地址返回 400/403；容量超限返回 429。成功返回 HTTP 202 和 `ResponseUtil.success` envelope。
+`repository` 可省略并从 `gitAddress` 解析；`gitTag` 必须由请求显式提供，服务端不会回退到固定版本号。创建 Job 会按勾选任务执行真实外部操作；Git tag 以选定 `targetBranch` 的当前 SHA 为快照，分支合并使用 `dev/master` 单一来源分支。`mode` 省略时默认为 `apply`；显式使用 `mode: "dry-run"` 时只跳过 GitHub tag/merge 写操作，但选中的 Jenkins package 仍会直接调用 Jenkins 接口。`apply` 仍要求幂等 key 满足 GitHub 写 gate，并通过 repository 格式、GitHub host、凭据和 SHA 校验。缺失/非法 Idempotency-Key、分支、gitTag 或 Git 地址返回 400/403；容量超限返回 429。成功返回 HTTP 202 和 `ResponseUtil.success` envelope。
 
-相同 `Idempotency-Key + release unit + payloadHash` 返回相同 Job（`idempotent=true`）；同一 Job ID 的 payload hash 不同返回 409。页面 token 不写入进度文本、错误消息、Markdown 或日志；它会随 Job 数据用于后续执行。
+相同 `Idempotency-Key + release unit + payloadHash` 返回相同 Job（`idempotent=true`）；同一 Job ID 的 payload hash 不同返回 409。页面 token 不写入进度文本、错误消息、Markdown 或日志；状态响应不会返回 `pageConfig` 中的凭据字段。
 
 ## 查询状态
 

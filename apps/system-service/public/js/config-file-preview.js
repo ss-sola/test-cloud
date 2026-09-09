@@ -1,6 +1,16 @@
 (() => {
   if (typeof document === 'undefined') return
 
+  const TOKEN_STORAGE_KEY = 'nestcloud:release-tokens:v1'
+
+  function readGithubToken() {
+    try {
+      const raw = window.localStorage.getItem(TOKEN_STORAGE_KEY)
+      const value = raw ? JSON.parse(raw) : null
+      return value && typeof value.githubToken === 'string' ? value.githubToken.trim() : ''
+    } catch { return '' }
+  }
+
   function mount(root) {
     if (!(root instanceof HTMLElement)) return
 
@@ -23,7 +33,7 @@
     || !(repositoryUrl instanceof HTMLInputElement)
     || !(branch instanceof HTMLInputElement)
     || !(filePath instanceof HTMLInputElement)
-    || !(tag instanceof HTMLSelectElement)
+    || !(tag instanceof HTMLInputElement)
     || !(submitButton instanceof HTMLButtonElement)
     || !(errorElement instanceof HTMLElement)
     || !(result instanceof HTMLElement)
@@ -37,7 +47,6 @@
   let requestController = null
   let requestGeneration = 0
   let latestContent = ''
-  const dirtyFields = new Set()
 
   function setError(message) {
     errorElement.textContent = message
@@ -56,35 +65,18 @@
       branch: branch.value.trim(),
       filePath: filePath.value.trim(),
       ...(tag.value.trim() ? { tag: tag.value.trim() } : {}),
+      githubToken: readGithubToken(),
     }
-  }
-
-  async function loadTags(repository) {
-    const response = await fetch('/api/config-file-preview/tags', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ repositoryUrl: repository }),
-    })
-    const payload = await response.json().catch(() => null)
-    if (!response.ok || !payload?.data) throw new Error(payload?.message || `Tag 请求失败（${response.status}）。`)
-    tag.replaceChildren()
-    const tags = Array.isArray(payload.data)
-      ? payload.data.filter((item) => item && typeof item.name === 'string' && item.name)
-      : []
-    tags.forEach((item) => {
-      const option = document.createElement('option')
-      option.value = item.name
-      option.textContent = item.name
-      tag.append(option)
-    })
-    tag.disabled = tags.length === 0
-    if (tags.length > 0) tag.selectedIndex = 0
   }
 
   async function doFetch(event) {
     event?.preventDefault()
     if (!form.reportValidity()) return
+    if (!readGithubToken()) {
+      setError('请先在 Token 配置页面填写 GitHub Token。')
+      setStatus('error', '缺少凭据')
+      return
+    }
 
     const generation = ++requestGeneration
     requestController?.abort()
@@ -135,26 +127,6 @@
     }
   }
 
-  async function loadDefaults() {
-    const generation = requestGeneration
-    try {
-      const response = await fetch('/api/config-file-preview/defaults', { credentials: 'same-origin' })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok || !payload?.data) throw new Error(payload?.message || `请求失败（${response.status}）。`)
-      if (generation !== requestGeneration) return
-      const data = payload.data
-      if (!dirtyFields.has('repositoryUrl') && !repositoryUrl.value.trim() && typeof data.repositoryUrl === 'string') repositoryUrl.value = data.repositoryUrl
-      if (!dirtyFields.has('branch') && !branch.value.trim() && typeof data.branch === 'string') branch.value = data.branch
-      if (!dirtyFields.has('filePath') && !filePath.value.trim() && typeof data.filePath === 'string') filePath.value = data.filePath
-      await loadTags(repositoryUrl.value.trim())
-      meta.textContent = '默认值和 tag 已加载；修改配置后读取指定文件。'
-    } catch (error) {
-      if (generation !== requestGeneration) return
-      setError(error instanceof Error ? error.message : '默认配置加载失败，请手动填写后重试。')
-      setStatus('error', '配置不可用')
-    }
-  }
-
   async function copyContent() {
     if (!latestContent) return
     try {
@@ -177,14 +149,7 @@
   }
 
   form.addEventListener('submit', doFetch)
-  repositoryUrl.addEventListener('input', () => dirtyFields.add('repositoryUrl'))
-  branch.addEventListener('input', () => dirtyFields.add('branch'))
-  filePath.addEventListener('input', () => dirtyFields.add('filePath'))
-  tag.addEventListener('change', () => {
-    if (!tag.disabled) void doFetch()
-  })
   copyButton.addEventListener('click', copyContent)
-  void loadDefaults()
 
     return {
       destroy() {

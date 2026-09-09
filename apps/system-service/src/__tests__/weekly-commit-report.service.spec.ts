@@ -8,7 +8,7 @@ import type {
 } from '../modules/weekly-commit-report/weekly-report.types';
 
 const service = new WeeklyCommitReportService();
-const originalToken = process.env.GITHUB_TAG_FILE_TOKEN;
+const runtime = { githubToken: 'test-token' };
 
 const log = (
   overrides: Partial<{
@@ -34,13 +34,25 @@ const window: WeekWindow = {
 };
 
 interface CommitCollector {
-  collectGitLogs(config: WeeklyReportProjectConfig, window: WeekWindow): Promise<GitLogEntry[]>;
-  generateThisWeek(configs: WeeklyReportProjectConfig[], window: WeekWindow): Promise<unknown>;
-  generateLastWeek(configs: WeeklyReportProjectConfig[], window: WeekWindow): Promise<unknown>;
+  collectGitLogs(
+    config: WeeklyReportProjectConfig,
+    window: WeekWindow,
+    runtime: { githubToken: string },
+  ): Promise<GitLogEntry[]>;
+  generateThisWeek(
+    configs: WeeklyReportProjectConfig[],
+    window: WeekWindow,
+    runtime: { githubToken: string },
+  ): Promise<unknown>;
+  generateLastWeek(
+    configs: WeeklyReportProjectConfig[],
+    window: WeekWindow,
+    runtime: { githubToken: string },
+  ): Promise<unknown>;
 }
 
-function collect(config: WeeklyReportProjectConfig) {
-  return (service as unknown as CommitCollector).collectGitLogs(config, window);
+function collect(config: WeeklyReportProjectConfig, requestRuntime = runtime) {
+  return (service as unknown as CommitCollector).collectGitLogs(config, window, requestRuntime);
 }
 
 function jsonResponse(value: unknown, status = 200) {
@@ -68,8 +80,6 @@ function githubCommit(overrides: Record<string, unknown> = {}) {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  if (originalToken === undefined) delete process.env.GITHUB_TAG_FILE_TOKEN;
-  else process.env.GITHUB_TAG_FILE_TOKEN = originalToken;
 });
 
 describe('WeeklyCommitReportService', () => {
@@ -103,7 +113,6 @@ describe('WeeklyCommitReportService', () => {
   });
 
   it('queries GitHub commits with branch, author, and date window parameters', async () => {
-    process.env.GITHUB_TAG_FILE_TOKEN = 'test-token';
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse([githubCommit()]));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -135,7 +144,6 @@ describe('WeeklyCommitReportService', () => {
   });
 
   it('maps author and committer fallbacks and filters merge commits', async () => {
-    process.env.GITHUB_TAG_FILE_TOKEN = 'test-token';
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse([
         githubCommit({
@@ -182,7 +190,6 @@ describe('WeeklyCommitReportService', () => {
   });
 
   it('paginates when a full page contains only merge commits', async () => {
-    process.env.GITHUB_TAG_FILE_TOKEN = 'test-token';
     const mergePage = Array.from({ length: 100 }, (_, index) =>
       githubCommit({
         sha: `merge-${index}`,
@@ -212,7 +219,6 @@ describe('WeeklyCommitReportService', () => {
   });
 
   it('omits sha when no branch is configured and stops on a short page', async () => {
-    process.env.GITHUB_TAG_FILE_TOKEN = 'test-token';
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse([githubCommit()]));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -224,7 +230,6 @@ describe('WeeklyCommitReportService', () => {
   });
 
   it('maps GitHub API errors and invalid responses', async () => {
-    process.env.GITHUB_TAG_FILE_TOKEN = 'test-token';
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ message: 'not found' }, 404));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -244,21 +249,6 @@ describe('WeeklyCommitReportService', () => {
         branch: 'main',
       }),
     ).rejects.toMatchObject({ status: 502 });
-  });
-
-  it('requires the system GitHub token before making an API request', async () => {
-    delete process.env.GITHUB_TAG_FILE_TOKEN;
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(
-      collect({
-        repo: 'https://github.com/example/demo.git',
-        person: 'person@example.com',
-        branch: 'main',
-      }),
-    ).rejects.toMatchObject({ status: 503 });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('skips a failed project and continues with later projects this week', async () => {
@@ -282,7 +272,7 @@ describe('WeeklyCommitReportService', () => {
       .mockResolvedValueOnce([log({ hash: 'success-a', subject: 'feat: success a' })])
       .mockResolvedValueOnce([log({ hash: 'success-b', subject: 'fix: success b' })]);
 
-    const result = (await internal.generateThisWeek(configs, window)) as {
+    const result = (await internal.generateThisWeek(configs, window, runtime)) as {
       projects: Array<{ repo: string; commitCount: number }>;
       projectErrors: Array<{ repo: string; repoLabel: string; code: number; message: string }>;
       commitCount: number;
@@ -319,7 +309,7 @@ describe('WeeklyCommitReportService', () => {
       .mockRejectedValueOnce(new ProjectException('GitHub API error: 502', 502))
       .mockResolvedValueOnce([log({ hash: 'success', date: '2026-04-07T09:00:00+08:00' })]);
 
-    const result = (await internal.generateLastWeek(configs, window)) as {
+    const result = (await internal.generateLastWeek(configs, window, runtime)) as {
       projects: Array<{ repo: string }>;
       projectErrors: Array<{ code: number }>;
       markdown: string;
@@ -343,7 +333,7 @@ describe('WeeklyCommitReportService', () => {
     ];
     vi.spyOn(internal, 'collectGitLogs').mockResolvedValue([log()]);
 
-    const result = (await internal.generateThisWeek(configs, window)) as {
+    const result = (await internal.generateThisWeek(configs, window, runtime)) as {
       projectErrors: unknown[];
     };
 

@@ -21,7 +21,6 @@ import type {
 export interface WeeklyReportQueueJobData {
   input: GenerateWeeklyReportInput;
   initialProgress: WeeklyReportProgress;
-  requiresPublishSettings?: boolean;
   error?: WeeklyReportJobError;
 }
 
@@ -86,9 +85,8 @@ export class WeeklyReportQueueService implements WeeklyReportQueueGateway, OnMod
       await queue.add(
         WEEKLY_REPORT_QUEUE_JOB_NAME,
         {
-          input: this.removeSensitiveInput(input),
+          input,
           initialProgress: progress,
-          requiresPublishSettings: !!input.publish?.settings,
         },
         {
           jobId,
@@ -185,8 +183,7 @@ export class WeeklyReportQueueService implements WeeklyReportQueueGateway, OnMod
   ): Promise<WeeklyReportQueueResult> {
     const jobId = job.id ?? '';
     const input = this.executionInputs.get(jobId) ?? job.data.input;
-    const hasMissingPublishSettings =
-      !this.executionInputs.has(jobId) && !!job.data.requiresPublishSettings;
+    const hasMissingPublishSettings = false;
     let latestProgress = job.data.initialProgress;
     let progressUpdate = Promise.resolve();
     let jobError: WeeklyReportJobError | null = null;
@@ -296,6 +293,7 @@ export class WeeklyReportQueueService implements WeeklyReportQueueGateway, OnMod
     return {
       period: input.period,
       configs: input.configs,
+      runtime: { githubToken: '' },
       publish: input.publish
         ? { enabled: input.publish.enabled, person: input.publish.person }
         : undefined,

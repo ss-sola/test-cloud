@@ -73,23 +73,6 @@ function createService(lookupValues: unknown[][], currentValues: unknown[][]) {
   return { service, sheetsClient, wikiClient };
 }
 
-function preserveConfigEnvironment() {
-  const keys = [
-    'WeeklyReportFeishuPublishEnabled',
-    'WeeklyReportFeishuTarget',
-    'WeeklyReportFeishuMonthlyTargets',
-    'FEISHU_CLI_APP_ID',
-    'FEISHU_CLI_APP_SECRET',
-  ];
-  const previous = new Map(keys.map((key) => [key, process.env[key]]));
-  return () => {
-    for (const [key, value] of previous) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  };
-}
-
 describe('WeeklyReportPublicationService', () => {
   it('does not read or publish when synchronization is explicitly disabled', async () => {
     const { service, sheetsClient } = createService([], []);
@@ -151,62 +134,14 @@ describe('WeeklyReportPublicationService', () => {
     );
   });
 
-  it('reads the canonical single target from server configuration', () => {
-    const restore = preserveConfigEnvironment();
-    Object.assign(process.env, {
-      WeeklyReportFeishuPublishEnabled: 'true',
-      WeeklyReportFeishuTarget: JSON.stringify({
-        wikiUrl: 'https://example.feishu.cn/wiki/server-target?sheet=server-sheet',
-        name: '服务端姓名',
-      }),
-      FEISHU_CLI_APP_ID: 'env-app-id',
-      FEISHU_CLI_APP_SECRET: 'env-app-secret',
-    });
-
-    try {
-      const { service } = createService([], []);
-      expect(service.readSettingsForTest()).toMatchObject({
-        enabled: true,
-        wikiUrl: 'https://example.feishu.cn/wiki/server-target?sheet=server-sheet',
-        name: '服务端姓名',
-      });
-    } finally {
-      restore();
-    }
+  it('rejects missing request-level publication settings', () => {
+    const { service } = createService([], []);
+    expect(() => service.readSettingsForTest()).toThrow(/请求级配置/);
   });
 
-  it('migrates one legacy target and rejects multiple legacy targets', () => {
-    const restore = preserveConfigEnvironment();
-    Object.assign(process.env, {
-      WeeklyReportFeishuPublishEnabled: 'true',
-      FEISHU_CLI_APP_ID: 'env-app-id',
-      FEISHU_CLI_APP_SECRET: 'env-app-secret',
-      WeeklyReportFeishuMonthlyTargets: JSON.stringify([
-        {
-          month: '2026-08',
-          wikiUrl: 'https://example.feishu.cn/wiki/legacy-target',
-          sheetId: 'legacy-sheet',
-          lookupRange: 'A1:B20',
-          name: '旧姓名',
-        },
-      ]),
-    });
-
-    try {
-      const { service } = createService([], []);
-      expect(service.readSettingsForTest()).toMatchObject({
-        wikiUrl: 'https://example.feishu.cn/wiki/legacy-target?sheet=legacy-sheet',
-        name: '旧姓名',
-      });
-
-      process.env.WeeklyReportFeishuMonthlyTargets = JSON.stringify([
-        { wikiUrl: 'https://example.feishu.cn/wiki/one?sheet=one' },
-        { wikiUrl: 'https://example.feishu.cn/wiki/two?sheet=two' },
-      ]);
-      expect(() => service.readSettingsForTest()).toThrow(/无法自动迁移/);
-    } finally {
-      restore();
-    }
+  it('does not migrate legacy target configuration', () => {
+    const { service } = createService([], []);
+    expect(() => service.readSettingsForTest()).toThrow(/请求级配置/);
   });
 
   it('uses the configured Wiki when the report week crosses a month boundary', async () => {
@@ -238,36 +173,24 @@ describe('WeeklyReportPublicationService', () => {
     );
   });
 
-  it('falls back to CLI environment credentials when request values are absent', async () => {
-    const previousAppId = process.env.FEISHU_CLI_APP_ID;
-    const previousAppSecret = process.env.FEISHU_CLI_APP_SECRET;
-    process.env.FEISHU_CLI_APP_ID = 'env-app-id';
-    process.env.FEISHU_CLI_APP_SECRET = 'env-app-secret';
+  it('does not fall back to environment credentials when request values are absent', async () => {
+    const { service, wikiClient } = createService(
+      [['8.24-8.28', '张三']],
+      [['旧内容', '保留', '不变', '旧内容', '旧内容']],
+    );
+    const settings: WeeklyReportPublishSettingsInput = {
+      appId: '',
+      appSecret: '',
+      wikiUrl: 'https://tthdtech.feishu.cn/sheets/spreadsheet-token?sheet=sheet-august',
+      name: '张三',
+    };
 
-    try {
-      const { service, wikiClient } = createService(
-        [['8.24-8.28', '张三']],
-        [['旧内容', '保留', '不变', '旧内容', '旧内容']],
-      );
-      const settings: WeeklyReportPublishSettingsInput = {
-        appId: '',
-        appSecret: '',
-        wikiUrl: 'https://tthdtech.feishu.cn/sheets/spreadsheet-token?sheet=sheet-august',
-        name: '张三',
-      };
+    await service.publishIfEnabled(result, { enabled: true, settings });
 
-      await service.publishIfEnabled(result, { enabled: true, settings });
-
-      expect(wikiClient.resolveSpreadsheet).toHaveBeenCalledWith(
-        settings.wikiUrl,
-        expect.objectContaining({ appId: 'env-app-id', appSecret: 'env-app-secret' }),
-      );
-    } finally {
-      if (previousAppId === undefined) delete process.env.FEISHU_CLI_APP_ID;
-      else process.env.FEISHU_CLI_APP_ID = previousAppId;
-      if (previousAppSecret === undefined) delete process.env.FEISHU_CLI_APP_SECRET;
-      else process.env.FEISHU_CLI_APP_SECRET = previousAppSecret;
-    }
+    expect(wikiClient.resolveSpreadsheet).toHaveBeenCalledWith(
+      settings.wikiUrl,
+      expect.objectContaining({ appId: '', appSecret: '' }),
+    );
   });
 
   it('does not auto-publish a this-week result', async () => {

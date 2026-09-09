@@ -29,7 +29,7 @@ describe('release automation job idempotency', () => {
         repository: 'acme/project',
         targetBranch: 'custom/prod',
         candidateSha: 'a'.repeat(40),
-        version: '1.9.0' as const,
+        gitTag: '1.9.0',
         mode: 'dry-run' as const,
       },
     };

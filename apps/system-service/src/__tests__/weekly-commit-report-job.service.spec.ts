@@ -11,7 +11,11 @@ import type {
   WeeklyReportResult,
 } from '../modules/weekly-commit-report/weekly-report.types';
 
-const input: GenerateWeeklyReportInput = { period: 'this-week', configs: [] };
+const input: GenerateWeeklyReportInput = {
+  period: 'this-week',
+  configs: [],
+  runtime: { githubToken: 'token' },
+};
 const result: WeeklyReportResult = {
   period: 'this-week',
   weekStart: '2026-08-24',

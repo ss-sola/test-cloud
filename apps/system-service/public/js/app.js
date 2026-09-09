@@ -1176,11 +1176,17 @@
         const publishEnabled = period === 'last-week' && publishCheckbox.checked
         const publish = { enabled: publishEnabled }
         if (publishEnabled) publish.settings = collectPublishSettings()
+        const configs = collectConfigs()
+        const releaseTokens = readReleaseTokenConfig()
+        const runtime = {
+          githubToken: releaseTokens.githubToken,
+          allowedRepositories: configs.map((config) => config.repo),
+        }
         const response = await fetch('/api/weekly-commit-reports/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ period, configs: collectConfigs(), publish }),
+          body: JSON.stringify({ period, configs, runtime, publish }),
         })
         const payload = await response.json().catch(() => null)
         if (!response.ok || !payload?.data?.jobId) throw new Error(payload?.message || '周报任务创建失败，请稍后重试。')
@@ -1265,7 +1271,6 @@
       URL.revokeObjectURL(url)
     }
 
-    const initialProjects = readProjectsFromDom()
     const savedDraft = readWeeklyDraft()
     if (savedDraft) {
       form.querySelectorAll('input[name="weekly-period"]').forEach((element) => {
@@ -1275,7 +1280,7 @@
     publishCheckbox.checked = savedDraft?.publishEnabled === true
     renderFeishuSettings(savedDraft?.publishSettings || createDefaultFeishuSettings())
     updatePublishOption()
-    renderProjects(savedDraft?.projects || initialProjects)
+    renderProjects(savedDraft?.projects || [{ id: createClientId(), repo: '', person: '', branch: '' }])
     projectList.addEventListener('click', (event) => {
       const target = event.target
       if (!(target instanceof HTMLElement)) return

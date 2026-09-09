@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import {
   RELEASE_AUTOMATION_MAX_ACTIVE_JOBS,
   RELEASE_AUTOMATION_TAG_PATTERN,
-  RELEASE_AUTOMATION_VERSION,
 } from './release-automation.constants';
 import { payloadHash } from './release-automation.security';
 import {
@@ -72,7 +71,7 @@ export class ReleaseAutomationJobService {
     const repository = this.selectRepository(
       input.plan.repository ?? input.plan.pageConfig?.gitAddress,
     );
-    const gitTag = input.plan.gitTag ?? input.plan.version ?? RELEASE_AUTOMATION_VERSION;
+    const gitTag = input.plan.gitTag;
     if (!RELEASE_AUTOMATION_TAG_PATTERN.test(gitTag))
       throw new ProjectException('gitTag 格式无效。', 400);
     if (!/^custom\/(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+$/.test(input.plan.targetBranch))
@@ -122,7 +121,8 @@ export class ReleaseAutomationJobService {
       throw new ProjectException('发布 Job ID 格式无效。', 400);
     const record = await this.queue.get(jobId);
     if (!record) throw new ProjectException('发布 Job 不存在或已过期。', 404);
-    return { ...record, planHash: this.hashPlan(record) };
+    const { pageConfig: _pageConfig, ...publicRecord } = record;
+    return { ...publicRecord, planHash: this.hashPlan(record) };
   }
 
   private selectRepository(input: string | undefined): string {

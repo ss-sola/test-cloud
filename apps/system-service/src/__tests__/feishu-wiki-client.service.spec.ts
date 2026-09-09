@@ -15,7 +15,13 @@ describe('extractWikiToken', () => {
 
     expect(extractSheetToken(url)).toBe('ZVPMsdbHphQOdetitZbcMu7NnEd');
     expect(extractSheetId(url)).toBe('a0ab9d');
-    await expect(service.resolveSpreadsheet(url)).resolves.toEqual({
+    const context = {
+      appId: 'app-id',
+      appSecret: 'app-secret',
+      requestTimeoutMs: 8_000,
+      maxRetries: 2,
+    };
+    await expect(service.resolveSpreadsheet(url, context)).resolves.toEqual({
       spreadsheetToken: 'ZVPMsdbHphQOdetitZbcMu7NnEd',
       sheetId: 'a0ab9d',
     });

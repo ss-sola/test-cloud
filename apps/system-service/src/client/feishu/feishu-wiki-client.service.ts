@@ -17,7 +17,7 @@ export class FeishuWikiClientService {
 
   async resolveSpreadsheet(
     wikiUrl: string,
-    context?: FeishuRequestContext,
+    context: FeishuRequestContext,
   ): Promise<{ spreadsheetToken: string; sheetId?: string; title?: string }> {
     const resource = parseFeishuResourceUrl(wikiUrl);
     if (resource.type === 'sheet') {

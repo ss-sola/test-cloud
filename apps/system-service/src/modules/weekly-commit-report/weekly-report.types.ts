@@ -85,10 +85,12 @@ export interface WeeklyReportResult {
 }
 
 export interface WeeklyReportPublishSettingsInput {
-  appId?: string;
-  appSecret?: string;
+  appId: string;
+  appSecret: string;
   wikiUrl: string;
   name?: string;
+  requestTimeoutMs?: number;
+  maxRetries?: number;
 }
 
 export interface WeeklyReportPublishInput {
@@ -98,9 +100,21 @@ export interface WeeklyReportPublishInput {
   settings?: WeeklyReportPublishSettingsInput;
 }
 
+export interface WeeklyReportRuntimeConfig {
+  githubToken: string;
+  allowedRepositories?: string[];
+  ai?: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  };
+  limits?: Partial<WeeklyReportLimits>;
+}
+
 export interface GenerateWeeklyReportInput {
   period: WeeklyReportPeriod;
-  configs?: WeeklyReportProjectConfig[];
+  configs: WeeklyReportProjectConfig[];
+  runtime: WeeklyReportRuntimeConfig;
   publish?: WeeklyReportPublishInput;
 }
 

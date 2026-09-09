@@ -5,7 +5,6 @@ import { GitHubApiException, GitHubReleaseClientService } from './github-release
 import { JenkinsClientService } from './jenkins-client.service';
 import { ModifyLogArchiveService } from './modify-log-archive.service';
 import { ModifyLogGatewayService } from './modify-log-gateway.service';
-import { readReleaseAutomationConfig } from './release-automation.config';
 import { RELEASE_AUTOMATION_VERSION } from './release-automation.constants';
 import { VersionSqlRenderer } from './version-sql.renderer';
 import type { ReleaseAutomationConfig } from './release-automation.config';
@@ -20,6 +19,7 @@ import type {
 
 export interface EnvironmentDiffOptions {
   repository?: string;
+  config: ReleaseAutomationConfig;
 }
 
 export interface EnvironmentDiffReport {
@@ -130,8 +130,8 @@ export class ReleaseAutomationService {
   }): Promise<GitHubRef> {
     return this.github.getRef(options.repository, `heads/${options.branch}`, options.config);
   }
-  async getEnvironmentDiff(options: EnvironmentDiffOptions = {}): Promise<EnvironmentDiffReport> {
-    const config = readReleaseAutomationConfig();
+  async getEnvironmentDiff(options: EnvironmentDiffOptions): Promise<EnvironmentDiffReport> {
+    const config = options.config;
     const repository = selectRepository(options.repository);
     if (
       !config.environmentBeforeRef ||
@@ -141,12 +141,18 @@ export class ReleaseAutomationService {
       throw new ProjectException('ENV diff 的 ref 或文件路径待配置。', 503);
     }
     const [beforeRef, afterRef] = await Promise.all([
-      this.github.getRef(repository, config.environmentBeforeRef),
-      this.github.getRef(repository, config.environmentAfterRef),
+      this.github.getRef(repository, config.environmentBeforeRef, config),
+      this.github.getRef(repository, config.environmentAfterRef, config),
     ]);
     const [beforeFile, afterFile] = await Promise.all([
-      this.github.getContents({ repository, path: config.environmentFilePath, ref: beforeRef.ref }),
-      this.github.getContents({ repository, path: config.environmentFilePath, ref: afterRef.ref }),
+      this.github.getContents(
+        { repository, path: config.environmentFilePath, ref: beforeRef.ref },
+        config,
+      ),
+      this.github.getContents(
+        { repository, path: config.environmentFilePath, ref: afterRef.ref },
+        config,
+      ),
     ]);
     return {
       repository,
@@ -260,9 +266,10 @@ export class ReleaseAutomationService {
   async prepareModifyLog(options: {
     releaseUnit: ReleaseUnit;
     mode: ReleaseMode;
+    config: ReleaseAutomationConfig;
     jobId?: string;
   }): Promise<ModifyLogPreparation> {
-    const source = await this.modifyLogGateway.readSource();
+    const source = await this.modifyLogGateway.readSource(options.config);
     const sql = this.renderer.render({
       version: options.releaseUnit.gitTag ?? options.releaseUnit.version,
       sourceChecksum: source.checksum,
@@ -275,6 +282,7 @@ export class ReleaseAutomationService {
             source,
             sql,
             releaseUnit: options.releaseUnit,
+            config: options.config,
             jobId: options.jobId,
           })
         : null;

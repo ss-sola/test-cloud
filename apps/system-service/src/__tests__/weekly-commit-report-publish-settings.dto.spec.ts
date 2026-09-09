@@ -16,34 +16,39 @@ const settings = {
   name: '张三',
 };
 
+const runtime = { githubToken: 'github-token', allowedRepositories: [project.repo] };
+
 describe('GenerateWeeklyCommitReportDto publish settings', () => {
   it('accepts a flat request-level Feishu configuration', async () => {
     const dto = plainToInstance(GenerateWeeklyCommitReportDto, {
       period: 'last-week',
       configs: [project],
+      runtime,
       publish: { enabled: true, settings },
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
   });
 
-  it('allows credentials and name to be omitted for server fallback and inference', async () => {
+  it('rejects missing credentials for enabled publication', async () => {
     const dto = plainToInstance(GenerateWeeklyCommitReportDto, {
       period: 'last-week',
       configs: [project],
+      runtime,
       publish: {
         enabled: true,
         settings: { wikiUrl: settings.wikiUrl },
       },
     });
 
-    await expect(validate(dto)).resolves.toHaveLength(0);
+    await expect(validate(dto)).resolves.toSatisfy((errors) => errors.length > 0);
   });
 
   it('allows explicitly disabled publication without settings', async () => {
     const dto = plainToInstance(GenerateWeeklyCommitReportDto, {
       period: 'last-week',
       configs: [project],
+      runtime,
       publish: { enabled: false },
     });
 
@@ -54,11 +59,13 @@ describe('GenerateWeeklyCommitReportDto publish settings', () => {
     const missing = plainToInstance(GenerateWeeklyCommitReportDto, {
       period: 'last-week',
       configs: [project],
+      runtime,
       publish: { enabled: true, settings: { name: '张三' } },
     });
     const invalid = plainToInstance(GenerateWeeklyCommitReportDto, {
       period: 'last-week',
       configs: [project],
+      runtime,
       publish: {
         enabled: true,
         settings: { ...settings, wikiUrl: 'x'.repeat(2049) },
@@ -73,6 +80,7 @@ describe('GenerateWeeklyCommitReportDto publish settings', () => {
     const dto = plainToInstance(GenerateWeeklyCommitReportDto, {
       period: 'last-week',
       configs: [project],
+      runtime,
       publish: {
         enabled: true,
         settings: {

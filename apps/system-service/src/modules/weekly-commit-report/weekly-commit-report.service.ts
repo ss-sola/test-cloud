@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { getConfig, ParamsErrorException, ProjectException } from '@nest-cloud/common';
-import { DEFAULT_WEEKLY_REPORT_PROJECTS, WeeklyReportConfigKeys } from './weekly-report.constants';
+import { ParamsErrorException, ProjectException } from '@nest-cloud/common';
 import type {
   DailyReportSection,
   GenerateWeeklyReportInput,
@@ -13,6 +12,7 @@ import type {
   WeeklyReportProjectError,
   WeeklyReportProjectResult,
   WeeklyReportResult,
+  WeeklyReportRuntimeConfig,
 } from './weekly-report.types';
 
 const MAX_DAILY_BULLETS = 5;
@@ -54,20 +54,17 @@ export class WeeklyCommitReportService {
     input: GenerateWeeklyReportInput,
     progress?: WeeklyReportProgressReporter,
   ): Promise<WeeklyReportResult> {
-    const configs = this.resolveConfigs(input.configs);
+    const configs = this.resolveConfigs(input.configs, input.runtime);
     progress?.(this.createProgress(configs.length, 0, 0, 'validating', null, '配置校验完成。'));
-    if (!process.env.GITHUB_TAG_FILE_TOKEN?.trim()) {
-      throw new ProjectException('未配置 GITHUB_TAG_FILE_TOKEN。', 503);
-    }
     const now = new Date();
     const window =
       input.period === 'this-week' ? this.getThisWeekWindow(now) : this.getLastWeekWindow(now);
 
     if (input.period === 'this-week') {
-      return this.generateThisWeek(configs, window, progress);
+      return this.generateThisWeek(configs, window, input.runtime, progress);
     }
 
-    return this.generateLastWeek(configs, window, progress);
+    return this.generateLastWeek(configs, window, input.runtime, progress);
   }
 
   getLastWeekWindow(now: Date = new Date()): WeekWindow {
@@ -254,6 +251,7 @@ export class WeeklyCommitReportService {
   private async generateThisWeek(
     configs: WeeklyReportProjectConfig[],
     window: WeekWindow,
+    runtime: import('./weekly-report.types').WeeklyReportRuntimeConfig,
     progress?: WeeklyReportProgressReporter,
   ): Promise<WeeklyReportResult> {
     const projectWork: ProjectWorkResult[] = [];
@@ -274,7 +272,7 @@ export class WeeklyCommitReportService {
       );
       let logs: GitLogEntry[];
       try {
-        logs = await this.collectGitLogs(config, window);
+        logs = await this.collectGitLogs(config, window, runtime);
       } catch (error) {
         if (!(error instanceof ProjectException)) throw error;
         projectErrors.push(this.toProjectError(config, repoLabel, error));
@@ -305,12 +303,16 @@ export class WeeklyCommitReportService {
       const summary =
         logs.length === 0
           ? { bullets: [NO_COMMIT_BULLET], degraded: false }
-          : await this.summarizeProject(logs, {
-              person: config.person,
-              repoLabel,
-              weekStart: window.dayKeys[0],
-              weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
-            });
+          : await this.summarizeProject(
+              logs,
+              {
+                person: config.person,
+                repoLabel,
+                weekStart: window.dayKeys[0],
+                weekEnd: window.dayKeys.at(-1) ?? window.dayKeys[0],
+              },
+              runtime,
+            );
       projectWork.push({
         config,
         repoLabel,
@@ -349,6 +351,7 @@ export class WeeklyCommitReportService {
         }),
         projectErrors,
       ),
+      runtime,
     );
 
     progress?.(
@@ -376,6 +379,7 @@ export class WeeklyCommitReportService {
   private async generateLastWeek(
     configs: WeeklyReportProjectConfig[],
     window: WeekWindow,
+    runtime: import('./weekly-report.types').WeeklyReportRuntimeConfig,
     progress?: WeeklyReportProgressReporter,
   ): Promise<WeeklyReportResult> {
     const mergedBullets: string[] = [];
@@ -400,7 +404,7 @@ export class WeeklyCommitReportService {
       );
       let logs: GitLogEntry[];
       try {
-        logs = await this.collectGitLogs(config, window);
+        logs = await this.collectGitLogs(config, window, runtime);
       } catch (error) {
         if (!(error instanceof ProjectException)) throw error;
         projectErrors.push(this.toProjectError(config, repoLabel, error));
@@ -428,10 +432,15 @@ export class WeeklyCommitReportService {
           '正在生成日报摘要。',
         ),
       );
-      const summary = await this.buildDailySections(logs, window.dayKeys, {
-        person: config.person,
-        repoLabel,
-      });
+      const summary = await this.buildDailySections(
+        logs,
+        window.dayKeys,
+        {
+          person: config.person,
+          repoLabel,
+        },
+        runtime,
+      );
       degraded ||= summary.degraded;
       mergedBullets.push(...summary.sections.flatMap((section) => section.bullets));
       projectResults.push({
@@ -471,6 +480,7 @@ export class WeeklyCommitReportService {
         }),
         projectErrors,
       ),
+      runtime,
     );
 
     progress?.(
@@ -546,6 +556,7 @@ export class WeeklyCommitReportService {
     logs: GitLogEntry[],
     dayKeys: string[],
     context: Pick<SummaryContext, 'person' | 'repoLabel'>,
+    runtime: WeeklyReportRuntimeConfig,
   ): Promise<{ sections: DailyReportSection[]; degraded: boolean }> {
     const sections: DailyReportSection[] = [];
     const seenBulletKeys = new Set<string>();
@@ -557,12 +568,16 @@ export class WeeklyCommitReportService {
         continue;
       }
 
-      const summary = await this.summarizeDaily(group.logs, {
-        date: group.date,
-        person: context.person,
-        repoLabel: context.repoLabel,
-        priorBullets: sections.flatMap((section) => section.bullets),
-      });
+      const summary = await this.summarizeDaily(
+        group.logs,
+        {
+          date: group.date,
+          person: context.person,
+          repoLabel: context.repoLabel,
+          priorBullets: sections.flatMap((section) => section.bullets),
+        },
+        runtime,
+      );
       degraded ||= summary.degraded;
       const bullets = this.dedupeBullets(summary.bullets, seenBulletKeys);
       sections.push({
@@ -578,12 +593,12 @@ export class WeeklyCommitReportService {
   private async collectGitLogs(
     config: WeeklyReportProjectConfig,
     window: WeekWindow,
+    runtime: WeeklyReportRuntimeConfig,
   ): Promise<GitLogEntry[]> {
     const repository = this.parseGitHubRepository(config.repo);
-    const token = process.env.GITHUB_TAG_FILE_TOKEN?.trim() ?? '';
-    if (!token) throw new ProjectException('未配置 GITHUB_TAG_FILE_TOKEN。', 503);
+    const token = runtime.githubToken.trim();
 
-    const limits = this.getLimits();
+    const limits = this.getLimits(runtime);
     const maxCommits = limits.maxCommitsPerRepository;
     const maxPages = Math.ceil(maxCommits / 100) + 1;
     const logs: GitLogEntry[] = [];
@@ -716,10 +731,11 @@ export class WeeklyCommitReportService {
   private async summarizeDaily(
     logs: GitLogEntry[],
     context: SummaryContext,
+    runtime: WeeklyReportRuntimeConfig,
   ): Promise<SummaryResult> {
-    const prompt = this.buildDailySummaryPrompt(logs, context);
-    const ai = this.getAiConfig();
-    const aiBullets = await this.requestAiSummary(ai, prompt, '研发日报助手');
+    const prompt = this.buildDailySummaryPrompt(logs, context, runtime);
+    const ai = this.getAiConfig(runtime);
+    const aiBullets = await this.requestAiSummary(ai, prompt, '研发日报助手', runtime);
     if (aiBullets) return { bullets: aiBullets, degraded: false };
     return { bullets: this.buildLocalSummary(logs), degraded: true };
   }
@@ -727,10 +743,11 @@ export class WeeklyCommitReportService {
   private async summarizeProject(
     logs: GitLogEntry[],
     context: SummaryContext,
+    runtime: WeeklyReportRuntimeConfig,
   ): Promise<SummaryResult> {
-    const prompt = this.buildProjectSummaryPrompt(logs, context);
-    const ai = this.getAiConfig();
-    const aiBullets = await this.requestAiSummary(ai, prompt, '研发周报助手');
+    const prompt = this.buildProjectSummaryPrompt(logs, context, runtime);
+    const ai = this.getAiConfig(runtime);
+    const aiBullets = await this.requestAiSummary(ai, prompt, '研发周报助手', runtime);
     if (aiBullets) return { bullets: aiBullets, degraded: false };
     return { bullets: this.buildLocalSummary(logs), degraded: true };
   }
@@ -739,9 +756,10 @@ export class WeeklyCommitReportService {
     ai: { baseUrl: string; apiKey: string; model: string },
     prompt: string,
     role: string,
+    runtime: WeeklyReportRuntimeConfig,
   ): Promise<string[] | undefined> {
     if (!ai.baseUrl || !ai.apiKey || !ai.model) return undefined;
-    if (prompt.length > this.getLimits().maxPromptCharacters) return undefined;
+    if (prompt.length > this.getLimits(runtime).maxPromptCharacters) return undefined;
 
     let baseUrl: URL;
     try {
@@ -753,7 +771,7 @@ export class WeeklyCommitReportService {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.getLimits().aiTimeoutMs);
+    const timeout = setTimeout(() => controller.abort(), this.getLimits(runtime).aiTimeoutMs);
     try {
       const response = await fetch(`${baseUrl.toString().replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
@@ -789,9 +807,13 @@ export class WeeklyCommitReportService {
     }
   }
 
-  private buildDailySummaryPrompt(logs: GitLogEntry[], context: SummaryContext): string {
+  private buildDailySummaryPrompt(
+    logs: GitLogEntry[],
+    context: SummaryContext,
+    runtime: WeeklyReportRuntimeConfig,
+  ): string {
     const commitLines = logs
-      .slice(0, this.getLimits().maxPromptCommits)
+      .slice(0, this.getLimits(runtime).maxPromptCommits)
       .map((log) => {
         const timeLabel = log.date.slice(11, 16);
         const subject = this.normalizeCommitSubject(log.subject);
@@ -822,9 +844,13 @@ export class WeeklyCommitReportService {
     ].join('\n');
   }
 
-  private buildProjectSummaryPrompt(logs: GitLogEntry[], context: SummaryContext): string {
+  private buildProjectSummaryPrompt(
+    logs: GitLogEntry[],
+    context: SummaryContext,
+    runtime: WeeklyReportRuntimeConfig,
+  ): string {
     const commitLines = logs
-      .slice(0, this.getLimits().maxPromptCommits)
+      .slice(0, this.getLimits(runtime).maxPromptCommits)
       .map((log) => {
         const dateLabel = this.formatLocalDate(new Date(log.date));
         const timeLabel = log.date.slice(11, 16);
@@ -848,14 +874,16 @@ export class WeeklyCommitReportService {
     ].join('\n');
   }
 
-  private resolveConfigs(configs?: WeeklyReportProjectConfig[]): WeeklyReportProjectConfig[] {
-    const source = configs?.length ? configs : this.getConfiguredProjects();
-    const limits = this.getLimits();
-    if (source.length === 0 || source.length > limits.maxProjects) {
+  private resolveConfigs(
+    configs: WeeklyReportProjectConfig[],
+    runtime: WeeklyReportRuntimeConfig,
+  ): WeeklyReportProjectConfig[] {
+    const limits = this.getLimits(runtime);
+    if (configs.length === 0 || configs.length > limits.maxProjects) {
       throw new ParamsErrorException(`周报项目数量必须在 1 到 ${limits.maxProjects} 个之间。`);
     }
 
-    return source.map((config) => {
+    return configs.map((config) => {
       const repo = config.repo?.trim();
       const person = config.person?.trim();
       const branch = config.branch?.trim();
@@ -868,112 +896,42 @@ export class WeeklyCommitReportService {
       if (/[ -]/.test(person) || (branch && /[ -]/.test(branch))) {
         throw new ParamsErrorException('周报项目字段包含不允许的控制字符。');
       }
-      if (
-        branch &&
-        (branch.length > 256 ||
-          branch.startsWith('-') ||
-          branch.includes('..') ||
-          branch.includes('@{'))
-      ) {
-        throw new ParamsErrorException('分支名称格式无效。');
-      }
-      this.assertAllowedRepository(repo);
+      this.assertAllowedRepository(repo, runtime);
       return { repo, person, ...(branch ? { branch } : {}) };
     });
   }
 
-  private getConfiguredProjects(): WeeklyReportProjectConfig[] {
-    const configured = getConfig<string>(WeeklyReportConfigKeys.AllowedRepositories, '', false)
-      .split(',')
-      .map((repo) => repo.trim())
-      .filter(Boolean);
-    const allowed = configured.length
-      ? configured
-      : DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => project.repo);
-    const defaultsByRepo = new Map(
-      DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => [this.canonicalRepo(project.repo), project]),
-    );
-    return allowed.map(
-      (repo) =>
-        defaultsByRepo.get(this.canonicalRepo(repo)) ?? {
-          repo,
-          person: '2451477516@qq.com',
-          branch: undefined,
-        },
-    );
-  }
-
-  private assertAllowedRepository(repo: string): void {
-    const allowed = getConfig<string>(WeeklyReportConfigKeys.AllowedRepositories, '', false)
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-    const allowedRepos = allowed.length
-      ? allowed
-      : DEFAULT_WEEKLY_REPORT_PROJECTS.map((project) => project.repo);
+  private assertAllowedRepository(repo: string, runtime: WeeklyReportRuntimeConfig): void {
+    const allowedRepos = runtime.allowedRepositories?.length ? runtime.allowedRepositories : [repo];
     if (!allowedRepos.some((item) => this.canonicalRepo(item) === this.canonicalRepo(repo))) {
       throw new ParamsErrorException('仓库不在周报允许访问列表中。');
     }
     this.parseGitHubRepository(repo);
   }
 
-  private getAiConfig() {
+  private getAiConfig(runtime: WeeklyReportRuntimeConfig) {
     return {
-      baseUrl: getConfig<string>(WeeklyReportConfigKeys.AiBaseUrl, '', false).trim(),
-      apiKey: getConfig<string>(WeeklyReportConfigKeys.AiApiKey, '', false).trim(),
-      model: getConfig<string>(WeeklyReportConfigKeys.AiModel, '', false).trim(),
+      baseUrl: runtime.ai?.baseUrl?.trim() ?? '',
+      apiKey: runtime.ai?.apiKey?.trim() ?? '',
+      model: runtime.ai?.model?.trim() ?? '',
     };
   }
 
-  private getLimits(): WeeklyReportLimits {
+  private getLimits(runtime: WeeklyReportRuntimeConfig): WeeklyReportLimits {
+    const limits = runtime.limits ?? {};
     return {
-      maxProjects: this.readPositiveConfig(WeeklyReportConfigKeys.MaxProjects, 10, 1, 10),
-      maxCommitsPerRepository: this.readPositiveConfig(
-        WeeklyReportConfigKeys.MaxCommits,
-        100,
-        1,
-        500,
-      ),
-      maxPromptCommits: this.readPositiveConfig(
-        WeeklyReportConfigKeys.MaxPromptCommits,
-        40,
-        1,
-        100,
-      ),
-      maxPromptCharacters: this.readPositiveConfig(
-        WeeklyReportConfigKeys.MaxPromptCharacters,
-        30_000,
-        1000,
-        100_000,
-      ),
-      maxOutputCharacters: this.readPositiveConfig(
-        WeeklyReportConfigKeys.MaxOutputCharacters,
-        100_000,
-        1000,
-        500_000,
-      ),
-      commandTimeoutMs: this.readPositiveConfig(
-        WeeklyReportConfigKeys.CommandTimeoutMs,
-        60_000,
-        1000,
-        300_000,
-      ),
-      aiTimeoutMs: this.readPositiveConfig(
-        WeeklyReportConfigKeys.AiTimeoutMs,
-        30_000,
-        1000,
-        120_000,
-      ),
+      maxProjects: limits.maxProjects ?? 10,
+      maxCommitsPerRepository: limits.maxCommitsPerRepository ?? 100,
+      maxPromptCommits: limits.maxPromptCommits ?? 40,
+      maxPromptCharacters: limits.maxPromptCharacters ?? 30_000,
+      maxOutputCharacters: limits.maxOutputCharacters ?? 100_000,
+      commandTimeoutMs: limits.commandTimeoutMs ?? 60_000,
+      aiTimeoutMs: limits.aiTimeoutMs ?? 30_000,
     };
   }
 
-  private readPositiveConfig(key: string, fallback: number, min: number, max: number): number {
-    const value = getConfig<number>(key, fallback, false);
-    return Math.min(max, Math.max(min, Number.isFinite(value) ? value : fallback));
-  }
-
-  private limitOutput(content: string): string {
-    const limit = this.getLimits().maxOutputCharacters;
+  private limitOutput(content: string, runtime: WeeklyReportRuntimeConfig): string {
+    const limit = this.getLimits(runtime).maxOutputCharacters;
     return content.length <= limit
       ? content
       : `${content.slice(0, limit - 32)}\n\n[报告内容已达到长度上限。]\n`;

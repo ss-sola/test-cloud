@@ -1,30 +1,3 @@
-import type { WeeklyReportProjectConfig } from './weekly-report.types';
-
-/** 周报模块私有配置键，不扩散到 common-service。 */
-export const WeeklyReportConfigKeys = {
-  AllowedRepositories: 'WeeklyReportAllowedRepositories',
-  AiBaseUrl: 'WeeklyReportAiBaseUrl',
-  AiApiKey: 'WeeklyReportAiApiKey',
-  AiModel: 'WeeklyReportAiModel',
-  CommandTimeoutMs: 'WeeklyReportCommandTimeoutMs',
-  AiTimeoutMs: 'WeeklyReportAiTimeoutMs',
-  MaxProjects: 'WeeklyReportMaxProjects',
-  MaxCommits: 'WeeklyReportMaxCommits',
-  MaxPromptCommits: 'WeeklyReportMaxPromptCommits',
-  MaxPromptCharacters: 'WeeklyReportMaxPromptCharacters',
-  MaxOutputCharacters: 'WeeklyReportMaxOutputCharacters',
-  FeishuPublishEnabled: 'WeeklyReportFeishuPublishEnabled',
-  FeishuAppId: 'WeeklyReportFeishuAppId',
-  FeishuAppSecret: 'WeeklyReportFeishuAppSecret',
-  FeishuCliAppId: 'FEISHU_CLI_APP_ID',
-  FeishuCliAppSecret: 'FEISHU_CLI_APP_SECRET',
-  FeishuTarget: 'WeeklyReportFeishuTarget',
-  /** @deprecated Read only to migrate the previous monthly-target format. */
-  FeishuMonthlyTargets: 'WeeklyReportFeishuMonthlyTargets',
-  FeishuRequestTimeoutMs: 'WeeklyReportFeishuRequestTimeoutMs',
-  FeishuMaxRetries: 'WeeklyReportFeishuMaxRetries',
-} as const;
-
 export const WEEKLY_REPORT_JOB_TTL_MS = 30 * 60 * 1000;
 export const WEEKLY_REPORT_MAX_ACTIVE_JOBS = 2;
 export const WEEKLY_REPORT_WORKER_CONCURRENCY = WEEKLY_REPORT_MAX_ACTIVE_JOBS;
@@ -42,21 +15,3 @@ export const FEISHU_WEEKDAY_COLUMNS = ['C', 'D', 'E', 'F', 'G'] as const;
 /** 周报发布固定只读的日期/姓名查找范围。 */
 export const FEISHU_DEFAULT_LOOKUP_RANGE = 'A1:B200';
 export const FEISHU_MAX_CELL_CHARACTERS = 8_000;
-
-export const DEFAULT_WEEKLY_REPORT_PROJECTS: WeeklyReportProjectConfig[] = [
-  {
-    repo: 'https://github.com/whtthd/wzj-nodejs-v2.git',
-    person: '2451477516@qq.com',
-    branch: 'merge/wzj-temp',
-  },
-  {
-    repo: 'https://github.com/whtthd/resource-portal-and-manage-backend.git',
-    person: '2451477516@qq.com',
-    branch: 'dev/master',
-  },
-  {
-    repo: 'https://github.com/whtthd/wzj-pc-frontend-next.git',
-    person: '2451477516@qq.com',
-    branch: 'publish/integration',
-  },
-];

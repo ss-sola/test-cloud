@@ -22,7 +22,7 @@ export class FeishuSheetsClientService {
 
   async listSheets(
     spreadsheetToken: string,
-    context?: FeishuRequestContext,
+    context: FeishuRequestContext,
   ): Promise<FeishuSheetInfo[]> {
     return this.withToken(async (accessToken) => {
       const payload = await this.httpClient.request<FeishuApiResponse<SheetsData>>(
@@ -40,7 +40,7 @@ export class FeishuSheetsClientService {
   async readValues(
     spreadsheetToken: string,
     range: string,
-    context?: FeishuRequestContext,
+    context: FeishuRequestContext,
   ): Promise<unknown[][]> {
     return this.withToken(async (accessToken) => {
       const payload = await this.httpClient.request<FeishuApiResponse<SheetsData>>(
@@ -59,7 +59,7 @@ export class FeishuSheetsClientService {
     spreadsheetToken: string,
     range: string,
     values: unknown[][],
-    context?: FeishuRequestContext,
+    context: FeishuRequestContext,
   ): Promise<void> {
     await this.withToken(async (accessToken) => {
       await this.httpClient.request<FeishuApiResponse>(
@@ -78,7 +78,7 @@ export class FeishuSheetsClientService {
 
   private async withToken<T>(
     operation: (accessToken: string) => Promise<T>,
-    context?: FeishuRequestContext,
+    context: FeishuRequestContext,
   ): Promise<T> {
     let refreshed = false;
     for (;;) {

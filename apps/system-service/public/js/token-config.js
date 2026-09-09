@@ -9,12 +9,14 @@
     const github = root.querySelector('#token-github')
     const jenkinsUrl = root.querySelector('#token-jenkins-url')
     const jenkins = root.querySelector('#token-jenkins')
+    const jenkinsTagMarker = root.querySelector('#token-jenkins-tag-marker')
     const feishuAppId = root.querySelector('#token-feishu-app-id')
     const feishuAppSecret = root.querySelector('#token-feishu-app-secret')
     const clear = root.querySelector('#token-config-clear')
     const status = root.querySelector('#token-config-status')
     if (!(form instanceof HTMLFormElement) || !(github instanceof HTMLInputElement)
       || !(jenkinsUrl instanceof HTMLInputElement) || !(jenkins instanceof HTMLInputElement)
+      || !(jenkinsTagMarker instanceof HTMLInputElement)
       || !(feishuAppId instanceof HTMLInputElement) || !(feishuAppSecret instanceof HTMLInputElement)
       || !(clear instanceof HTMLButtonElement) || !(status instanceof HTMLElement)) return
 
@@ -32,6 +34,7 @@
       github.value = typeof value.githubToken === 'string' ? value.githubToken : ''
       jenkinsUrl.value = typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : ''
       jenkins.value = typeof value.jenkinsToken === 'string' ? value.jenkinsToken : ''
+      jenkinsTagMarker.value = typeof value.jenkinsTagMarker === 'string' ? value.jenkinsTagMarker : ''
       feishuAppId.value = typeof value.feishuAppId === 'string' ? value.feishuAppId : ''
       feishuAppSecret.value = typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : ''
       status.textContent = window.localStorage.getItem(STORAGE_KEY) ? '已从当前浏览器恢复' : '尚未保存'
@@ -43,6 +46,7 @@
         githubToken: github.value,
         jenkinsBaseUrl: jenkinsUrl.value.trim(),
         jenkinsToken: jenkins.value,
+        jenkinsTagMarker: jenkinsTagMarker.value.trim(),
         feishuAppId: feishuAppId.value.trim(),
         feishuAppSecret: feishuAppSecret.value,
       }))
@@ -55,6 +59,7 @@
       github.value = ''
       jenkinsUrl.value = ''
       jenkins.value = ''
+      jenkinsTagMarker.value = ''
       feishuAppId.value = ''
       feishuAppSecret.value = ''
       window.dispatchEvent(new CustomEvent('nestcloud:tokens-updated'))

@@ -2,6 +2,7 @@
 
 ## 1. 适用范围与优先级
 
+- 严格记住不要修改common-service里的任何东西
 - 本文件约束 `apps/*` 下所有子项目的通用工程实践。
 - 子项目根目录的 `CLAUDE.md` 只补充该子项目的专属规则；与本文件冲突时，以更具体的子项目规则为准。
 - 涉及共享能力时，同时遵守 `apps/common-service/CLAUDE.md`。
@@ -23,11 +24,13 @@
 - 子项目 `src` 根目录只保留启动入口和配置校验入口，例如 `main.ts`、`app.module.ts`、`validate.config.ts`；业务代码按职责放在 `src/constants`、`src/modules`、`src/client`、`src/utils` 等目录。
 - `AppModule` 只作为启动入口；不新增业务聚合 Module 类，业务组件通过既有自动注册机制或约定目录注册。
 - 代码优先使用职责清晰的类和对象协作组织：业务编排类使用 `*Service`，外部访问类使用 `*ClientService`、`*FetchService` 或 `*GatewayService`，纯辅助类使用 `*Util`。
-- 功能函数不要过度封装或拆分；在满足实现要求的前提下，功能代码应尽可能简洁、直观、易懂，避免没有实际收益的抽象和层级。
+- 功能函数不要过度封装或拆分；在满足实现要求的前提下，功能代码应尽可能简洁、直观、易懂，避免没有实际收益的抽象和层级。方法必须承担明确、独立、完整的职责，禁止一行方法、纯参数转发方法和无业务意义的包装层；只有包含独立业务逻辑、判断、状态变更、数据组装、异常处理或外部交互时，才拆分步骤方法。
+- 业务判断应放在真正拥有该职责的方法内部，避免由调用方重复判断或新增包装方法承接判断；流程编排方法只负责清晰的执行顺序，不堆积步骤实现，也不为了 Step 化而机械拆分。
 - 不要大量进行防御性判断编程；仅针对真实的外部输入、可变状态、错误边界或明确的业务要求增加必要校验，避免重复和猜测性的保护分支。
 - `controller` 负责入参解析、协议转换和响应封装；`service` 负责业务编排；`utils` 只负责无状态、无副作用的纯辅助逻辑，不访问仓储、不发起远程调用。
 - 单个类不得同时堆叠远程拉取、业务筛选、缓存管理和结果组装等不相关职责；代码文件不超过 2000 行，超出时拆分或重构。
 - 自定义业务方法和工具方法参数原则上不超过三个；超过时使用 DTO 或 options 对象。禁止实现空函数并以 Todo 跳过功能。
+- 方法上方使用简洁中文 JSDoc 说明核心业务职责，必要时说明异常行为；流程编排中的关键调用可用简洁中文行尾注释说明业务意图，不重复方法名或代码本身。
 
 ## 4. 跨服务调用
 
@@ -58,7 +61,7 @@
 - Controller 接口参数必须使用对应的 form 对象和 `class-validator` 校验，禁止直接以 `Record<string, string | undefined>` 等非约束对象接收参数。
 - 业务查询条件和资源标识统一使用 query 参数，不使用 RESTful 路径参数；分页入参使用 `PageCommon` 或子类，字段为 `pageNum`、`pageSize`，返回数组字段统一为 `list`。
 - 分页查询优先使用 `paginate`。
-- Controller 返回值统一使用 `ResponseUtil.success` 或 `ResponseUtil.error` 包裹；业务异常使用 `ProjectException` 或其子类。
+- Controller 返回值统一使用 `ResponseUtil.success` 或 `ResponseUtil.error` 包裹；业务异常使用 `ProjectException` 或其子类。业务失败使用异常表达，不使用 `status: 'failed'` 等返回值模拟异常；中间层不得无理由吞掉异常，只有明确负责异常转换的方法才可捕获并转换异常。业务方法负责发现问题并抛出异常，流程编排层负责控制顺序，最外层统一将异常转换为 API 返回结果、任务状态或进度状态。
 - 获取当前登录人使用 `ContextService.getCurrentAccount<T>`；请求上下文使用 `ContextService.getReq` 和 `ContextService.getRes`。
 
 ## 8. 文档组织

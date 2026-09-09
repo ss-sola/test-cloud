@@ -166,7 +166,7 @@ export class ReleaseAutomationExecutionService {
   /** 读取页面覆盖后的发布配置，失败时抛出 CONFIG_INVALID。 */
   private async loadConfigurationStep(context: ExecutionContext): Promise<void> {
     try {
-      context.config = readReleaseAutomationConfig(context.record.pageConfig);
+      context.config = readReleaseAutomationConfig(context.record.pageConfig!);
     } catch (error) {
       this.throwStepError(
         'CONFIG_INVALID',

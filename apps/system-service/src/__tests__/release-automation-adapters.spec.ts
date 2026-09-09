@@ -15,7 +15,7 @@ function config(overrides: Partial<ReleaseAutomationConfig> = {}): ReleaseAutoma
     version: '1.9.0',
     githubBaseUrl: 'https://api.github.test',
     githubAllowedHosts: ['api.github.test'],
-    githubTokenRef: 'secret://github/token',
+    githubToken: 'sentinel',
     githubTimeoutMs: 100,
     githubMaxRetries: 0,
     githubMaxResponseBytes: 100_000,
@@ -24,11 +24,12 @@ function config(overrides: Partial<ReleaseAutomationConfig> = {}): ReleaseAutoma
     modifyLogMaxBytes: 100_000,
     modifyLogMaxLines: 100,
     jenkinsBaseUrl: 'http://jenkins.test:8080',
+    jenkinsTagMarker: 'backend-wzj-nodejs-v2',
     jenkinsTriggerPath: '/job/package/buildWithParameters',
     jenkinsQueuePathTemplate: '/queue/item/{queueId}/api/json',
     jenkinsBuildPathTemplate: '/job/package/{buildNumber}/api/json',
     jenkinsPipelineTextPathTemplate: '/job/package/{buildNumber}/pipeline-text',
-    jenkinsCredentialRef: 'secret://jenkins/credential',
+    jenkinsToken: 'sentinel',
     jenkinsTimeoutMs: 100,
     jenkinsMaxRetries: 0,
     jenkinsPollIntervalMs: 1,
@@ -54,7 +55,6 @@ describe('release automation remote adapters', () => {
     const client = new GitHubReleaseClientService({
       config: config(),
       fetchImpl,
-      secretProvider: { resolve: vi.fn().mockResolvedValue('sentinel') },
     });
     await expect(
       client.merge({
@@ -131,17 +131,18 @@ describe('release automation remote adapters', () => {
       'Finished: SUCCESS',
       '',
     ].join('\n');
-    expect(parsePipelineTag(text)).toBe('1.9.0');
+    expect(parsePipelineTag(text, 'backend-wzj-nodejs-v2')).toBe('1.9.0');
     expect(RELEASE_AUTOMATION_TAG_PATTERN.test('1.9.0')).toBe(true);
     expect(RELEASE_AUTOMATION_TAG_PATTERN.test('v1.9.0-2026-09-04')).toBe(true);
     expect(
       parsePipelineTag(
         '+ docker push registry.cn-hangzhou.aliyuncs.com/weizhujiao/backend-wzj-nodejs-v2:x86_dev_master_0e98b10ef6_v1.9.0-2026-09-04\nFinished: SUCCESS',
+        'backend-wzj-nodejs-v2',
       ),
     ).toBe('x86_dev_master_0e98b10ef6_v1.9.0-2026-09-04');
-    expect(() => parsePipelineTag('backend-wzj-nodejs-v2: 1.9.0\nFinished: FAILURE')).toThrow(
-      'Finished: SUCCESS',
-    );
+    expect(() =>
+      parsePipelineTag('backend-wzj-nodejs-v2: 1.9.0\nFinished: FAILURE', 'backend-wzj-nodejs-v2'),
+    ).toThrow('Finished: SUCCESS');
   });
 
   it('does not require a source SHA to package with Jenkins', async () => {
@@ -168,7 +169,6 @@ describe('release automation remote adapters', () => {
       config: config(),
       fetchImpl,
       sleep: vi.fn().mockResolvedValue(undefined),
-      secretProvider: { resolve: vi.fn().mockResolvedValue('Authorization sentinel') },
     });
 
     await expect(client.package()).resolves.toMatchObject({
@@ -201,7 +201,6 @@ describe('release automation remote adapters', () => {
       config: config(),
       fetchImpl,
       sleep: vi.fn().mockResolvedValue(undefined),
-      secretProvider: { resolve: vi.fn().mockResolvedValue('Authorization sentinel') },
     });
 
     await expect(client.package()).rejects.toThrow('number');
@@ -238,7 +237,6 @@ describe('release automation remote adapters', () => {
       config: config(),
       fetchImpl,
       sleep: vi.fn().mockResolvedValue(undefined),
-      secretProvider: { resolve: vi.fn().mockResolvedValue('Authorization sentinel') },
     });
     const result = await client.package(
       config({

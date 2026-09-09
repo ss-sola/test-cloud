@@ -6,11 +6,9 @@ import {
   RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
   RELEASE_AUTOMATION_QUEUE_ID_PATTERN,
 } from './release-automation.constants';
-import { readReleaseAutomationConfig } from './release-automation.config';
-import { resolveSecret, redactSensitiveText } from './release-automation.security';
+import { redactSensitiveText } from './release-automation.security';
 import type { ReleaseAutomationConfig } from './release-automation.config';
 import type { JenkinsPackageResult } from './release-automation.types';
-import type { ReleaseSecretProvider } from './release-automation.security';
 import type { GitHubFetch } from './github-release-client.service';
 
 export const JENKINS_CLIENT_OPTIONS = Symbol('JENKINS_CLIENT_OPTIONS');
@@ -18,7 +16,6 @@ export const JENKINS_CLIENT_OPTIONS = Symbol('JENKINS_CLIENT_OPTIONS');
 export interface JenkinsClientOptions {
   config?: ReleaseAutomationConfig;
   fetchImpl?: GitHubFetch;
-  secretProvider?: ReleaseSecretProvider;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
 }
@@ -69,7 +66,7 @@ export class JenkinsClientService {
       };
     }
     const pipeline = await this.readPipeline(buildNumber, config);
-    const builtTag = parsePipelineTag(pipeline);
+    const builtTag = parsePipelineTag(pipeline, config.jenkinsTagMarker ?? '');
     return {
       status: 'verified',
       queueId,
@@ -244,9 +241,7 @@ export class JenkinsClientService {
   ): Promise<JenkinsResponse> {
     const config = passedConfig ?? this.getConfig();
     const url = this.buildUrl(config, path);
-    const secret =
-      config.jenkinsToken ??
-      (await resolveSecret(config.jenkinsCredentialRef, this.options?.secretProvider));
+    const secret = config.jenkinsToken ?? '';
     const authorization = `Basic ${Buffer.from(`root:${secret}`, 'utf8').toString('base64')}`;
     const fetchImpl = this.options?.fetchImpl ?? (globalThis.fetch.bind(globalThis) as GitHubFetch);
     const maxRetries = retryableRequest
@@ -347,7 +342,9 @@ export class JenkinsClientService {
   }
 
   private getConfig(config?: ReleaseAutomationConfig): ReleaseAutomationConfig {
-    return config ?? this.options?.config ?? readReleaseAutomationConfig();
+    const resolved = config ?? this.options?.config;
+    if (!resolved) throw new ProjectException('Jenkins 调用缺少请求级运行配置。', 500);
+    return resolved;
   }
 
   private errorDetail(text: string): string {
@@ -369,7 +366,7 @@ export function parseQueueId(location: string, baseUrl: string): string {
   }
 }
 
-export function parsePipelineTag(text: string): string {
+export function parsePipelineTag(text: string, tagMarker: string): string {
   const lines = text.trimEnd().split(/\r?\n/);
   if (lines.at(-1)?.trim() !== 'Finished: SUCCESS')
     throw new JenkinsApiException(
@@ -377,7 +374,8 @@ export function parsePipelineTag(text: string): string {
       502,
       false,
     );
-  const marker = 'backend-wzj-nodejs-v2:';
+  const marker = tagMarker.trim().replace(/:$/, '') + ':';
+  if (marker === ':') throw new JenkinsApiException('Pipeline tag marker 未配置。', 500, false);
   const markerLine = [...lines].reverse().find((line) => line.includes(marker));
   if (!markerLine) throw new JenkinsApiException('Pipeline 输出中找不到受控 tag。', 502, false);
   const markerIndex = markerLine.lastIndexOf(marker);

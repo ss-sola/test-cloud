@@ -1,7 +1,7 @@
 <section class="view tool-view release-automation-view" data-view="release-automation" aria-labelledby="release-automation-title" hidden>
   <div class="page-heading">
     <div>
-      <p class="eyebrow">RELEASE / 1.9.0</p>
+      <p class="eyebrow">RELEASE</p>
       <h1 id="release-automation-title">发布版本</h1>
       <p class="page-description">通过 GitHub API 生成远程合并与发布计划；Jenkins 仅负责后续验证和打包。</p>
     </div>
@@ -16,7 +16,7 @@
       </label>
       <label class="form-field">
         <span>Git tag</span>
-        <input id="release-git-tag" name="gitTag" required maxlength="128" pattern="[0-9A-Za-z][0-9A-Za-z._+-]*" value="1.9.0" placeholder="1.9.0" />
+        <input id="release-git-tag" name="gitTag" required maxlength="128" pattern="[0-9A-Za-z][0-9A-Za-z._+-]*" placeholder="vX.Y.Z" />
         <small>本次创建的 release tag，创建位置由发布流程控制。</small>
       </label>
       <label class="form-field">
@@ -26,7 +26,7 @@
       </label>
     </div>
     <div class="release-automation-meta" aria-label="发布配置">
-      <span class="status-badge status-badge--ready" data-release-version>版本 1.9.0</span>
+      <span class="status-badge status-badge--ready" data-release-version>版本由请求指定</span>
       <span class="status-badge status-badge--ready">真实执行</span>
       <a class="compare-hint" href="#token-config">前往 Token 配置</a>
       <span class="release-automation-note">Jenkins 完整 Pipeline 地址缺失时不会发起请求。</span>

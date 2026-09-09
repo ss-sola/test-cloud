@@ -193,6 +193,9 @@ describe('weekly report menu contract', () => {
     expect(weekly).toContain('仅上周周报支持同步');
     expect(weekly).toContain('id="weekly-project-add"');
     expect(weekly).toContain('id="weekly-project-template"');
+    expect(weekly).not.toContain('wzj-nodejs-v2');
+    expect(weekly).not.toContain('2451477516@qq.com');
+    expect(weekly).not.toContain('default-0');
     expect(weekly).toContain('data-weekly-project-remove');
     expect(weekly).toContain('form="weekly-report-form"');
     expect(weekly).toContain('aria-valuenow="0"');
@@ -206,6 +209,8 @@ describe('weekly report menu contract', () => {
     expect(app).toContain('/api/weekly-commit-reports/jobs/status?jobId=');
     expect(app).toContain('const publish = { enabled: publishEnabled }');
     expect(app).toContain('if (publishEnabled) publish.settings = collectPublishSettings()');
+    expect(app).toContain('runtime');
+    expect(app).toContain('githubToken');
     expect(app).toContain('publishSettings');
     expect(app).not.toContain('requestTimeoutMs: Number.parseInt');
     expect(app).not.toContain('maxRetries: Number.parseInt');
@@ -269,9 +274,10 @@ describe('config file preview menu contract', () => {
     expect(html).toContain('<script src="/public/js/config-file-preview.js" defer></script>');
     expect(app).toContain("'config-file-preview': { title: '配置版本预览'");
     expect(app).toContain('config-file-preview.html');
-    expect(preview).toContain("'/api/config-file-preview/defaults'");
-    expect(preview).toContain("'/api/config-file-preview/tags'");
+    expect(preview).not.toContain("'/api/config-file-preview/defaults'");
+    expect(preview).not.toContain("'/api/config-file-preview/tags'");
     expect(preview).toContain("'/api/config-file-preview/preview'");
+    expect(preview).toContain('githubToken');
     expect(preview).toContain('window.NestCloudConfigFilePreview');
     expect(preview).toContain('output.textContent = latestContent');
     expect(preview).not.toContain('innerHTML');

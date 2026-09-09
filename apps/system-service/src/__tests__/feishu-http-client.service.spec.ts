@@ -8,6 +8,13 @@ function jsonResponse(value: unknown, status = 200) {
   });
 }
 
+const context = {
+  appId: 'app-id',
+  appSecret: 'app-secret',
+  requestTimeoutMs: 8_000,
+  maxRetries: 2,
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -20,12 +27,15 @@ describe('FeishuHttpClientService', () => {
     const service = new FeishuHttpClientService();
 
     await expect(
-      service.request({
-        method: 'GET',
-        path: '/open-apis/example',
-        accessToken: 'tenant-token',
-        query: { token: 'wiki-token' },
-      }),
+      service.request(
+        {
+          method: 'GET',
+          path: '/open-apis/example',
+          accessToken: 'tenant-token',
+          query: { token: 'wiki-token' },
+        },
+        context,
+      ),
     ).resolves.toEqual({ code: 0, data: { ok: true } });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -48,7 +58,9 @@ describe('FeishuHttpClientService', () => {
     vi.stubGlobal('fetch', fetchMock);
     const service = new FeishuHttpClientService();
 
-    await expect(service.request({ method: 'GET', path: '/open-apis/example' })).resolves.toEqual({
+    await expect(
+      service.request({ method: 'GET', path: '/open-apis/example' }, context),
+    ).resolves.toEqual({
       code: 0,
       data: { ok: true },
     });
@@ -61,7 +73,7 @@ describe('FeishuHttpClientService', () => {
     const service = new FeishuHttpClientService();
 
     await expect(
-      service.request({ method: 'GET', path: '/open-apis/example' }),
+      service.request({ method: 'GET', path: '/open-apis/example' }, context),
     ).rejects.toMatchObject({
       status: 403,
       retryable: false,
@@ -96,7 +108,7 @@ describe('FeishuHttpClientService', () => {
     const service = new FeishuHttpClientService();
 
     await expect(
-      service.request({ method: 'GET', path: '/open-apis/example' }),
+      service.request({ method: 'GET', path: '/open-apis/example' }, context),
     ).rejects.toMatchObject({
       status: 400,
       apiCode: 99991663,
