@@ -24,6 +24,11 @@
         <input id="release-target-branch" name="branch" required maxlength="256" pattern="custom/.+" placeholder="custom/production" />
         <small>仅支持 custom/*；分支合并通过 GitHub API 完成。</small>
       </label>
+      <label class="form-field">
+        <span>Jenkins Pipeline tag marker</span>
+        <input id="release-jenkins-tag-marker" name="jenkinsTagMarker" maxlength="256" placeholder="image-name" />
+        <small>Jenkins 输出中用于定位构建 tag 的镜像名或 marker。</small>
+      </label>
     </div>
     <div class="release-automation-meta" aria-label="发布配置">
       <span class="status-badge status-badge--ready" data-release-version>版本由请求指定</span>

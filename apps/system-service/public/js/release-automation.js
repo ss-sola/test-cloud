@@ -39,6 +39,7 @@
     const branch = root.querySelector('#release-target-branch')
     const gitAddress = root.querySelector('#release-git-address')
     const gitTag = root.querySelector('#release-git-tag')
+    const tagMarker = root.querySelector('#release-jenkins-tag-marker')
     const submit = root.querySelector('#release-automation-submit')
     const progress = root.querySelector('#release-automation-progress')
     const stageLabel = root.querySelector('#release-automation-stage-label')
@@ -52,6 +53,7 @@
 
     if (!(form instanceof HTMLFormElement) || !(branch instanceof HTMLInputElement)
       || !(gitAddress instanceof HTMLInputElement) || !(gitTag instanceof HTMLInputElement)
+      || !(tagMarker instanceof HTMLInputElement)
       || !(submit instanceof HTMLButtonElement)
       || !(progress instanceof HTMLElement) || !(stageLabel instanceof HTMLElement)
       || !(status instanceof HTMLElement) || !(bar instanceof HTMLElement)
@@ -84,7 +86,6 @@
           githubToken: typeof value.githubToken === 'string' ? value.githubToken : '',
           jenkinsBaseUrl: typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : '',
           jenkinsToken: typeof value.jenkinsToken === 'string' ? value.jenkinsToken : '',
-          jenkinsTagMarker: typeof value.jenkinsTagMarker === 'string' ? value.jenkinsTagMarker : '',
           feishuAppId: typeof value.feishuAppId === 'string' ? value.feishuAppId : '',
           feishuAppSecret: typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : '',
         }
@@ -102,6 +103,7 @@
         : EXECUTION_TASKS.map(([key]) => key))
       gitAddress.value = value.gitAddress || ''
       gitTag.value = value.gitTag || ''
+      tagMarker.value = value.jenkinsTagMarker || ''
       branch.value = value.targetBranch || value.branch || ''
     }
 
@@ -111,6 +113,7 @@
         ...previous,
         gitAddress: gitAddress.value.trim(),
         gitTag: gitTag.value.trim(),
+        jenkinsTagMarker: tagMarker.value.trim(),
         targetBranch: branch.value.trim(),
         selectedTasks: [...selectedTasks],
       })
@@ -131,12 +134,14 @@
       branch.disabled = value
       gitAddress.disabled = value
       gitTag.disabled = value
+      tagMarker.disabled = value
       progress.hidden = false
       progress.setAttribute('aria-busy', String(value))
       stages.querySelectorAll('input').forEach((input) => { input.disabled = value })
     }
 
     function renderTaskList(activeStage = '', taskStatuses = {}) {
+      tagMarker.required = selectedTasks.has('jenkins')
       stages.replaceChildren()
       EXECUTION_TASKS.forEach(([key, label]) => {
         const item = document.createElement('li')
@@ -148,6 +153,7 @@
         checkbox.addEventListener('change', () => {
           if (checkbox.checked) selectedTasks.add(key)
           else selectedTasks.delete(key)
+          tagMarker.required = selectedTasks.has('jenkins')
           persistConfig()
         })
         const active = key === activeStage || (key === 'preflight' && activeStage === 'planned')
@@ -245,7 +251,7 @@
             githubToken: tokens.githubToken,
             jenkinsToken: tokens.jenkinsToken,
             jenkinsBaseUrl: tokens.jenkinsBaseUrl,
-            jenkinsTagMarker: tokens.jenkinsTagMarker,
+            jenkinsTagMarker: tagMarker.value.trim(),
             feishuAppId: tokens.feishuAppId,
             feishuAppSecret: tokens.feishuAppSecret,
             tasks: [...selectedTasks],
@@ -259,6 +265,7 @@
           jobId,
           gitAddress: gitAddress.value.trim(),
           gitTag: gitTag.value.trim(),
+          jenkinsTagMarker: tagMarker.value.trim(),
           targetBranch: branch.value.trim(),
           selectedTasks: [...selectedTasks],
           idempotencyKey,
@@ -299,7 +306,7 @@
 
     renderTaskList()
     form.addEventListener('submit', createJob)
-    ;[gitAddress, gitTag, branch]
+    ;[gitAddress, gitTag, branch, tagMarker]
       .forEach((field) => field.addEventListener('input', persistConfig))
     void resumeDraft()
 

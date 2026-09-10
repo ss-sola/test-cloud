@@ -209,6 +209,7 @@ export function isJenkinsReady(config: ReleaseAutomationConfig): boolean {
     config.jenkinsQueuePathTemplate &&
     config.jenkinsBuildPathTemplate &&
     config.jenkinsPipelineTextPathTemplate &&
+    config.jenkinsTagMarker &&
     config.jenkinsToken,
   );
 }
