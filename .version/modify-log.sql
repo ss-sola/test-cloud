@@ -1,0 +1,108 @@
+-- 课件内容搜索（通用能力，下一版本发布）。
+-- 发布顺序：先执行本段 DDL，再部署课件上传 worker 和搜索接口；不回填历史课件。
+-- 旧 summary 字段保留原语义（音视频为 Whisper 原始结果），新增字段仅供内容检索和摘要展示。
+-- summary 扩为 LONGTEXT，避免长音视频的原始转写超过旧 TEXT 容量而使整条结果写入失败。
+-- DDL 可能等待元数据锁，应在低峰执行并提前备份；本段不可重复执行，重试前先核对两列是否存在。
+-- 回退：先回退应用代码，保留新增 nullable 列即可；不要删除已生成的正文和摘要。
+ALTER TABLE courseware_ai_summary
+    MODIFY COLUMN summary LONGTEXT NULL COMMENT '旧接口摘要；音视频保留原始 Whisper 结果',
+    ADD COLUMN searchable_text LONGTEXT NULL COMMENT '上传解析得到的正文或归一化转写，不含文件下载地址',
+    ADD COLUMN search_summary LONGTEXT NULL COMMENT '上传时生成的自然语言摘要，供搜索结果展示';
+-- 学生首页：记录自主练习首次提交时刻，避免查看答案/解析导致周成果跨周漂移。
+-- 先执行本 DDL，再部署依赖 submitted_at 的后端；旧版本写入继续兼容 NULL。
+-- 历史记录不回填：created_at 是抽题时间，updated_at 可能是辅助操作时间，均不可冒充提交时间。
+-- 重复执行前检查字段是否存在；仅允许新增，不覆盖现有列定义。
+-- 回滚应用时保留此可空字段，不删除已采集的提交事实。
+ALTER TABLE knowledge_practice_question
+    ADD COLUMN submitted_at DATETIME(3) NULL DEFAULT NULL COMMENT '首次成功提交时间；历史未知时为空',
+    ALGORITHM=INSTANT;
+
+-- 直播活动录播分析（下一版本）：先建表，再启用直播录播分析 worker。
+-- 不回填历史录播；原始 Whisper JSON 保留字幕时间戳。总结失败只重试总结，不清除字幕。
+-- 回退应用时保留本表；删除表会丢失已生成字幕和总结，不作为常规回退操作。
+CREATE TABLE live_record_ai_analysis (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    record_history_id INT NOT NULL COMMENT '实际录制文件 recording_history.id',
+    live_id INT NOT NULL COMMENT '直播场次 public_live_activity_screening.id',
+    source_version VARCHAR(64) NOT NULL COMMENT '录制文件版本摘要，文件变化时重建解析',
+    generation VARCHAR(64) NOT NULL COMMENT '本轮任务标识，拒绝迟到结果覆盖新任务',
+    status TINYINT NOT NULL DEFAULT 0 COMMENT '0待处理 1转写中 2总结中 3完成 4转写失败 5总结失败',
+    transcript_raw LONGTEXT NULL COMMENT 'Whisper原始字幕JSON，保留时间戳',
+    searchable_text LONGTEXT NULL COMMENT '归一化字幕正文',
+    summary LONGTEXT NULL COMMENT '字幕生成的大模型总结',
+    error VARCHAR(500) NULL COMMENT '当前阶段失败信息',
+    do_delete TINYINT NOT NULL DEFAULT 0,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_live_record_ai_record_live (record_history_id, live_id),
+    KEY idx_live_record_ai_live_status (live_id, do_delete, status),
+    KEY idx_live_record_ai_timeout (status, do_delete, update_time, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='直播活动录播字幕与AI总结';
+
+-- 增量检测按创建时间过滤新录像，避免每分钟扫描全部历史录制记录。
+-- 新增索引可能等待元数据锁，应在低峰执行；重复执行前核对索引是否已存在。
+CREATE INDEX idx_recording_history_ai_created ON recording_history (c_time, do_delete, id);
+
+-- 作业批注添加批注地址字段
+ALTER TABLE `question_student_attachment`
+  ADD COLUMN `annotated_url` VARCHAR(1000) NULL COMMENT '教师最近一次图片批注地址' AFTER `name`;
+ALTER TABLE `paper_student_attachment`
+  ADD COLUMN `annotated_url` VARCHAR(1000) NULL COMMENT '教师最近一次图片批注地址' AFTER `name`;
+ALTER TABLE `homework_student_attachment`
+  ADD COLUMN `annotated_url` VARCHAR(1000) NULL COMMENT '教师最近一次图片批注地址' AFTER `name`;
+
+-- 课堂必须关联学期，避免后续按学期查询时出现无法归属的课堂。
+-- 执行前确认 course.term_id 不存在 NULL；如存在，先按业务归属完成历史数据回填。
+-- 该变更收窄字段可空性，执行时需避开高峰并关注表级元数据锁等待。
+ALTER TABLE `course`
+    MODIFY COLUMN `term_id` INT NOT NULL COMMENT '学期ID';
+
+-- 自主学习知识点的题目与 AI 介绍共用生成准备记录；题目和介绍状态独立保存。
+-- 同一课程知识点只允许存在一条生成记录，失败分支可在原记录上重试。
+CREATE TABLE IF NOT EXISTS `kp_knowledge_generation` (
+    `id` INT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `course_id` INT NOT NULL COMMENT '课堂 ID',
+    `knowledge_id` INT NOT NULL COMMENT '知识点 ID',
+    `question_status` VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT '题目生成状态',
+    `introduction_status` VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT '介绍生成状态',
+    `introduction_content` MEDIUMTEXT NULL COMMENT '共享 AI 介绍内容',
+    `question_error_message` VARCHAR(500) NULL COMMENT '题目生成错误信息',
+    `introduction_error_message` VARCHAR(500) NULL COMMENT '介绍生成错误信息',
+    `question_started_at` DATETIME(3) NULL COMMENT '题目任务开始时间',
+    `question_finished_at` DATETIME(3) NULL COMMENT '题目任务完成时间',
+    `introduction_started_at` DATETIME(3) NULL COMMENT '介绍任务开始时间',
+    `introduction_finished_at` DATETIME(3) NULL COMMENT '介绍任务完成时间',
+    `generation_token` VARCHAR(64) NULL COMMENT '当前生成任务令牌',
+    `create_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+    `update_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_kp_knowledge_generation_course_knowledge` (`course_id`, `knowledge_id`),
+    KEY `idx_kp_knowledge_generation_question_status` (`question_status`),
+    KEY `idx_kp_knowledge_generation_introduction_status` (`introduction_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='自主学习知识点生成准备状态';
+
+-- 数据清洗：同一会话按创建时间和主键确定第一条有效消息。
+-- 如果第一条有效消息是 assistant，则将其逻辑删除，避免 AI 回复成为会话起始消息。
+-- 仅处理当前未删除记录；重复执行不会再次修改已清洗的消息。
+UPDATE `kp_chat_message` AS message
+INNER JOIN (
+    SELECT id
+    FROM (
+        SELECT
+            id,
+            role,
+            ROW_NUMBER() OVER (
+                PARTITION BY conversation_id
+                ORDER BY create_time ASC, id ASC
+            ) AS row_num
+        FROM `kp_chat_message`
+        WHERE do_delete = 0
+    ) AS ranked
+    WHERE ranked.row_num = 1
+      AND ranked.role = 'assistant'
+) AS first_assistant
+    ON first_assistant.id = message.id
+SET
+    message.do_delete = 1,
+    message.update_time = CURRENT_TIMESTAMP
+WHERE message.do_delete = 0;
