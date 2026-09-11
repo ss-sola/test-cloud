@@ -2,7 +2,7 @@
 
 ## 页面交互
 
-入口为管理台左侧的“配置版本预览”（`#config-file-preview`）。页面展示 Git 地址、分支、文件路径、tag 和只读文本预览表单，所有业务字段初始为空，用户必须显式填写后提交。
+入口为管理台左侧的“配置版本预览”（`#config-file-preview`）。页面展示 Git 地址、分支、文件路径、tag 和只读文本预览表单；四个非敏感表单字段保存到 `localStorage` 的 `nestcloud:config-file-preview:v1`，页面重新挂载时恢复，存储损坏时回退为空值。GitHub Token 不写入该草稿。
 
 用户可在 Token 配置页面保存 GitHub Token；提交 preview 时页面将 `githubToken` 随请求发送。服务端不从环境变量或配置文件读取 Token，也不返回 Token。
 
@@ -12,8 +12,8 @@
 
 页面直接调用：
 
-- `POST /api/config-file-preview/preview`：使用用户填写的 repository、branch、filePath、tag 和 Token 读取文件；
-- `POST /api/config-file-preview/tags`：可选地按用户填写的 repository 查询 tags，不自动选择第一项；
+- `POST /api/config-file-preview/preview`：使用用户填写的 repository、branch、filePath 和 Token 读取文件；tag 可手动填写，留空时服务端先从 GitHub tags 列表选择第一个有效候选。
+- `POST /api/config-file-preview/tags`：填写完整 Git 地址和分支后自动按仓库查询 tag，并将结果作为 tag 输入候选项；不会自动选择第一项；
 - 不再调用 `GET /api/config-file-preview/defaults`，也没有固定仓库、文件路径或版本默认值。
 
 ## 可访问性与响应式
@@ -26,6 +26,6 @@
 
 ## 输入与安全边界
 
-- repository、branch、filePath、tag 和 githubToken 均为请求必填字段，由 DTO 校验长度和类型。
+- repository、branch、filePath 和 githubToken 为请求必填字段，tag 可选；tag 留空时服务端按 GitHub tags API 返回顺序选择第一个有效名称，并将实际 `selectedTag` 回填页面草稿。所有字段仍由 DTO 校验长度和类型。
 - GitHub API 地址固定为 `api.github.com`，Token 不写入结果、页面文本、URL、日志或响应。
 - 页面只能在受控管理网络或反向代理之后部署，生产环境应配置认证和 GitHub API 速率限制。

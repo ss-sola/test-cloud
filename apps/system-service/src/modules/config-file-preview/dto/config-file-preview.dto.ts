@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ConfigFilePreviewDto {
   @IsString()
@@ -21,8 +21,8 @@ export class ConfigFilePreviewDto {
   @MaxLength(4096)
   githubToken!: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(256)
-  tag!: string;
+  tag?: string;
 }

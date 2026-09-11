@@ -38,8 +38,24 @@ export class ConfigFilePreviewService {
       .replace(/\/$/, '');
     const filePath = body.filePath.trim();
     const branch = body.branch.trim();
-    const tag = body.tag.trim();
+    let tag = body.tag?.trim() ?? '';
     const token = body.githubToken.trim();
+
+    if (!tag) {
+      const tags = await this.getTags(
+        { repositoryUrl: body.repositoryUrl, githubToken: body.githubToken },
+        signal,
+      );
+      if (!Array.isArray(tags)) {
+        throw new ProjectException('GitHub tags 响应格式无效', 502);
+      }
+      tag =
+        tags.find((item) => typeof item?.name === 'string' && item.name.trim())?.name.trim() ?? '';
+      if (!tag) {
+        throw new ProjectException('GitHub 仓库没有可用 tag', 404);
+      }
+    }
+
     const url =
       'https://api.github.com/repos/' + repository + '/contents/' + filePath + '?ref=' + tag;
 

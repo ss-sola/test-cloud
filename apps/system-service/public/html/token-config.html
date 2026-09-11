@@ -3,7 +3,7 @@
     <div>
       <p class="eyebrow">SETTINGS / TOKENS</p>
       <h1 id="token-config-title">Token 配置</h1>
-      <p class="page-description">配置发布执行所需的 GitHub、Jenkins 和 Feishu CLI 凭据。</p>
+      <p class="page-description">配置发布执行所需的 GitHub、Jenkins、Feishu CLI 凭据和周报 AI 摘要调用。</p>
     </div>
     <span class="heading-mark" aria-hidden="true">09</span>
   </div>
@@ -15,8 +15,11 @@
       <label class="form-field"><span>Jenkins token</span><input id="token-jenkins" type="password" autocomplete="off" /></label>
       <label class="form-field"><span>Feishu App ID</span><input id="token-feishu-app-id" type="text" autocomplete="off" /></label>
       <label class="form-field"><span>Feishu App Secret</span><input id="token-feishu-app-secret" type="password" autocomplete="off" /></label>
+      <label class="form-field"><span>AI Base URL</span><input id="token-ai-base-url" type="url" maxlength="2048" autocomplete="url" placeholder="https://api.example.com/v1" /></label>
+      <label class="form-field"><span>AI API Key</span><input id="token-ai-api-key" type="password" maxlength="4096" autocomplete="new-password" /></label>
+      <label class="form-field"><span>AI Model</span><input id="token-ai-model" type="text" maxlength="256" autocomplete="off" placeholder="gpt-4o-mini" /></label>
     </div>
-    <p class="release-credential-warning" role="note">凭据保存在当前浏览器 localStorage。请只在受控浏览器使用，离开环境前清空。</p>
+    <p class="release-credential-warning" role="note">凭据（包括 AI API Key）保存在当前浏览器 localStorage。AI 三项全部填写才会启用摘要，全部留空时使用本地规则摘要；部分填写会被视为配置不完整且不会发起 AI 请求。请只在受控浏览器使用，离开环境前清空。</p>
     <div class="compare-actions">
       <button class="compare-button" id="token-config-save" type="submit">保存 Token 配置</button>
       <button class="compare-button compare-button--secondary" id="token-config-clear" type="button">清空凭据</button>

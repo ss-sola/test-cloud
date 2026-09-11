@@ -269,15 +269,26 @@ describe('config file preview menu contract', () => {
     expect(fragment).toContain('id="config-preview-branch"');
     expect(fragment).toContain('id="config-preview-file-path"');
     expect(fragment).toContain('id="config-preview-tag"');
+    expect(fragment).toContain('list="config-preview-tags"');
+    expect(fragment).toContain('id="config-preview-tags"');
+    expect(fragment).not.toContain(
+      'id="config-preview-tag" name="tag" type="text" autocomplete="off" list="config-preview-tags" required',
+    );
     expect(fragment).toContain('role="alert"');
     expect(fragment).toContain('aria-live="polite"');
     expect(html).toContain('<script src="/public/js/config-file-preview.js" defer></script>');
     expect(app).toContain("'config-file-preview': { title: '配置版本预览'");
     expect(app).toContain('config-file-preview.html');
     expect(preview).not.toContain("'/api/config-file-preview/defaults'");
-    expect(preview).not.toContain("'/api/config-file-preview/tags'");
+    expect(preview).toContain("'/api/config-file-preview/tags'");
     expect(preview).toContain("'/api/config-file-preview/preview'");
     expect(preview).toContain('githubToken');
+    expect(preview).toContain('nestcloud:config-file-preview:v1');
+    expect(preview).toContain('saveCurrentDraft');
+    expect(preview).toContain('selectedTag');
+    expect(preview).toContain('submittedTag');
+    expect(preview).toContain('restoreDraft');
+    expect(preview).toContain('scheduleTagLookup');
     expect(preview).toContain('window.NestCloudConfigFilePreview');
     expect(preview).toContain('output.textContent = latestContent');
     expect(preview).not.toContain('innerHTML');
@@ -323,7 +334,7 @@ describe('release automation menu contract', () => {
 });
 
 describe('token config menu contract', () => {
-  it('provides separate localStorage configuration for GitHub, Jenkins and Feishu', () => {
+  it('provides localStorage configuration for release credentials and AI summaries', () => {
     const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
     const fragment = readFileSync(resolve(process.cwd(), 'public/html/token-config.html'), 'utf8');
     const script = readFileSync(resolve(process.cwd(), 'public/js/token-config.js'), 'utf8');
@@ -335,8 +346,23 @@ describe('token config menu contract', () => {
     expect(fragment).toContain('id="token-jenkins"');
     expect(fragment).toContain('id="token-feishu-app-id"');
     expect(fragment).toContain('id="token-feishu-app-secret"');
+    expect(fragment).toContain('id="token-ai-base-url"');
+    expect(fragment).toContain('id="token-ai-api-key"');
+    expect(fragment).toContain('id="token-ai-model"');
+    expect(fragment).toContain('maxlength="2048"');
+    expect(fragment).toContain('maxlength="4096"');
+    expect(fragment).toContain('maxlength="256"');
+    expect(fragment).toContain('不完整');
     expect(script).toContain('nestcloud:release-tokens:v1');
+    expect(script).toContain('value.ai');
+    expect(script).toContain('const ai = {');
+    expect(script).toContain("aiBaseUrl.value = ''");
     expect(script).toContain('localStorage');
     expect(app).toContain("'token-config': { title: 'Token 配置'");
+    expect(app).toContain('releaseTokens.ai');
+    expect(app).toContain('AI 配置不完整');
+    expect(script).not.toContain('aiBaseUrl:');
+    expect(script).not.toContain('aiApiKey:');
+    expect(script).not.toContain('aiModel:');
   });
 });

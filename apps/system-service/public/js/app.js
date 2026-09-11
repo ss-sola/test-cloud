@@ -174,13 +174,26 @@
 
   function readReleaseTokenConfig() {
     const value = readStoredValue(TOKEN_STORAGE_KEY)
-    if (!value || typeof value !== 'object') return { githubToken: '', jenkinsToken: '', jenkinsBaseUrl: '', feishuAppId: '', feishuAppSecret: '' }
+    if (!value || typeof value !== 'object') return {
+      githubToken: '',
+      jenkinsToken: '',
+      jenkinsBaseUrl: '',
+      feishuAppId: '',
+      feishuAppSecret: '',
+      ai: { baseUrl: '', apiKey: '', model: '' },
+    }
+    const ai = value.ai && typeof value.ai === 'object' ? value.ai : {}
     return {
       githubToken: typeof value.githubToken === 'string' ? value.githubToken : '',
       jenkinsToken: typeof value.jenkinsToken === 'string' ? value.jenkinsToken : '',
       jenkinsBaseUrl: typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : '',
       feishuAppId: typeof value.feishuAppId === 'string' ? value.feishuAppId : '',
       feishuAppSecret: typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : '',
+      ai: {
+        baseUrl: typeof ai.baseUrl === 'string' ? ai.baseUrl.trim() : '',
+        apiKey: typeof ai.apiKey === 'string' ? ai.apiKey.trim() : '',
+        model: typeof ai.model === 'string' ? ai.model.trim() : '',
+      },
     }
   }
 
@@ -1178,9 +1191,14 @@
         if (publishEnabled) publish.settings = collectPublishSettings()
         const configs = collectConfigs()
         const releaseTokens = readReleaseTokenConfig()
+        const aiValues = [releaseTokens.ai.baseUrl, releaseTokens.ai.apiKey, releaseTokens.ai.model]
+        if (aiValues.some(Boolean) && !aiValues.every(Boolean)) {
+          throw new Error('AI 配置不完整，请在 Token 配置页填写 Base URL、API Key 和 Model，或全部留空。')
+        }
         const runtime = {
           githubToken: releaseTokens.githubToken,
           allowedRepositories: configs.map((config) => config.repo),
+          ...(aiValues.every(Boolean) ? { ai: releaseTokens.ai } : {}),
         }
         const response = await fetch('/api/weekly-commit-reports/jobs', {
           method: 'POST',

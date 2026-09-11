@@ -7,6 +7,11 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "build:common": "pnpm --dir ../common-service run build",
+    "prestart": "pnpm run build:common",
+    "prestart:dev": "pnpm run build:common",
+    "prestart:debug": "pnpm run build:common",
+    "prestart:prod": "pnpm run build:common",
     "format": "oxfmt --write \"src/**/*.ts\" \"src/__tests__/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

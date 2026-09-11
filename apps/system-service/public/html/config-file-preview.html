@@ -24,12 +24,13 @@
                   <input id="config-preview-file-path" name="filePath" type="text" autocomplete="off" required maxlength="512" placeholder="config/application.yml" aria-describedby="config-preview-error" />
                 </label>
                 <label for="config-preview-tag">Git tag
-                  <input id="config-preview-tag" name="tag" type="text" autocomplete="off" required maxlength="256" placeholder="v1.0.0" aria-describedby="config-preview-error" />
+                  <input id="config-preview-tag" name="tag" type="text" autocomplete="off" list="config-preview-tags" maxlength="256" placeholder="留空自动读取最新 tag" aria-describedby="config-preview-error" />
+                  <datalist id="config-preview-tags"></datalist>
                 </label>
               </div>
               <div class="config-file-preview-actions">
                 <button class="compare-button" id="config-preview-submit" type="submit">读取版本 <span aria-hidden="true">→</span></button>
-                <span class="config-file-preview-hint">Git 地址按当前运行环境访问；tag 只显示当前分支可达版本。</span>
+                <span class="config-file-preview-hint">填写 Git 地址和分支后会自动加载仓库 tag 列表；Tag 可手动填写，留空时提交会读取 GitHub 返回的最新候选。</span>
               </div>
               <p class="tool-error" id="config-preview-error" role="alert" hidden></p>
             </form>
@@ -39,7 +40,7 @@
                 <div><p class="section-kicker">VERSION CONTENT</p><h2 id="config-file-preview-result-title">文件内容</h2></div>
                 <span class="status-badge" id="config-preview-status"><span></span><span id="config-preview-status-label">等待</span></span>
               </div>
-              <div class="config-file-preview-meta" id="config-preview-meta">提交配置后读取指定 tag 的文件。</div>
+              <div class="config-file-preview-meta" id="config-preview-meta">提交配置后读取指定 tag；Tag 留空时自动选择最新候选。</div>
               <pre class="config-file-preview-output" id="config-preview-output" tabindex="0" aria-label="Git tag 文件内容" hidden></pre>
               <div class="config-file-preview-result-actions" id="config-preview-result-actions" hidden>
                 <button class="compare-button compare-button--secondary" id="config-preview-copy" type="button">复制内容</button>
