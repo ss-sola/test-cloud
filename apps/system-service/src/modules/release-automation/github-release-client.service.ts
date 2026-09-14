@@ -241,8 +241,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   async merge(options: GitHubMergeOptions): Promise<GitHubMergeResult> {
     this.assertWriteGate(options.mode, options.sideEffectGate);
     const repository = this.assertRepository(options.repository);
-    const base = this.assertBranch(options.base);
-    const head = this.assertBranch(options.head);
+    const base = options.base;
+    const head = options.head;
     if (!options.message || options.message.length > 256 || hasControlCharacter(options.message)) {
       throw new ProjectException('GitHub 合并提交消息无效。', 400);
     }
@@ -470,13 +470,6 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       throw new ProjectException('GitHub ref 无效。', 400);
     }
     return value;
-  }
-
-  private assertBranch(value: string): string {
-    const ref = this.assertRef(value);
-    if (!/^(?!-)(?!.*\/\/)(?!.*\.lock$)[A-Za-z0-9._/-]+$/.test(ref))
-      throw new ProjectException('GitHub 分支无效。', 400);
-    return ref;
   }
 
   private assertWriteGate(mode: ReleaseMode, gate: string | undefined): void {

@@ -209,9 +209,6 @@ export class ReleaseAutomationService {
     expectedTargetSha?: string;
     expectedSourceSha?: string;
   }) {
-    if (!/^custom\/(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+$/.test(options.targetBranch)) {
-      throw new ProjectException('远程合并目标必须是 custom/*。', 400);
-    }
     const [targetBefore, source] = await Promise.all([
       this.github.getRef(options.repository, `heads/${options.targetBranch}`, options.config),
       this.github.getRef(options.repository, `heads/${options.sourceBranch}`, options.config),

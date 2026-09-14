@@ -83,9 +83,9 @@ describe('release automation remote adapters', () => {
     await expect(
       client.merge({
         repository: 'acme/project',
-        base: 'custom/prod',
-        head: 'dev',
-        message: 'Merge dev into custom/prod for Release Version 1.9.0',
+        base: 'main',
+        head: 'dev/master',
+        message: 'Merge dev/master into main for Release Version 1.9.0',
         mode: 'apply',
         sideEffectGate: 'gate-' + 'x'.repeat(20),
       }),

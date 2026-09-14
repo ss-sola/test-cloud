@@ -14,8 +14,8 @@ Content-Type: application/json
 {
   "repository": "acme/project",
   "gitAddress": "https://github.com/acme/project.git",
-  "targetBranch": "custom/prod",
-  "branch": "custom/prod",
+  "targetBranch": "release/v1",
+  "branch": "release/v1",
   "gitTag": "v1.9.0-2026-09-04",
   "mode": "apply",
   "githubToken": "页面配置的 token",
@@ -34,7 +34,9 @@ Content-Type: application/json
 }
 ```
 
-`repository` 可省略并从 `gitAddress` 解析；`gitTag` 必须由请求显式提供，服务端不会回退到固定版本号。创建 Job 会按勾选任务执行真实外部操作；Git tag 以选定 `targetBranch` 的当前 SHA 为快照，分支合并使用 `dev/master` 单一来源分支。`mode` 省略时默认为 `apply`；显式使用 `mode: "dry-run"` 时只跳过 GitHub tag/merge 写操作，但选中的 Jenkins package 仍会直接调用 Jenkins 接口。`apply` 仍要求幂等 key 满足 GitHub 写 gate，并通过 repository 格式、GitHub host、凭据和 SHA 校验。缺失/非法 Idempotency-Key、分支、gitTag 或 Git 地址返回 400/403；容量超限返回 429。成功返回 HTTP 202 和 `ResponseUtil.success` envelope。
+`repository` 可省略并从 `gitAddress` 解析；`gitTag` 必须由请求显式提供，服务端不会回退到固定版本号。`targetBranch` 是 GitHub merge 目标，`branch` 是 Jenkins 构建分支；页面使用同一个“Git 分支”输入同步传入二者，直接 API 调用可按各自语义独立指定。两个字段不限制 `custom/*` 等业务前缀，也不执行 Git 分支格式校验，仅要求是非空字符串且最长 256 字符，外部系统负责判定分支是否存在或可用。
+
+创建 Job 会按勾选任务执行真实外部操作；Git tag 以固定来源分支 `dev/master` 的当前 SHA 为快照，分支合并同样使用 `dev/master` 作为单一来源，并写入 `targetBranch`。`mode` 省略时默认为 `apply`；显式使用 `mode: "dry-run"` 时只跳过 GitHub tag/merge 写操作，但选中的 Jenkins package 仍会直接调用 Jenkins 接口。`apply` 仍要求幂等 key 满足 GitHub 写 gate，并通过 repository 格式、GitHub host、凭据和 SHA 校验。缺失或非法 Idempotency-Key、gitTag、Git 地址返回 400，分支缺失、为空或超过长度上限返回 400，写 gate 不满足返回 403，容量超限返回 429。成功返回 HTTP 202 和 `ResponseUtil.success` envelope。
 
 相同 `Idempotency-Key + release unit + payloadHash` 返回相同 Job（`idempotent=true`）；同一 Job ID 的 payload hash 不同返回 409。页面 token 不写入进度文本、错误消息、Markdown 或日志；状态响应不会返回 `pageConfig` 中的凭据字段。
 

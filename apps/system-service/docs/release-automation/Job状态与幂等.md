@@ -16,4 +16,4 @@ Job ID 由规范化后的 `Idempotency-Key` SHA-256 派生，不使用用户可�
 
 ## 恢复边界
 
-Jenkins 触发响应丢失时必须通过已知的 origin、queue ID、build number、release unit 和 planHash reconcile，禁止盲目重复 POST。Git tag 创建前后按目标分支 SHA 校验；tag 422 只允许重新读取一次并在同 SHA 时视为幂等成功。远程 merge 使用 `dev/master` 单一来源分支，写前后校验目标/source SHA；冲突或 SHA 漂移停止后续写操作。Feishu、清空和其它未配置阶段仍保持 blocked/skipped，不伪造完成。
+Jenkins 触发响应丢失时必须通过已知的 origin、queue ID、build number、release unit 和 planHash reconcile，禁止盲目重复 POST。Git tag 创建前后按固定来源分支 `dev/master` 的 SHA 校验；tag 422 只允许重新读取一次并在同 SHA 时视为幂等成功。远程 merge 使用 `dev/master` 单一来源分支，写前后校验页面选定目标分支与 source SHA；冲突或 SHA 漂移停止后续写操作。Feishu、清空和其它未配置阶段仍保持 blocked/skipped，不伪造完成。

@@ -108,4 +108,38 @@ describe('release automation Git service', () => {
     ).resolves.toEqual({ status: 'skipped', sha: existingSha });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('accepts a non-custom target branch for a dry-run merge', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/main')))
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/main')))
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/dev/master')));
+    const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
+    const service = new ReleaseAutomationService(
+      github,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      service.getBranchRef({ repository: 'acme/project', branch: 'main', config: config() }),
+    ).resolves.toMatchObject({ ref: 'refs/heads/main', sha });
+    await expect(
+      service.mergeBranch({
+        repository: 'acme/project',
+        targetBranch: 'main',
+        sourceBranch: 'dev/master',
+        mode: 'dry-run',
+        config: config(),
+      }),
+    ).resolves.toMatchObject({
+      status: 'planned',
+      targetBranch: 'main',
+      sourceBranch: 'dev/master',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
 });

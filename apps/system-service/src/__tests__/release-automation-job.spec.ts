@@ -27,10 +27,19 @@ describe('release automation job idempotency', () => {
       idempotencyKey: 'release-test-001',
       plan: {
         repository: 'acme/project',
-        targetBranch: 'custom/prod',
+        targetBranch: 'release/v1',
         candidateSha: 'a'.repeat(40),
         gitTag: '1.9.0',
         mode: 'dry-run' as const,
+        pageConfig: {
+          gitAddress: 'https://github.com/acme/project.git',
+          branch: 'release/v1',
+          githubToken: '',
+          jenkinsToken: '',
+          jenkinsBaseUrl: '',
+          feishuAppId: '',
+          feishuAppSecret: '',
+        },
       },
     };
 

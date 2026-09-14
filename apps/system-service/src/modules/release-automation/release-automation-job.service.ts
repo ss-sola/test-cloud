@@ -74,8 +74,6 @@ export class ReleaseAutomationJobService {
     const gitTag = input.plan.gitTag;
     if (!RELEASE_AUTOMATION_TAG_PATTERN.test(gitTag))
       throw new ProjectException('gitTag 格式无效。', 400);
-    if (!/^custom\/(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+$/.test(input.plan.targetBranch))
-      throw new ProjectException('目标分支必须是 custom/* 且格式有效。', 400);
     const mode = input.plan.mode ?? defaultMode;
     const releaseUnit = {
       repository,

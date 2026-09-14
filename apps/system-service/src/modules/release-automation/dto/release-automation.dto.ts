@@ -23,7 +23,6 @@ export class CreateReleaseAutomationJobDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(256)
-  @Matches(/^custom\/(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+$/)
   targetBranch!: string;
 
   @IsOptional()
