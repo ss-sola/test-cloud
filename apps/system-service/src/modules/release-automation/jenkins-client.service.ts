@@ -379,24 +379,13 @@ export function parsePipelineTag(text: string, tagMarker: string): string {
   const markerLine = [...lines].reverse().find((line) => line.includes(marker));
   if (!markerLine) throw new JenkinsApiException('Pipeline 输出中找不到受控 tag。', 502, false);
   const markerIndex = markerLine.lastIndexOf(marker);
-  const tag = markerLine.slice(markerIndex + marker.length).trim();
-  if (!tag || hasControlCharacter(tag) || /\s/.test(tag))
-    throw new JenkinsApiException('Pipeline 输出 tag 无效。', 502, false);
-  return tag;
+  return markerLine.slice(markerIndex + marker.length).trim();
 }
 
 function assertNumericId(value: string, label: string): string {
   if (!RELEASE_AUTOMATION_QUEUE_ID_PATTERN.test(value) || Number(value) <= 0)
     throw new ProjectException(`Jenkins ${label} id 无效。`, 400);
   return value;
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (code <= 0x1f || code === 0x7f) return true;
-  }
-  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

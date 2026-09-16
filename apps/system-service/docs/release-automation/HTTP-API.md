@@ -34,9 +34,9 @@ Content-Type: application/json
 }
 ```
 
-`repository` 可省略并从 `gitAddress` 解析；`gitTag` 必须由请求显式提供，服务端不会回退到固定版本号。`targetBranch` 是 GitHub merge 目标，`branch` 是 Jenkins 构建分支；页面使用同一个“Git 分支”输入同步传入二者，直接 API 调用可按各自语义独立指定。两个字段不限制 `custom/*` 等业务前缀，也不执行 Git 分支格式校验，仅要求是非空字符串且最长 256 字符，外部系统负责判定分支是否存在或可用。
+`repository` 可省略并从 `gitAddress` 解析；`gitTag` 必须由请求显式提供，服务端不会回退到固定版本号。`gitTag`、`targetBranch` 和 `branch` 都只按字符串字段传递，不要求 SemVer、固定前缀或字符集，最终由 GitHub/Jenkins 判定是否可用。`targetBranch` 是 GitHub merge 目标，`branch` 是 Jenkins 构建分支；页面使用同一个“Git 分支”输入同步传入二者，直接 API 调用可按各自语义独立指定。
 
-创建 Job 会按勾选任务执行真实外部操作；Git tag 以固定来源分支 `dev/master` 的当前 SHA 为快照，分支合并同样使用 `dev/master` 作为单一来源，并写入 `targetBranch`。`mode` 省略时默认为 `apply`；显式使用 `mode: "dry-run"` 时只跳过 GitHub tag/merge 写操作，但选中的 Jenkins package 仍会直接调用 Jenkins 接口。`apply` 仍要求幂等 key 满足 GitHub 写 gate，并通过 repository 格式、GitHub host、凭据和 SHA 校验。缺失或非法 Idempotency-Key、gitTag、Git 地址返回 400，分支缺失、为空或超过长度上限返回 400，写 gate 不满足返回 403，容量超限返回 429。成功返回 HTTP 202 和 `ResponseUtil.success` envelope。
+创建 Job 会按勾选任务执行真实外部操作；Git tag 以固定来源分支 `dev/master` 的当前 SHA 为快照，分支合并同样使用 `dev/master` 作为单一来源，并写入 `targetBranch`。`mode` 省略时默认为 `apply`；显式使用 `mode: "dry-run"` 时只跳过 GitHub tag/merge 写操作，但选中的 Jenkins package 仍会直接调用 Jenkins 接口。repository、ref、tag 和 SHA 不再由本地业务正则提前拒绝；GitHub 仍保留 host/HTTPS/同源、请求响应结构、写 gate 和 expected SHA 一致性约束。Idempotency-Key 不再校验字符格式，但 GitHub apply 写操作仍要求独立 gate 至少 16 个字符；缺失或过短的 gate 会在执行阶段返回 403/blocked，字段缺失或超过 DTO 长度边界仍返回 400，容量超限返回 429。成功返回 HTTP 202 和 `ResponseUtil.success` envelope。
 
 相同 `Idempotency-Key + release unit + payloadHash` 返回相同 Job（`idempotent=true`）；同一 Job ID 的 payload hash 不同返回 409。页面 token 不写入进度文本、错误消息、Markdown 或日志；状态响应不会返回 `pageConfig` 中的凭据字段。
 
@@ -46,11 +46,11 @@ Content-Type: application/json
 GET /api/release-automation/jobs/status?jobId=release-...
 ```
 
-参数使用 `GetReleaseAutomationStatusDto`，成功返回 200 和 `ResponseUtil.success` envelope；格式非法返回 400，不存在/过期返回 404。Controller 只做 DTO 解析与 response wrapping，阶段成功以服务端 `progress.sequence` 为准，页面不得自行计算。
+参数使用 `GetReleaseAutomationStatusDto`，成功返回 200 和 `ResponseUtil.success` envelope；字段仍需是字符串且不超过 DTO 长度边界，不再要求 `release-...` 的 Job ID 形状，未知或过期 ID 返回 404。Controller 只做 DTO 解析与 response wrapping，阶段成功以服务端 `progress.sequence` 为准，页面不得自行计算。
 
 ## 副作用执行边界
 
-创建 Job 会按 `tasks` 执行真实 GitHub/Jenkins 操作；Feishu 当前按用户要求标记 skipped。每个任务仍使用幂等判断和 release unit 校验，冲突或来源 SHA 变化会阻断。`modify-log.sql` 清空和远程 tag/merge 失败时保留已生成 artifact 与日志，不自动重试不确定的写操作。
+创建 Job 会按 `tasks` 执行真实 GitHub/Jenkins 操作；Feishu 当前按用户要求标记 skipped。任务使用幂等判断和必要的外部响应/SQL 安全约束，冲突或来源 SHA 变化会阻断。`modify-log.sql` 清空和远程 tag/merge 失败时保留已生成 artifact 与日志，不自动重试不确定的写操作。
 
 ## 测试同步执行
 

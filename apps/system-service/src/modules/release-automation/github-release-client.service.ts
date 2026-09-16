@@ -4,8 +4,6 @@ import {
   RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
   RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES,
   RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
-  RELEASE_AUTOMATION_SHA_PATTERN,
-  RELEASE_AUTOMATION_TAG_PATTERN,
 } from './release-automation.constants';
 import { redactSensitiveText, sha256 } from './release-automation.security';
 import type { ReleaseAutomationConfig } from './release-automation.config';
@@ -131,7 +129,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const ref = this.assertRef(options.ref);
     const payload = await this.request<unknown>(
       'GET',
-      `/repos/${repository.slug}/contents/${this.encodePath(path)}?ref=${encodeURIComponent(ref)}`,
+      `/repos/${this.encodePath(repository.slug)}/contents/${this.encodePath(path)}?ref=${encodeURIComponent(ref)}`,
       '读取 GitHub Contents',
       undefined,
       config,
@@ -142,9 +140,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const encoding = typeof payload.encoding === 'string' ? payload.encoding : 'base64';
     if (encoding !== 'base64') throw this.invalidResponse('读取 GitHub Contents');
     const content = Buffer.from(payload.content.replace(/\s/g, ''), 'base64').toString('utf8');
-    const sha = typeof payload.sha === 'string' ? payload.sha : '';
-    if (!RELEASE_AUTOMATION_SHA_PATTERN.test(sha))
-      throw this.invalidResponse('读取 GitHub Contents');
+    if (typeof payload.sha !== 'string') throw this.invalidResponse('读取 GitHub Contents');
+    const sha = payload.sha;
     return {
       content,
       sha,
@@ -164,7 +161,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     for (let page = firstPage; page < firstPage + maxPages; page += 1) {
       const payload = await this.request<unknown>(
         'GET',
-        `/repos/${repository.slug}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`,
+        `/repos/${this.encodePath(repository.slug)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`,
         '读取 GitHub 提交',
       );
       if (!Array.isArray(payload)) throw this.invalidResponse('读取 GitHub 提交');
@@ -187,7 +184,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const normalizedRef = ref.startsWith('refs/') ? ref.slice(5) : ref;
     const payload = await this.request<unknown>(
       'GET',
-      `/repos/${repository.slug}/git/ref/${this.encodePath(normalizedRef)}`,
+      `/repos/${this.encodePath(repository.slug)}/git/ref/${this.encodePath(normalizedRef)}`,
       '读取 GitHub ref',
       undefined,
       config,
@@ -195,8 +192,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     if (!isRecord(payload) || typeof payload.ref !== 'string' || !isRecord(payload.object)) {
       throw this.invalidResponse('读取 GitHub ref');
     }
-    const sha = typeof payload.object.sha === 'string' ? payload.object.sha : '';
-    if (!RELEASE_AUTOMATION_SHA_PATTERN.test(sha)) throw this.invalidResponse('读取 GitHub ref');
+    if (typeof payload.object.sha !== 'string') throw this.invalidResponse('读取 GitHub ref');
+    const sha = payload.object.sha;
     return {
       ref: payload.ref,
       sha,
@@ -210,7 +207,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const head = this.assertRef(options.head);
     return this.request<unknown>(
       'GET',
-      `/repos/${repository.slug}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+      `/repos/${this.encodePath(repository.slug)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
       '比较 GitHub ref',
     );
   }
@@ -224,14 +221,12 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     for (let page = firstPage; page < firstPage + maxPages; page += 1) {
       const payload = await this.request<unknown>(
         'GET',
-        `/repos/${repository.slug}/branches?per_page=${perPage}&page=${page}`,
+        `/repos/${this.encodePath(repository.slug)}/branches?per_page=${perPage}&page=${page}`,
         '读取 GitHub 分支',
       );
       if (!Array.isArray(payload)) throw this.invalidResponse('读取 GitHub 分支');
       for (const item of payload) {
-        if (isRecord(item) && typeof item.name === 'string' && item.name.startsWith('custom/')) {
-          branches.push(item.name);
-        }
+        if (isRecord(item) && typeof item.name === 'string') branches.push(item.name);
       }
       if (payload.length < perPage) break;
     }
@@ -248,7 +243,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     }
     const response = await this.requestWithStatus(
       'POST',
-      `/repos/${repository.slug}/merges`,
+      `/repos/${this.encodePath(repository.slug)}/merges`,
       '创建 GitHub 远程合并',
       { base, head, commit_message: options.message },
       [201, 204],
@@ -266,15 +261,9 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   async createTag(options: GitHubTagOptions): Promise<GitHubRef> {
     this.assertWriteGate(options.mode, options.sideEffectGate);
     const repository = this.assertRepository(options.repository);
-    if (!RELEASE_AUTOMATION_TAG_PATTERN.test(options.tag)) {
-      throw new ProjectException('GitHub tag 格式无效。', 400);
-    }
-    if (!RELEASE_AUTOMATION_SHA_PATTERN.test(options.sha)) {
-      throw new ProjectException('GitHub tag 对象 SHA 格式无效。', 400);
-    }
     const response = await this.requestWithStatus(
       'POST',
-      `/repos/${repository.slug}/git/refs`,
+      `/repos/${this.encodePath(repository.slug)}/git/refs`,
       '创建 GitHub tag',
       { ref: `refs/tags/${options.tag}`, sha: options.sha },
       [201],
@@ -285,10 +274,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     if (!isRecord(payload) || typeof payload.ref !== 'string' || !isRecord(payload.object)) {
       throw this.invalidResponse('创建 GitHub tag');
     }
-    const objectSha = typeof payload.object.sha === 'string' ? payload.object.sha : '';
-    if (!RELEASE_AUTOMATION_SHA_PATTERN.test(objectSha)) {
-      throw this.invalidResponse('创建 GitHub tag');
-    }
+    if (typeof payload.object.sha !== 'string') throw this.invalidResponse('创建 GitHub tag');
+    const objectSha = payload.object.sha;
     return {
       ref: payload.ref,
       sha: objectSha,
@@ -435,40 +422,15 @@ export class GitHubReleaseClientService extends RemoteClientBase {
 
   private assertRepository(value: string): GitHubRepository {
     const slug = normalizeRepository(value);
-    if (!slug) {
-      throw new GitHubApiException('GitHub repository 格式无效。', {
-        status: 400,
-        retryable: false,
-        operation: '校验 GitHub repository',
-      });
-    }
-    const [owner, name] = slug.split('/');
-    return { owner, name, slug };
+    const [owner = '', ...nameParts] = slug.split('/');
+    return { owner, name: nameParts.join('/'), slug };
   }
 
   private assertFilePath(value: string): string {
-    if (
-      !value ||
-      value.startsWith('/') ||
-      value.includes('..') ||
-      value.includes('\\') ||
-      hasControlCharacter(value)
-    ) {
-      throw new ProjectException('GitHub 文件路径无效。', 400);
-    }
     return value;
   }
 
   private assertRef(value: string): string {
-    if (
-      !value ||
-      value.length > 256 ||
-      value.includes('..') ||
-      value.includes('\\') ||
-      hasControlCharacter(value)
-    ) {
-      throw new ProjectException('GitHub ref 无效。', 400);
-    }
     return value;
   }
 
@@ -479,12 +441,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   }
 
   private parseCommit(value: unknown): GitHubCommitSummary | null {
-    if (
-      !isRecord(value) ||
-      typeof value.sha !== 'string' ||
-      !RELEASE_AUTOMATION_SHA_PATTERN.test(value.sha) ||
-      !isRecord(value.commit)
-    ) {
+    if (!isRecord(value) || typeof value.sha !== 'string' || !isRecord(value.commit)) {
       return null;
     }
     const message =
@@ -566,8 +523,7 @@ function normalizeRepository(value: string): string {
     .replace(/\/$/, '');
   if (/^https:\/\/github\.com\//i.test(input))
     return input.replace(/^https:\/\/github\.com\//i, '').toLowerCase();
-  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input)) return input.toLowerCase();
-  return '';
+  return input.toLowerCase();
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

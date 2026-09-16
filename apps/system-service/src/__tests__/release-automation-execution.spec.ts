@@ -23,7 +23,7 @@ function createRecord(
     releaseUnit: {
       repository: 'acme/project',
       targetBranch: 'custom/prod',
-      gitTag: '1.9.0',
+      gitTag: 'release/版本 tag',
       version: '1.9.0',
     },
     mode,
@@ -46,7 +46,7 @@ function createRecord(
       releaseUnit: {
         repository: 'acme/project',
         targetBranch: 'custom/prod',
-        gitTag: '1.9.0',
+        gitTag: 'release/版本 tag',
         version: '1.9.0',
       },
     },

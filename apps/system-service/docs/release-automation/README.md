@@ -6,6 +6,8 @@
 repository + targetBranch + gitTag
 ```
 
+发布单元字段是字符串协议值：`gitTag` 不要求 SemVer 或固定字符集，repository、targetBranch、branch、ref 和 SHA 不执行本地业务格式校验，最终由 GitHub/Jenkins 判定是否可用。服务仍保留 GitHub host/HTTPS/同源、写 gate、响应结构、动态 queue/build ID 及 SQL 转义等传输和副作用安全边界。
+
 ## 文档导航
 
 - [配置与安全边界](./配置与安全边界.md)

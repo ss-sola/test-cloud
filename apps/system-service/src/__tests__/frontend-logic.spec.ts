@@ -314,6 +314,7 @@ describe('release automation menu contract', () => {
     expect(fragment).toContain('id="release-git-tag"');
     expect(fragment).toContain('id="release-target-branch" name="branch" required maxlength="256"');
     expect(fragment).not.toMatch(/id="release-target-branch"[^>]*\spattern=/);
+    expect(fragment).not.toMatch(/id="release-git-tag"[^>]*\spattern=/);
     expect(fragment).not.toContain('仅支持 custom/*');
     expect(fragment).toContain('填写本次发布使用的 Git 分支。');
     expect(fragment).not.toContain('id="release-project-name"');

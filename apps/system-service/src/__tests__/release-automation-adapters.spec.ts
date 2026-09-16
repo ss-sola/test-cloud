@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GitHubReleaseClientService } from '../modules/release-automation/github-release-client.service';
-import { RELEASE_AUTOMATION_TAG_PATTERN } from '../modules/release-automation/release-automation.constants';
 import {
   JenkinsClientService,
   parsePipelineTag,
@@ -9,6 +8,7 @@ import {
 import type { ReleaseAutomationConfig } from '../modules/release-automation/release-automation.config';
 
 const sha = 'a'.repeat(40);
+const nonStandardSha = 'source sha / not hex';
 
 function config(overrides: Partial<ReleaseAutomationConfig> = {}): ReleaseAutomationConfig {
   return {
@@ -73,7 +73,13 @@ describe('release automation remote adapters', () => {
       .fn()
       .mockResolvedValueOnce(response(201, JSON.stringify({ sha })))
       .mockResolvedValueOnce(
-        response(201, JSON.stringify({ ref: 'refs/tags/1.9.0', object: { sha, type: 'commit' } })),
+        response(
+          201,
+          JSON.stringify({
+            ref: 'refs/tags/release/版本 with spaces',
+            object: { sha: nonStandardSha, type: 'commit' },
+          }),
+        ),
       );
     const client = new GitHubReleaseClientService({
       config: config({ githubToken: 'runtime-token' }),
@@ -93,12 +99,15 @@ describe('release automation remote adapters', () => {
     await expect(
       client.createTag({
         repository: 'acme/project',
-        tag: '1.9.0',
-        sha,
+        tag: 'release/版本 with spaces',
+        sha: nonStandardSha,
         mode: 'apply',
         sideEffectGate: 'gate-' + 'x'.repeat(20),
       }),
-    ).resolves.toMatchObject({ ref: 'refs/tags/1.9.0', sha });
+    ).resolves.toMatchObject({
+      ref: 'refs/tags/release/版本 with spaces',
+      sha: nonStandardSha,
+    });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl.mock.calls[0][1]).toMatchObject({
@@ -109,6 +118,25 @@ describe('release automation remote adapters', () => {
       method: 'POST',
       headers: expect.objectContaining({ Authorization: 'Bearer runtime-token' }),
     });
+  });
+
+  it('passes opaque repository and ref values through encoded GitHub paths', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        response(
+          200,
+          JSON.stringify({ ref: 'refs/heads/opaque ref', object: { sha: 'opaque sha' } }),
+        ),
+      );
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+
+    await expect(
+      client.getRef('owner/repo with spaces', 'branch/with spaces', config()),
+    ).resolves.toMatchObject({ ref: 'refs/heads/opaque ref', sha: 'opaque sha' });
+    expect(String(fetchImpl.mock.calls[0][0])).toContain(
+      '/repos/owner/repo%20with%20spaces/git/ref/branch/with%20spaces',
+    );
   });
 
   it('accepts only a same-origin dynamic queue Location', () => {
@@ -132,8 +160,12 @@ describe('release automation remote adapters', () => {
       '',
     ].join('\n');
     expect(parsePipelineTag(text, 'backend-wzj-nodejs-v2')).toBe('1.9.0');
-    expect(RELEASE_AUTOMATION_TAG_PATTERN.test('1.9.0')).toBe(true);
-    expect(RELEASE_AUTOMATION_TAG_PATTERN.test('v1.9.0-2026-09-04')).toBe(true);
+    expect(
+      parsePipelineTag(
+        'backend-wzj-nodejs-v2: release tag / 非标准\nFinished: SUCCESS',
+        'backend-wzj-nodejs-v2',
+      ),
+    ).toBe('release tag / 非标准');
     expect(
       parsePipelineTag(
         '+ docker push registry.cn-hangzhou.aliyuncs.com/weizhujiao/backend-wzj-nodejs-v2:x86_dev_master_0e98b10ef6_v1.9.0-2026-09-04\nFinished: SUCCESS',

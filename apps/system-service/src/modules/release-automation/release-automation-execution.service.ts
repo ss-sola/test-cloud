@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { isJenkinsReady, readReleaseAutomationConfig } from './release-automation.config';
-import {
-  RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
-  RELEASE_AUTOMATION_TAG_PATTERN,
-} from './release-automation.constants';
+import { RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH } from './release-automation.constants';
 import { payloadHash, redactSensitiveText } from './release-automation.security';
 import { ReleaseAutomationService } from './release-automation.service';
 import type {
@@ -129,7 +126,7 @@ export class ReleaseAutomationExecutionService {
     const context = this.createExecutionContext(record, update);
     await this.initializeExecutionStep(context); // 初始化任务状态与 planned 进度
     await this.loadConfigurationStep(context); // 读取并校验发布配置
-    await this.validateTagStep(context); // 校验发布 tag 格式
+    await this.prepareTagStep(context); // 写入请求指定的 Git tag
     await this.executeGitTagStep(context); // 创建或核验 Git tag
     await this.prepareMergeStep(context); // 读取 target 和 dev/master 的初始 SHA
     await this.mergeSourceStep(context); // 执行 dev/master 到目标分支的合并
@@ -177,13 +174,9 @@ export class ReleaseAutomationExecutionService {
     }
   }
 
-  /** 校验 release tag 并写入执行上下文。 */
-  private async validateTagStep(context: ExecutionContext): Promise<void> {
-    const tag = context.record.releaseUnit.gitTag ?? context.record.releaseUnit.version;
-    if (!RELEASE_AUTOMATION_TAG_PATTERN.test(tag)) {
-      this.throwStepError('VERSION_INVALID', 'gitTag 格式无效。');
-    }
-    context.tag = tag;
+  /** 按请求值写入本次发布使用的 tag，不限制外部 Git tag 命名。 */
+  private async prepareTagStep(context: ExecutionContext): Promise<void> {
+    context.tag = context.record.releaseUnit.gitTag ?? context.record.releaseUnit.version;
   }
 
   /** 执行 tag 的创建/核验，并记录候选 SHA。 */

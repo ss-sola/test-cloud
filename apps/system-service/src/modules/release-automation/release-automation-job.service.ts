@@ -1,10 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConflictException, ProjectException } from '@nest-cloud/common';
 import { createHash } from 'node:crypto';
-import {
-  RELEASE_AUTOMATION_MAX_ACTIVE_JOBS,
-  RELEASE_AUTOMATION_TAG_PATTERN,
-} from './release-automation.constants';
+import { RELEASE_AUTOMATION_MAX_ACTIVE_JOBS } from './release-automation.constants';
 import { payloadHash } from './release-automation.security';
 import {
   ReleaseAutomationQueueService,
@@ -66,14 +63,12 @@ export class ReleaseAutomationJobService {
     defaultMode: 'dry-run' | 'apply' = 'apply',
   ): ReleaseJobRecord {
     const key = input.idempotencyKey.trim();
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(key))
-      throw new ProjectException('Idempotency-Key 格式无效。', 400);
+
     const repository = this.selectRepository(
       input.plan.repository ?? input.plan.pageConfig?.gitAddress,
     );
     const gitTag = input.plan.gitTag;
-    if (!RELEASE_AUTOMATION_TAG_PATTERN.test(gitTag))
-      throw new ProjectException('gitTag 格式无效。', 400);
+
     const mode = input.plan.mode ?? defaultMode;
     const releaseUnit = {
       repository,
@@ -115,8 +110,6 @@ export class ReleaseAutomationJobService {
   }
 
   async getStatus(jobId: string): Promise<ReleaseJobStatusView> {
-    if (!/^release-[A-Za-z0-9-]{8,80}$/.test(jobId))
-      throw new ProjectException('发布 Job ID 格式无效。', 400);
     const record = await this.queue.get(jobId);
     if (!record) throw new ProjectException('发布 Job 不存在或已过期。', 404);
     const { pageConfig: _pageConfig, ...publicRecord } = record;
@@ -124,10 +117,9 @@ export class ReleaseAutomationJobService {
   }
 
   private selectRepository(input: string | undefined): string {
-    if (!input) throw new ProjectException('必须指定 GitHub repository 或 gitAddress。', 400);
-    const repository = normalizeRepository(input);
-    if (!repository) throw new ProjectException('repository 格式无效。', 400);
-    return repository;
+    const repository = input?.trim();
+    if (!repository) throw new ProjectException('必须指定 GitHub repository 或 gitAddress。', 400);
+    return normalizeRepository(repository);
   }
 
   private hashPlan(record: ReleaseJobRecord): string {
@@ -158,7 +150,7 @@ function normalizeRepository(value: string): string {
   const slug = /^https:\/\/github\.com\//i.test(input)
     ? input.replace(/^https:\/\/github\.com\//i, '')
     : input;
-  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(slug) ? slug.toLowerCase() : '';
+  return slug.toLowerCase();
 }
 
 export function deriveReleaseJobId(idempotencyKey: string): string {

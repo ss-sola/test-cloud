@@ -17,12 +17,7 @@ export const RELEASE_AUTOMATION_DEFAULT_ARCHIVE_DIR = 'var/release-automation/ar
 export const RELEASE_AUTOMATION_GENERATOR_VERSION = '1.0.0';
 export const RELEASE_AUTOMATION_REDACTED_VALUE = '[REDACTED]';
 export const RELEASE_AUTOMATION_IDEMPOTENCY_HEADER = 'Idempotency-Key';
-export const RELEASE_AUTOMATION_TAG_PATTERN =
-  /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-export const RELEASE_AUTOMATION_SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
-export const RELEASE_AUTOMATION_BRANCH_PATTERN = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]+$/;
 export const RELEASE_AUTOMATION_QUEUE_ID_PATTERN = /^\d+$/;
-export const RELEASE_AUTOMATION_PATH_TEMPLATE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%/{}-]+$/;
 export const RELEASE_AUTOMATION_SENSITIVE_KEY_PATTERN =
   /(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session)/i;
 

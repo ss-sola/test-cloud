@@ -38,4 +38,32 @@ describe('modify-log deterministic SQL', () => {
     const sql = new VersionSqlRenderer().render({ sourceChecksum, records: unsafe });
     expect(sql).toContain("x''); DROP TABLE users;--");
   });
+
+  it('accepts opaque release metadata without applying Git naming rules', () => {
+    const sql = new VersionSqlRenderer().render({
+      version: 'release tag/非标准',
+      sourceChecksum: 'checksum that is not a SHA',
+      records: [],
+      releaseUnit: {
+        repository: 'owner/repository with spaces',
+        targetBranch: 'main/release candidate',
+        gitTag: 'release tag/非标准',
+        candidateSha: 'candidate SHA',
+        version: 'release tag/非标准',
+      },
+    });
+
+    expect(sql).toContain('-- release-version: release tag/非标准');
+    expect(sql).toContain('owner/repository with spaces');
+  });
+
+  it('keeps SQL comment metadata free of control characters', () => {
+    expect(() =>
+      new VersionSqlRenderer().render({
+        version: 'release\ntag',
+        sourceChecksum: 'checksum',
+        records: [],
+      }),
+    ).toThrow('控制字符');
+  });
 });

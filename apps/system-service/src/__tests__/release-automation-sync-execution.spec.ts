@@ -26,7 +26,7 @@ function plan(mode?: 'dry-run' | 'apply'): ReleasePlanInput {
   return {
     repository: 'acme/project',
     targetBranch: 'custom/prod',
-    gitTag: '1.9.0',
+    gitTag: 'release/版本 tag',
     mode,
     pageConfig: {
       gitAddress: 'https://github.com/acme/project.git',

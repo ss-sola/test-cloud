@@ -29,7 +29,7 @@ describe('release automation job idempotency', () => {
         repository: 'acme/project',
         targetBranch: 'release/v1',
         candidateSha: 'a'.repeat(40),
-        gitTag: '1.9.0',
+        gitTag: 'release/版本 tag',
         mode: 'dry-run' as const,
         pageConfig: {
           gitAddress: 'https://github.com/acme/project.git',

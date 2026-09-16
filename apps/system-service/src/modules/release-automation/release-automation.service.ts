@@ -320,10 +320,9 @@ export class ReleaseAutomationService {
 }
 
 function selectRepository(input: string | undefined): string {
-  if (!input) throw new ProjectException('必须指定 GitHub repository。', 400);
-  const normalized = normalizeRepository(input);
-  if (!normalized) throw new ProjectException('repository 格式无效。', 400);
-  return normalized;
+  const repository = input?.trim();
+  if (!repository) throw new ProjectException('必须指定 GitHub repository。', 400);
+  return normalizeRepository(repository);
 }
 
 function normalizeRepository(value: string): string {
@@ -334,7 +333,7 @@ function normalizeRepository(value: string): string {
   const slug = /^https:\/\/github\.com\//i.test(input)
     ? input.replace(/^https:\/\/github\.com\//i, '')
     : input;
-  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(slug) ? slug.toLowerCase() : '';
+  return slug.toLowerCase();
 }
 
 function parseCompare(value: unknown): { ahead?: number; behind?: number; status?: string } {

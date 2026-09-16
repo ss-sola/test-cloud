@@ -7,7 +7,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  Matches,
   Max,
   MaxLength,
   Min,
@@ -32,7 +31,6 @@ export class CreateReleaseAutomationJobDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(128)
-  @Matches(/^[0-9A-Za-z][0-9A-Za-z._+-]*$/)
   gitTag!: string;
 
   @IsString()
@@ -210,6 +208,5 @@ export class GetReleaseAutomationStatusDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(96)
-  @Matches(/^release-[A-Za-z0-9-]{8,80}$/)
   jobId!: string;
 }
