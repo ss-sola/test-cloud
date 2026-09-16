@@ -1,0 +1,77 @@
+<section class="view tool-view plagiarism-view" data-view="plagiarism" aria-labelledby="plagiarism-title" hidden>
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">TEXT ANALYSIS / LOCAL REQUEST</p>
+      <h1 id="plagiarism-title">论文查重</h1>
+      <p class="page-description">比较两篇短文本的重复片段和整体相似度。内容只在本次请求中计算，不保存到服务器。</p>
+    </div>
+    <span class="heading-mark" aria-hidden="true">10</span>
+  </div>
+
+  <form class="plagiarism-form" id="plagiarism-form">
+    <div class="plagiarism-input-grid">
+      <label class="plagiarism-input-field" for="plagiarism-source">
+        <span>答案 A <small id="plagiarism-source-count">0 / 10000 字</small></span>
+        <textarea id="plagiarism-source" name="source" maxlength="10000" required
+          placeholder="粘贴待查文本，例如答案 A…" aria-describedby="plagiarism-error"></textarea>
+      </label>
+      <label class="plagiarism-input-field" for="plagiarism-target">
+        <span>答案 B <small id="plagiarism-target-count">0 / 10000 字</small></span>
+        <textarea id="plagiarism-target" name="target" maxlength="10000" required
+          placeholder="粘贴用于对比的文本，例如答案 B…" aria-describedby="plagiarism-error"></textarea>
+      </label>
+    </div>
+    <div class="plagiarism-controls">
+      <label class="plagiarism-threshold" for="plagiarism-threshold">
+        <span>高亮相似阈值</span>
+        <input id="plagiarism-threshold" name="threshold" type="number" min="0" max="1" step="0.05" value="0.6" required />
+        <small>0～1，局部相似度达到此值的片段会高亮</small>
+      </label>
+      <label class="plagiarism-threshold" for="plagiarism-edit-distance">
+        <span>允许编辑距离</span>
+        <input id="plagiarism-edit-distance" name="editDistance" type="number" min="0" step="1" value="2" required />
+        <small>非负整数，允许连续片段中插入、删除或替换的字符数</small>
+      </label>
+      <button class="compare-button" id="plagiarism-submit" type="submit">开始查重 <span aria-hidden="true">→</span></button>
+    </div>
+    <p class="tool-error" id="plagiarism-error" role="alert" hidden></p>
+    <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>支持中文、英文和数字；单篇文本最多 10000 字，标点和空白不参与特征计算。</span></p>
+  </form>
+
+  <section class="plagiarism-result" id="plagiarism-result" aria-labelledby="plagiarism-result-title" aria-live="polite" aria-busy="false" hidden>
+    <div class="particle-stage-header">
+      <div>
+        <p class="section-kicker">EXPLAINABLE RESULT</p>
+        <h2 id="plagiarism-result-title">查重结果</h2>
+      </div>
+      <span class="status-badge" id="plagiarism-status"><span></span><span id="plagiarism-status-label">等待</span></span>
+    </div>
+    <div class="plagiarism-summary" id="plagiarism-summary"></div>
+    <p class="plagiarism-result-note" id="plagiarism-result-note"></p>
+
+    <div class="plagiarism-highlight-grid">
+      <article class="plagiarism-text-card">
+        <div class="plagiarism-text-card__header"><h3>答案 A</h3><span>超阈值片段</span></div>
+        <div class="plagiarism-editor" id="plagiarism-source-editor">
+          <pre class="plagiarism-editor__highlight" id="plagiarism-source-highlight"><code></code></pre>
+          <textarea class="plagiarism-editor__textarea" id="plagiarism-source-original" readonly aria-label="答案 A 原文和查重高亮"></textarea>
+        </div>
+      </article>
+      <article class="plagiarism-text-card">
+        <div class="plagiarism-text-card__header"><h3>答案 B</h3><span>超阈值片段</span></div>
+        <div class="plagiarism-editor" id="plagiarism-target-editor">
+          <pre class="plagiarism-editor__highlight" id="plagiarism-target-highlight"><code></code></pre>
+          <textarea class="plagiarism-editor__textarea" id="plagiarism-target-original" readonly aria-label="答案 B 原文和查重高亮"></textarea>
+        </div>
+      </article>
+    </div>
+
+    <section class="plagiarism-steps" aria-labelledby="plagiarism-steps-title">
+      <div class="section-heading-row section-heading-row-compact">
+        <div><p class="section-kicker">TRACEABLE STEPS</p><h2 id="plagiarism-steps-title">每一步相似数据</h2></div>
+        <span class="section-count" id="plagiarism-step-count">0 STEPS</span>
+      </div>
+      <div class="plagiarism-step-list" id="plagiarism-step-list"></div>
+    </section>
+  </section>
+</section>

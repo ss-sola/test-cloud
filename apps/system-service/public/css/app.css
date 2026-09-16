@@ -2830,9 +2830,454 @@ a:focus-visible {
   transition: width 180ms ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .weekly-report-progress__track span {
-    transition: none;
+
+.plagiarism-view {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.plagiarism-form,
+.plagiarism-result,
+.plagiarism-text-card,
+.plagiarism-step {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.plagiarism-form,
+.plagiarism-result {
+  padding: var(--space-3);
+}
+
+.plagiarism-input-grid,
+.plagiarism-highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.plagiarism-input-field {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.plagiarism-input-field > span,
+.plagiarism-text-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.plagiarism-input-field small,
+.plagiarism-text-card__header span {
+  color: var(--color-ink-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+  font-weight: 400;
+}
+
+.plagiarism-input-field textarea {
+  width: 100%;
+  min-height: 14rem;
+  resize: vertical;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #f8f9fa;
+  color: var(--color-ink);
+  font-family: Consolas, 'Microsoft YaHei UI', 'Cascadia Mono', 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.plagiarism-input-field textarea:focus,
+.plagiarism-threshold input:focus {
+  border-color: var(--color-primary);
+  outline: 2px solid rgb(0 123 255 / 15%);
+  outline-offset: 1px;
+}
+
+.plagiarism-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.plagiarism-threshold {
+  display: grid;
+  grid-template-columns: auto 7rem;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.plagiarism-threshold input {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.plagiarism-threshold small {
+  grid-column: 1 / -1;
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.plagiarism-controls .compare-button {
+  flex: 0 0 auto;
+}
+
+.plagiarism-result {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.plagiarism-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.plagiarism-summary-card {
+  display: grid;
+  min-height: 5.5rem;
+  align-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: #f8f9fa;
+}
+
+.plagiarism-summary-card span {
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+}
+
+.plagiarism-summary-card strong {
+  color: var(--color-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.plagiarism-summary-card--blue strong { color: var(--color-primary); }
+.plagiarism-summary-card--orange strong { color: #b58105; }
+.plagiarism-summary-card--green strong { color: #218838; }
+.plagiarism-summary-card--dark strong { color: var(--color-ink); }
+
+.plagiarism-result-note {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+}
+
+.plagiarism-text-card {
+  overflow: visible;
+  padding: var(--space-2);
+}
+
+.plagiarism-text-card__header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 0.875rem;
+}
+
+.plagiarism-editor {
+  position: relative;
+  min-height: 12rem;
+  height: clamp(12rem, 30vw, 28rem);
+  margin-top: var(--space-1);
+  overflow: hidden;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: #f8f9fa;
+}
+
+.plagiarism-editor__highlight,
+.plagiarism-editor__textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.75rem;
+  border: 0;
+  font-family: Consolas, 'Microsoft YaHei UI', 'Cascadia Mono', 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-color: #adb5bd #f1f3f5;
+  scrollbar-width: thin;
+}
+
+.plagiarism-editor__highlight {
+  z-index: 1;
+  overflow: auto;
+  color: var(--color-ink);
+  pointer-events: auto;
+}
+
+.plagiarism-editor__highlight code {
+  font: inherit;
+  white-space: inherit;
+}
+
+.plagiarism-editor__textarea {
+  z-index: 0;
+  pointer-events: none;
+  resize: none;
+  overflow: auto;
+  outline: 0;
+  background: transparent;
+  caret-color: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.plagiarism-editor__textarea:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.plagiarism-editor__textarea::-webkit-scrollbar {
+  width: 0.55rem;
+  height: 0.55rem;
+}
+
+.plagiarism-editor__textarea::-webkit-scrollbar-track {
+  background: #f1f3f5;
+}
+
+.plagiarism-editor__textarea::-webkit-scrollbar-thumb {
+  border: 2px solid #f1f3f5;
+  border-radius: 1rem;
+  background: #adb5bd;
+}
+
+.plagiarism-highlight {
+  position: relative;
+  display: inline;
+  border-radius: 2px;
+  outline: 1px solid rgb(255 193 7 / 50%);
+  background: #fff0b3;
+  color: #6b4f00;
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-color: #d39e00;
+  text-decoration-style: dashed;
+  text-underline-offset: 3px;
+}
+
+.plagiarism-highlight--1 {
+  background: #fff0b3;
+  color: #6b4f00;
+}
+
+.plagiarism-highlight--2 {
+  background: #c7e5ff;
+  color: #064b78;
+}
+
+.plagiarism-highlight--3 {
+  background: #c9f0d2;
+  color: #145c2a;
+}
+
+.plagiarism-highlight--4 {
+  background: #f5c9dc;
+  color: #762344;
+}
+
+.plagiarism-highlight:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.plagiarism-highlight:hover::after,
+.plagiarism-highlight:focus-visible::after {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  width: max-content;
+  max-width: min(22rem, 80vw);
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #d6b656;
+  border-radius: var(--radius-sm);
+  background: #fffdf1;
+  box-shadow: var(--shadow-card);
+  color: #5b4700;
+  content: attr(data-tooltip);
+  font-family: Lato, sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.plagiarism-steps {
+  min-width: 0;
+}
+
+.plagiarism-step-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.plagiarism-step {
+  padding: 0.875rem;
+  box-shadow: none;
+}
+
+.plagiarism-step__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.plagiarism-step__header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 0.8125rem;
+}
+
+.plagiarism-step__similarity {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6875rem;
+}
+
+.plagiarism-step__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0 0;
+}
+
+.plagiarism-step__metrics dt {
+  color: var(--color-ink-muted);
+  font-size: 0.625rem;
+}
+
+.plagiarism-step__metrics dd {
+  min-width: 0;
+  margin: 0.1rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6875rem;
+  white-space: pre-wrap;
+}
+
+.plagiarism-step__json {
+  max-height: 14rem;
+  margin: 0;
+  overflow: auto;
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.plagiarism-step__rule {
+  margin: 0.75rem 0 0;
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+}
+
+.plagiarism-step__matches {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plagiarism-step__matches li {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 0.45rem 0.55rem;
+  border-left: 3px solid var(--color-warning);
+  background: #fffaf0;
+}
+
+.plagiarism-step__match-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plagiarism-step__match-data {
+  flex: 0 0 auto;
+  color: var(--color-ink-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+}
+
+@media (max-width: 767px) {
+  .plagiarism-form,
+  .plagiarism-result {
+    padding: var(--space-2);
+  }
+
+  .plagiarism-input-grid,
+  .plagiarism-highlight-grid,
+  .plagiarism-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .plagiarism-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .plagiarism-threshold {
+    grid-template-columns: auto minmax(6rem, 8rem);
+    justify-content: space-between;
+  }
+
+  .plagiarism-controls .compare-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .plagiarism-step__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plagiarism-step__matches li {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
@@ -2840,8 +3285,6 @@ a:focus-visible {
   display: grid;
   gap: var(--space-2);
 }
-
-.config-file-preview-config,
 .config-file-preview-result {
   min-width: 0;
   padding: var(--space-3);

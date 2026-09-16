@@ -262,6 +262,7 @@ describe('config file preview menu contract', () => {
       resolve(process.cwd(), 'public/js/config-file-preview.js'),
       'utf8',
     );
+    const css = readFileSync(resolve(process.cwd(), 'public/css/app.css'), 'utf8');
 
     expect(html).toContain('href="#config-file-preview" data-route="config-file-preview"');
     expect(fragment).toContain('data-view="config-file-preview"');
@@ -278,6 +279,7 @@ describe('config file preview menu contract', () => {
     expect(fragment).toContain('aria-live="polite"');
     expect(html).toContain('<script src="/public/js/config-file-preview.js" defer></script>');
     expect(app).toContain("'config-file-preview': { title: '配置版本预览'");
+    expect(css).toContain('.config-file-preview-view {');
     expect(app).toContain('config-file-preview.html');
     expect(preview).not.toContain("'/api/config-file-preview/defaults'");
     expect(preview).toContain("'/api/config-file-preview/tags'");
@@ -368,5 +370,50 @@ describe('token config menu contract', () => {
     expect(script).not.toContain('aiBaseUrl:');
     expect(script).not.toContain('aiApiKey:');
     expect(script).not.toContain('aiModel:');
+  });
+});
+
+describe('plagiarism menu contract', () => {
+  it('connects the route, fragment, script, threshold, API and explainable result steps', () => {
+    const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
+    const fragment = readFileSync(resolve(process.cwd(), 'public/html/plagiarism.html'), 'utf8');
+    const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
+    const script = readFileSync(resolve(process.cwd(), 'public/js/plagiarism.js'), 'utf8');
+    const css = readFileSync(resolve(process.cwd(), 'public/css/app.css'), 'utf8');
+
+    expect(html).toContain('href="#plagiarism" data-route="plagiarism"');
+    expect(html).toContain('<script src="/public/js/plagiarism.js" defer></script>');
+    expect(fragment).toContain('data-view="plagiarism"');
+    expect(fragment).toContain('id="plagiarism-source"');
+    expect(fragment).toContain('id="plagiarism-target"');
+    expect(fragment).toContain('id="plagiarism-threshold"');
+    expect(fragment).toContain('min="0" max="1" step="0.05"');
+    expect(fragment).toContain('id="plagiarism-step-list"');
+    expect(fragment).toContain('id="plagiarism-edit-distance"');
+    expect(fragment).toContain('min="0" step="1" value="2"');
+    expect(fragment).toContain('class="plagiarism-editor__highlight"');
+    expect(fragment).toContain('id="plagiarism-source-original"');
+    expect(fragment).toContain('id="plagiarism-target-original"');
+    expect(app).toContain("plagiarism: { title: '论文查重'");
+    expect(app).toContain("plagiarism: '/public/html/plagiarism.html'");
+    expect(app).toContain('window.NestCloudPlagiarism.mount');
+    expect(script).toContain("'/api/plagiarism/compare'");
+    expect(script).toContain('editDistance');
+    expect(script).toContain('JSON.stringify({');
+    expect(script).toContain('dataset.tooltip');
+    expect(script).toContain('renderStepList');
+    expect(script).toContain('renderOriginalText');
+    expect(script).toContain('scrollMatchIntoView');
+    expect(script).toContain('plagiarism-highlight--');
+    expect(css).toContain('.plagiarism-highlight--1');
+    expect(css).toContain('.plagiarism-highlight--4');
+    expect(script).toContain('sourceToTarget');
+    expect(script).toContain('targetToSource');
+    expect(script).toContain('requestController');
+    expect(script).toContain('localStorage');
+    expect(script).toContain('nestcloud:plagiarism:v1');
+    expect(script).not.toContain('innerHTML');
+    expect(css).toContain('.plagiarism-highlight:hover::after');
+    expect(css).toContain('.plagiarism-step-list');
   });
 });

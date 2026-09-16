@@ -12,6 +12,7 @@
     'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
     'release-automation': { title: '发布版本', documentTitle: '发布版本 · NestCloud' },
     'token-config': { title: 'Token 配置', documentTitle: 'Token 配置 · NestCloud' },
+    plagiarism: { title: '论文查重', documentTitle: '论文查重 · NestCloud' },
   }
   const FRAGMENT_PATHS = Object.freeze({
     overview: '/public/html/overview.html',
@@ -23,6 +24,7 @@
     'config-file-preview': '/public/html/config-file-preview.html',
     'release-automation': '/public/html/release-automation.html',
     'token-config': '/public/html/token-config.html',
+    plagiarism: '/public/html/plagiarism.html',
   })
   const STATUS_LABELS = { empty: '等待', loading: '处理中', ready: '就绪', error: '错误' }
   const DIFF_LABELS = { added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' }
@@ -137,6 +139,10 @@
       mountCompare('env-compare')
       mountParticleLab()
       mountWeeklyReport()
+      if (typeof window.NestCloudPlagiarism?.mount === 'function') {
+        const plagiarismView = viewHost.querySelector('[data-view="plagiarism"]')
+        if (plagiarismView instanceof HTMLElement) window.NestCloudPlagiarism.mount(plagiarismView)
+      }
       if (typeof window.NestCloudConfigFilePreview?.mount === 'function') {
         const configView = viewHost.querySelector('[data-view="config-file-preview"]')
         if (configView instanceof HTMLElement) window.NestCloudConfigFilePreview.mount(configView)
