@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ParamsErrorException } from '@nest-cloud/common';
 import { calculateJaccard } from './jaccard';
+import {
+  alignMatchToCompleteUnits,
+  countNormalizedUnits,
+  countUnitsInRange,
+  resolveCountingMode,
+} from './plagiarism-counting';
 import { PLAGIARISM_CONFIG } from './plagiarism.constants';
 import { mergeMatches } from './interval';
 import {
@@ -129,14 +135,24 @@ export class PlagiarismService {
         PLAGIARISM_CONFIG.maxTargetGap,
         PLAGIARISM_CONFIG.minDuplicateLength,
       ),
-    );
+    )
+      .map((candidate) => alignMatchToCompleteUnits(candidate, normalizedSource, normalizedTarget))
+      .filter(
+        (candidate): candidate is RawPlagiarismMatch =>
+          candidate !== null && candidate.length >= PLAGIARISM_CONFIG.minMatchLength,
+      );
     const scoredCandidates = candidates.map((candidate) =>
       this.toPublicMatch(candidate, normalizedSource, normalizedTarget, sourceText, targetText),
     );
     const countedCandidates = scoredCandidates.filter((match) => match.counted);
+    const countedCandidateRanges = candidates.filter((_, index) => scoredCandidates[index].counted);
     const matches = countedCandidates.filter((match) => match.similarity >= threshold);
-    const duplicateLength = countedCandidates.reduce((total, match) => total + match.length, 0);
-    const duplicateRate = duplicateLength / [...normalizedSource.value].length;
+    const duplicateLength = calculateCoveredSourceLength(countedCandidateRanges);
+    const duplicateUnitCount = countCoveredSourceUnits(normalizedSource, countedCandidateRanges);
+    const sourceUnitCount = countNormalizedUnits(normalizedSource);
+    const targetUnitCount = countNormalizedUnits(normalizedTarget);
+    const countingMode = resolveCountingMode(normalizedSource);
+    const duplicateRate = sourceUnitCount === 0 ? 0 : duplicateUnitCount / sourceUnitCount;
     const similarity = this.round(
       jaccard * PLAGIARISM_CONFIG.jaccardWeight +
         simHashSimilarity * PLAGIARISM_CONFIG.simHashWeight +
@@ -152,9 +168,12 @@ export class PlagiarismService {
         data: {
           sourceLength,
           targetLength,
+          sourceUnitCount,
+          targetUnitCount,
+          countingMode,
           sourceRemovedCharacters: Math.max(0, [...sourceText].length - sourceLength),
           targetRemovedCharacters: Math.max(0, [...targetText].length - targetLength),
-          rule: 'Unicode NFKC、大小写归一化、去除空白/标点/合法 HTML 标签，保留原文位置映射',
+          rule: 'Unicode NFKC、大小写归一化、去除空白/标点/合法 HTML 标签；中文按字、英文按完整单词统计，保留原文位置映射',
         },
       },
       {
@@ -238,6 +257,10 @@ export class PlagiarismService {
           duplicateLength,
           sourceLength,
           targetLength,
+          duplicateUnitCount,
+          sourceUnitCount,
+          targetUnitCount,
+          countingMode,
           matches,
         },
       },
@@ -249,6 +272,10 @@ export class PlagiarismService {
       duplicateLength,
       sourceLength,
       targetLength,
+      duplicateUnitCount,
+      sourceUnitCount,
+      targetUnitCount,
+      countingMode,
       threshold,
       editDistance,
       matches,
@@ -388,6 +415,8 @@ export class PlagiarismService {
       context.targetContextStart,
       context.targetContextEnd,
     );
+    const sourceUnitCount = countUnitsInRange(source, candidate.sourceStart, candidate.sourceEnd);
+    const targetUnitCount = countUnitsInRange(target, candidate.targetStart, candidate.targetEnd);
     return {
       sourceStart: sourcePosition.start,
       sourceEnd: sourcePosition.end,
@@ -399,6 +428,8 @@ export class PlagiarismService {
       targetContext: targetText.slice(targetContextPosition.start, targetContextPosition.end),
       ...validation,
       similarity: this.round(validation.score),
+      sourceUnitCount,
+      targetUnitCount,
     };
   }
 
@@ -425,4 +456,36 @@ export class PlagiarismService {
   private round(value: number): number {
     return Number(value.toFixed(6));
   }
+}
+
+function calculateCoveredSourceLength(matches: RawPlagiarismMatch[]): number {
+  return mergeSourceRanges(matches).reduce((total, range) => total + range.end - range.start, 0);
+}
+
+function countCoveredSourceUnits(
+  normalized: NormalizedText,
+  matches: RawPlagiarismMatch[],
+): number {
+  const ranges = mergeSourceRanges(matches);
+  return normalized.units.filter((unit) =>
+    ranges.some((range) => unit.start >= range.start && unit.end <= range.end),
+  ).length;
+}
+
+function mergeSourceRanges(matches: RawPlagiarismMatch[]): Array<{ start: number; end: number }> {
+  const ordered = [...matches]
+    .filter((match) => match.sourceEnd > match.sourceStart)
+    .sort(
+      (left, right) => left.sourceStart - right.sourceStart || left.sourceEnd - right.sourceEnd,
+    );
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const match of ordered) {
+    const previous = ranges.at(-1);
+    if (previous && match.sourceStart <= previous.end) {
+      previous.end = Math.max(previous.end, match.sourceEnd);
+      continue;
+    }
+    ranges.push({ start: match.sourceStart, end: match.sourceEnd });
+  }
+  return ranges;
 }

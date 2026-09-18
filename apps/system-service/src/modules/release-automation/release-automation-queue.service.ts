@@ -116,7 +116,7 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
         await job.updateProgress(safeProgress);
         await job.updateData({ record: this.safeRecord(record) });
       });
-      await job.updateData({ record: this.safeRecord(record) });
+      await job.updateData({ record: this.safeRecord(record, false) });
     } catch (error) {
       record.error = {
         code: 'EXECUTION_FAILED',
@@ -133,7 +133,7 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
         updatedAt: new Date().toISOString(),
       };
       await job.updateProgress(this.safeProgress(record.progress));
-      await job.updateData({ record: this.safeRecord(record) });
+      await job.updateData({ record: this.safeRecord(record, false) });
       throw error;
     }
   }
@@ -149,9 +149,12 @@ export class ReleaseAutomationQueueService implements ReleaseQueueGateway, OnMod
     };
   }
 
-  private safeRecord(record: ReleaseJobRecord): ReleaseJobRecord {
+  private safeRecord(record: ReleaseJobRecord, includeRuntime = true): ReleaseJobRecord {
+    const { pageConfig, runtime, ...publicRecord } = record;
     return {
-      ...record,
+      ...publicRecord,
+      ...(includeRuntime && pageConfig ? { pageConfig } : {}),
+      ...(includeRuntime && runtime ? { runtime } : {}),
       logs: record.logs?.map((entry) => ({
         ...entry,
         message: redactSensitiveText(entry.message),

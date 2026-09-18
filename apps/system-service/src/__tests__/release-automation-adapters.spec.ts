@@ -120,6 +120,53 @@ describe('release automation remote adapters', () => {
     });
   });
 
+  it('reads tag order and compares the adjacent release tags', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify([
+            { name: 'release/current', commit: { sha: 'current-sha' } },
+            { name: 'release/previous', commit: { sha: 'previous-sha' } },
+          ]),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify({
+            commits: [
+              {
+                sha: 'commit-sha',
+                commit: {
+                  message: 'feat: release fact',
+                  author: { name: 'author', date: '2026-01-01T00:00:00Z' },
+                },
+                parents: [{ sha: 'parent' }],
+              },
+            ],
+          }),
+        ),
+      );
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+
+    await expect(
+      client.listTags({ repository: 'acme/project', config: config() }),
+    ).resolves.toEqual([
+      { name: 'release/current', sha: 'current-sha' },
+      { name: 'release/previous', sha: 'previous-sha' },
+    ]);
+    await expect(
+      client.compareCommits({
+        repository: 'acme/project',
+        base: 'tags/release/previous',
+        head: 'tags/release/current',
+        config: config(),
+      }),
+    ).resolves.toMatchObject([{ sha: 'commit-sha', isMerge: false }]);
+  });
+
   it('passes opaque repository and ref values through encoded GitHub paths', async () => {
     const fetchImpl = vi
       .fn()

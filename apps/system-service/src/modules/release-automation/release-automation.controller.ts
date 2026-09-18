@@ -59,6 +59,24 @@ export class ReleaseAutomationController {
       targetBranch: body.targetBranch,
       gitTag: body.gitTag,
       mode: body.mode ?? defaultMode,
+      runtime: body.runtime
+        ? {
+            ai: body.runtime.ai
+              ? {
+                  baseUrl: body.runtime.ai.baseUrl,
+                  apiKey: body.runtime.ai.apiKey,
+                  model: body.runtime.ai.model,
+                }
+              : undefined,
+            limits: {
+              aiTimeoutMs: body.runtime.aiTimeoutMs,
+              maxPromptCharacters: body.runtime.maxPromptCharacters,
+              maxOutputCharacters: body.runtime.maxOutputCharacters,
+              maxCommits: body.runtime.maxCommits,
+            },
+          }
+        : undefined,
+      releaseDocs: body.releaseDocs ? {} : undefined,
       pageConfig: {
         gitAddress: body.gitAddress,
         branch: body.branch,
@@ -68,8 +86,6 @@ export class ReleaseAutomationController {
         githubTimeoutMs: body.githubTimeoutMs,
         githubMaxRetries: body.githubMaxRetries,
         githubMaxResponseBytes: body.githubMaxResponseBytes,
-        environmentBeforeRef: body.environmentBeforeRef,
-        environmentAfterRef: body.environmentAfterRef,
         environmentFilePath: body.environmentFilePath,
         modifyLogPath: body.modifyLogPath,
         modifyLogArchiveDir: body.modifyLogArchiveDir,

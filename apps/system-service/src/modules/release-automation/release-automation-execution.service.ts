@@ -1,12 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { isJenkinsReady, readReleaseAutomationConfig } from './release-automation.config';
+import { ReleaseDocsService } from './release-docs.service';
 import { RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH } from './release-automation.constants';
 import { payloadHash, redactSensitiveText } from './release-automation.security';
-import { ReleaseAutomationService } from './release-automation.service';
+import { ReleaseAutomationService, type ModifyLogPreparation } from './release-automation.service';
 import type {
   ReleaseJobError,
   ReleaseJobRecord,
   ReleaseProgress,
+  ReleaseDocsResult,
   ReleaseStage,
   ReleaseTaskKey,
   ReleaseTaskStatus,
@@ -18,7 +20,6 @@ const ALL_RELEASE_TASKS: ReleaseTaskKey[] = [
   'jenkins',
   'release-docs',
   'modify-log',
-  'feishu',
 ];
 
 type ReleaseAutomationConfig = ReturnType<typeof readReleaseAutomationConfig>;
@@ -31,6 +32,8 @@ type ExecutionContext = {
   taskStatuses: TaskStatuses;
   config?: ReleaseAutomationConfig;
   tag?: string;
+  releaseDocs?: ReleaseDocsResult;
+  modifyLog?: ModifyLogPreparation;
   sideEffectGate: string;
   progressMessage?: string;
   expectedTargetSha?: string;
@@ -49,7 +52,15 @@ function TaskProgress(options: TaskProgressOptions): MethodDecorator {
   return (_target, _propertyKey, descriptor) => {
     const originalMethod = descriptor.value as (context: ExecutionContext) => Promise<void>;
     descriptor.value = async function (this: unknown, context: ExecutionContext): Promise<void> {
-      await originalMethod.call(this, context);
+      try {
+        await originalMethod.call(this, context);
+      } catch (error) {
+        if (options.task) {
+          context.taskStatuses[options.task] = 'blocked';
+          context.record.progress.taskStatuses = context.taskStatuses;
+        }
+        throw error;
+      }
       if (options.task && !context.selected.has(options.task)) return;
       const message =
         typeof options.message === 'function' ? options.message(context) : options.message;
@@ -84,7 +95,10 @@ class ReleaseAutomationStepError extends Error {
 
 @Injectable()
 export class ReleaseAutomationExecutionService {
-  constructor(private readonly releaseService: ReleaseAutomationService) {}
+  constructor(
+    private readonly releaseService: ReleaseAutomationService,
+    @Optional() private readonly releaseDocsService?: ReleaseDocsService,
+  ) {}
 
   /** 发版执行总入口，step 内异常由外层统一收口。 */
   async execute(
@@ -126,13 +140,14 @@ export class ReleaseAutomationExecutionService {
     const context = this.createExecutionContext(record, update);
     await this.initializeExecutionStep(context); // 初始化任务状态与 planned 进度
     await this.loadConfigurationStep(context); // 读取并校验发布配置
+    await this.validateTaskDependenciesStep(context); // 在任何远程写操作前阻断未接通任务
     await this.prepareTagStep(context); // 写入请求指定的 Git tag
     await this.executeGitTagStep(context); // 创建或核验 Git tag
+    await this.executeReleaseDocsStep(context); // 生成相邻 tag 之间的发布 Markdown
     await this.prepareMergeStep(context); // 读取 target 和 dev/master 的初始 SHA
     await this.mergeSourceStep(context); // 执行 dev/master 到目标分支的合并
     await this.finalizeMergeStep(context); // 汇总分支合并结果并更新进度
     await this.executeJenkinsStep(context); // 执行或规划 Jenkins 打包
-    await this.executeReleaseDocsStep(context); // 执行发布文档步骤或抛出阻断
     await this.executeModifyLogStep(context); // 执行 modify-log 步骤或抛出阻断
     await this.executeFeishuStep(context); // 执行 Feishu 步骤或抛出阻断
     await this.completeExecutionStep(context); // 写入 completed 终态
@@ -144,6 +159,8 @@ export class ReleaseAutomationExecutionService {
     update: (progress: ReleaseProgress) => Promise<void>,
   ): ExecutionContext {
     const selected = new Set<ReleaseTaskKey>(record.selectedTasks ?? ALL_RELEASE_TASKS);
+    selected.add('release-docs');
+    selected.add('modify-log');
     return {
       record,
       update,
@@ -174,7 +191,15 @@ export class ReleaseAutomationExecutionService {
     }
   }
 
-  /** 按请求值写入本次发布使用的 tag，不限制外部 Git tag 命名。 */
+  /** 在产生远程副作用前阻断尚未接通的后置任务。 */
+  private async validateTaskDependenciesStep(context: ExecutionContext): Promise<void> {
+    if (context.selected.has('feishu')) {
+      context.taskStatuses.feishu = 'blocked';
+      context.record.progress.taskStatuses = context.taskStatuses;
+      this.throwStepError('FEISHU_OUTPUT_UNSUPPORTED', '发布 Feishu 文档目标尚未配置。');
+    }
+  }
+
   private async prepareTagStep(context: ExecutionContext): Promise<void> {
     context.tag = context.record.releaseUnit.gitTag ?? context.record.releaseUnit.version;
   }
@@ -304,31 +329,90 @@ export class ReleaseAutomationExecutionService {
     context.progressMessage = `Jenkins 已完成，Pipeline tag: ${result.pipelineTag ?? 'unknown'}。`;
   }
 
-  /** 当前未实现，选中后抛出发布文档相关阻断。 */
+  /** 收集发布事实并生成只读 Markdown，AI 失败时使用本地摘要。 */
+  @TaskProgress({
+    stage: 'docs_ready',
+    percent: 30,
+    task: 'release-docs',
+    message: (context) => context.progressMessage ?? '发布 Markdown 已准备。',
+  })
   private async executeReleaseDocsStep(context: ExecutionContext): Promise<void> {
     if (!context.selected.has('release-docs')) return;
-    this.throwStepError(
-      'REMOTE_DOCS_PENDING',
-      'GitHub 提交日志、AI 文档、database tree commit 和 Feishu 输出尚未配置完整，已停止后续真实副作用。',
-    );
+    if (!this.releaseDocsService || !context.record.releaseDocs) {
+      context.taskStatuses['release-docs'] = 'blocked';
+      this.throwStepError('RELEASE_DOCS_INPUT_MISSING', '发布文档配置未完整提供。');
+    }
+    try {
+      const result = await this.releaseDocsService.generate({
+        repository: context.record.releaseUnit.repository,
+        releaseUnit: context.record.releaseUnit,
+        config: context.config!,
+        runtime: context.record.runtime,
+        input: context.record.releaseDocs,
+      });
+      context.releaseDocs = result;
+      context.record.progress.releaseDocs = result;
+      context.record.progress.degraded = result.degraded;
+      context.record.progress.warnings = result.warnings;
+      context.taskStatuses['release-docs'] = 'succeeded';
+      context.progressMessage = result.degraded
+        ? `发布 Markdown 已生成，AI 不可用，已使用本地摘要。`
+        : `发布 Markdown 已生成，包含 ${result.commitCount} 个提交事实。`;
+    } catch (error) {
+      context.taskStatuses['release-docs'] = 'blocked';
+      this.throwStepError(
+        'RELEASE_DOCS_FAILED',
+        error instanceof Error ? error.message : '发布 Markdown 生成失败。',
+        undefined,
+        error,
+      );
+    }
   }
 
-  /** 当前未实现，选中后抛出 modify-log 相关阻断。 */
+  /** 读取并渲染 modify-log，apply 时归档 SQL，dry-run 只生成预览。 */
+  @TaskProgress({
+    stage: 'modify_log_clear_pending',
+    percent: 75,
+    task: 'modify-log',
+    message: (context) => context.progressMessage ?? 'modify-log SQL 已准备。',
+  })
   private async executeModifyLogStep(context: ExecutionContext): Promise<void> {
     if (!context.selected.has('modify-log')) return;
-    this.throwStepError(
-      'REMOTE_DOCS_PENDING',
-      'GitHub 提交日志、AI 文档、database tree commit 和 Feishu 输出尚未配置完整，已停止后续真实副作用。',
-    );
+    try {
+      const preparation = await this.releaseService.prepareModifyLog({
+        releaseUnit: context.record.releaseUnit,
+        mode: context.record.mode,
+        config: context.config!,
+        jobId: context.record.jobId,
+      });
+      context.modifyLog = preparation;
+      context.record.progress.modifyLog = {
+        status: preparation.artifact ? 'archived' : 'planned',
+        sourceChecksum: preparation.sourceChecksum,
+        generation: preparation.generation,
+        recordCount: preparation.recordCount,
+        artifactId: preparation.artifact?.artifactId,
+        artifactChecksum: preparation.artifact?.artifactChecksum,
+      };
+      context.taskStatuses['modify-log'] = preparation.artifact ? 'succeeded' : 'planned';
+      context.progressMessage = preparation.artifact
+        ? `modify-log SQL 已归档，记录 ${preparation.recordCount} 条。`
+        : `modify-log SQL 计划已生成，记录 ${preparation.recordCount} 条。`;
+    } catch (error) {
+      context.taskStatuses['modify-log'] = 'blocked';
+      this.throwStepError(
+        'MODIFY_LOG_FAILED',
+        error instanceof Error ? error.message : 'modify-log SQL 处理失败。',
+        undefined,
+        error,
+      );
+    }
   }
 
   /** 当前未实现，选中后抛出 Feishu 输出相关阻断。 */
   private async executeFeishuStep(context: ExecutionContext): Promise<void> {
     if (!context.selected.has('feishu')) return;
-    this.throwStepError(
-      'REMOTE_DOCS_PENDING',
-      'GitHub 提交日志、AI 文档、database tree commit 和 Feishu 输出尚未配置完整，已停止后续真实副作用。',
-    );
+    this.throwStepError('FEISHU_OUTPUT_UNSUPPORTED', '发布 Feishu 文档目标尚未配置。');
   }
 
   /** 所有步骤成功后写入 completed 终态。 */
@@ -353,6 +437,7 @@ export class ReleaseAutomationExecutionService {
     if (!(error instanceof ReleaseAutomationStepError)) throw error;
     const taskStatuses = (record.progress.taskStatuses ??
       buildTaskStatuses(new Set(record.selectedTasks ?? ALL_RELEASE_TASKS))) as TaskStatuses;
+    record.progress.taskStatuses = taskStatuses;
     return publishProgress(update, record, error.stage, 0, error.message, taskStatuses).then(
       () => ({
         code: error.code,
@@ -427,6 +512,10 @@ async function publishProgress(
     updatedAt,
     releaseUnit: record.releaseUnit,
     ...(taskStatuses ? { taskStatuses } : {}),
+    ...(record.progress.releaseDocs ? { releaseDocs: record.progress.releaseDocs } : {}),
+    ...(record.progress.modifyLog ? { modifyLog: record.progress.modifyLog } : {}),
+    ...(record.progress.degraded !== undefined ? { degraded: record.progress.degraded } : {}),
+    ...(record.progress.warnings ? { warnings: record.progress.warnings } : {}),
     logs: record.logs,
   };
   record.updatedAt = updatedAt;

@@ -5,14 +5,25 @@ export interface PlagiarismCompareInput {
   editDistance?: number;
 }
 
+export type PlagiarismCountingMode = 'character' | 'word' | 'mixed';
+
+export type NormalizedUnitKind = 'character' | 'word';
+
 export interface NormalizedPosition {
   start: number;
   end: number;
 }
 
+export interface NormalizedUnit {
+  start: number;
+  end: number;
+  kind: NormalizedUnitKind;
+}
+
 export interface NormalizedText {
   value: string;
   positions: NormalizedPosition[];
+  units: NormalizedUnit[];
 }
 
 export interface TextBlock {
@@ -52,6 +63,8 @@ export interface PlagiarismMatch {
   score: number;
   counted: boolean;
   similarity: number;
+  sourceUnitCount?: number;
+  targetUnitCount?: number;
 }
 
 export interface PlagiarismStep {
@@ -67,6 +80,10 @@ export interface PlagiarismDirectionResult {
   duplicateLength: number;
   sourceLength: number;
   targetLength: number;
+  duplicateUnitCount: number;
+  sourceUnitCount: number;
+  targetUnitCount: number;
+  countingMode: PlagiarismCountingMode;
   threshold: number;
   editDistance: number;
   matches: PlagiarismMatch[];

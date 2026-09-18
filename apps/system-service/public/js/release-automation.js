@@ -28,10 +28,10 @@
     ['git-tag', '创建 Git tag（已存在则跳过）'],
     ['github-merge', 'GitHub Merge API 合并 dev/master → 目标分支'],
     ['jenkins', 'Jenkins API 校验并打包，获取 Pipeline tag'],
-    ['release-docs', 'GitHub ENV/提交日志 + SQL/AI 整理更新 Markdown'],
-    ['modify-log', 'GitHub database API 转换/清空 modify-log.sql 并提交 Release Version'],
-    ['feishu', 'Feishu CLI 创建或更新更新文档'],
+    ['modify-log', '读取并归档 modify-log SQL'],
+    ['feishu', 'Feishu 文档输出（当前未接通）'],
   ]
+  const DEFAULT_EXECUTION_TASKS = new Set(['git-tag', 'github-merge', 'jenkins', 'release-docs', 'modify-log'])
 
   function mount(root) {
     if (!(root instanceof HTMLElement)) return
@@ -40,6 +40,8 @@
     const gitAddress = root.querySelector('#release-git-address')
     const gitTag = root.querySelector('#release-git-tag')
     const tagMarker = root.querySelector('#release-jenkins-tag-marker')
+    const environmentPath = root.querySelector('#release-environment-path')
+    const modifyLogPath = root.querySelector('#release-modify-log-path')
     const submit = root.querySelector('#release-automation-submit')
     const progress = root.querySelector('#release-automation-progress')
     const stageLabel = root.querySelector('#release-automation-stage-label')
@@ -54,6 +56,8 @@
     if (!(form instanceof HTMLFormElement) || !(branch instanceof HTMLInputElement)
       || !(gitAddress instanceof HTMLInputElement) || !(gitTag instanceof HTMLInputElement)
       || !(tagMarker instanceof HTMLInputElement)
+      || !(environmentPath instanceof HTMLInputElement)
+      || !(modifyLogPath instanceof HTMLInputElement)
       || !(submit instanceof HTMLButtonElement)
       || !(progress instanceof HTMLElement) || !(stageLabel instanceof HTMLElement)
       || !(status instanceof HTMLElement) || !(bar instanceof HTMLElement)
@@ -65,7 +69,7 @@
     let generation = 0
     let startedAt = 0
     let jobId = ''
-    let selectedTasks = new Set(EXECUTION_TASKS.map(([key]) => key))
+    let selectedTasks = new Set(DEFAULT_EXECUTION_TASKS)
 
     function readDraft() {
       try {
@@ -88,6 +92,13 @@
           jenkinsToken: typeof value.jenkinsToken === 'string' ? value.jenkinsToken : '',
           feishuAppId: typeof value.feishuAppId === 'string' ? value.feishuAppId : '',
           feishuAppSecret: typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : '',
+          ai: value.ai && typeof value.ai === 'object'
+            ? {
+                baseUrl: typeof value.ai.baseUrl === 'string' ? value.ai.baseUrl : '',
+                apiKey: typeof value.ai.apiKey === 'string' ? value.ai.apiKey : '',
+                model: typeof value.ai.model === 'string' ? value.ai.model : '',
+              }
+            : { baseUrl: '', apiKey: '', model: '' },
         }
       } catch { return {} }
     }
@@ -100,11 +111,13 @@
       if (!value) return
       selectedTasks = new Set(Array.isArray(value.selectedTasks)
         ? EXECUTION_TASKS.map(([key]) => key).filter((key) => value.selectedTasks.includes(key))
-        : EXECUTION_TASKS.map(([key]) => key))
+        : [...DEFAULT_EXECUTION_TASKS])
       gitAddress.value = value.gitAddress || ''
       gitTag.value = value.gitTag || ''
       tagMarker.value = value.jenkinsTagMarker || ''
       branch.value = value.targetBranch || value.branch || ''
+      environmentPath.value = value.environmentFilePath || ''
+      modifyLogPath.value = value.modifyLogPath || 'modify-log.sql'
     }
 
     function persistConfig() {
@@ -115,6 +128,8 @@
         gitTag: gitTag.value.trim(),
         jenkinsTagMarker: tagMarker.value.trim(),
         targetBranch: branch.value.trim(),
+        environmentFilePath: environmentPath.value.trim(),
+        modifyLogPath: modifyLogPath.value.trim(),
         selectedTasks: [...selectedTasks],
       })
     }
@@ -135,6 +150,8 @@
       gitAddress.disabled = value
       gitTag.disabled = value
       tagMarker.disabled = value
+      environmentPath.disabled = value
+      modifyLogPath.disabled = value
       progress.hidden = false
       progress.setAttribute('aria-busy', String(value))
       stages.querySelectorAll('input').forEach((input) => { input.disabled = value })
@@ -252,8 +269,12 @@
             jenkinsToken: tokens.jenkinsToken,
             jenkinsBaseUrl: tokens.jenkinsBaseUrl,
             jenkinsTagMarker: tagMarker.value.trim(),
+            environmentFilePath: environmentPath.value.trim(),
+            modifyLogPath: modifyLogPath.value.trim(),
             feishuAppId: tokens.feishuAppId,
             feishuAppSecret: tokens.feishuAppSecret,
+            ...(Object.values(tokens.ai).some(Boolean) ? { runtime: { ai: tokens.ai } } : {}),
+            releaseDocs: {},
             tasks: [...selectedTasks],
           }),
           signal: controller.signal,
@@ -267,6 +288,8 @@
           gitTag: gitTag.value.trim(),
           jenkinsTagMarker: tagMarker.value.trim(),
           targetBranch: branch.value.trim(),
+          environmentFilePath: environmentPath.value.trim(),
+          modifyLogPath: modifyLogPath.value.trim(),
           selectedTasks: [...selectedTasks],
           idempotencyKey,
         })

@@ -49,6 +49,23 @@ export interface GitHubContentsResult {
 export interface GitHubCommitsOptions {
   repository: string;
   ref: string;
+  since?: string;
+  until?: string;
+  path?: string;
+  config?: ReleaseAutomationConfig;
+  page?: number;
+  perPage?: number;
+  maxPages?: number;
+}
+
+export interface GitHubTagSummary {
+  name: string;
+  sha: string;
+}
+
+export interface GitHubTagsOptions {
+  repository: string;
+  config?: ReleaseAutomationConfig;
   page?: number;
   perPage?: number;
   maxPages?: number;
@@ -58,6 +75,7 @@ export interface GitHubCompareOptions {
   repository: string;
   base: string;
   head: string;
+  config?: ReleaseAutomationConfig;
 }
 
 export interface GitHubBranchesOptions {
@@ -159,10 +177,20 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const firstPage = this.boundInteger(options.page ?? 1, 1, 10_000);
     const commits: GitHubCommitSummary[] = [];
     for (let page = firstPage; page < firstPage + maxPages; page += 1) {
+      const query = new URLSearchParams({
+        sha: ref,
+        per_page: String(perPage),
+        page: String(page),
+      });
+      if (options.since) query.set('since', options.since);
+      if (options.until) query.set('until', options.until);
+      if (options.path) query.set('path', options.path);
       const payload = await this.request<unknown>(
         'GET',
-        `/repos/${this.encodePath(repository.slug)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`,
+        `/repos/${this.encodePath(repository.slug)}/commits?${query.toString()}`,
         '读取 GitHub 提交',
+        undefined,
+        options.config,
       );
       if (!Array.isArray(payload)) throw this.invalidResponse('读取 GitHub 提交');
       for (const item of payload) {
@@ -201,6 +229,50 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     };
   }
 
+  async listTags(options: GitHubTagsOptions): Promise<GitHubTagSummary[]> {
+    const repository = this.assertRepository(options.repository);
+    const perPage = this.boundInteger(options.perPage ?? 100, 1, 100);
+    const maxPages = this.boundInteger(options.maxPages ?? 10, 1, 100);
+    const firstPage = this.boundInteger(options.page ?? 1, 1, 10_000);
+    const tags: GitHubTagSummary[] = [];
+    for (let page = firstPage; page < firstPage + maxPages; page += 1) {
+      const query = new URLSearchParams({
+        per_page: String(perPage),
+        page: String(page),
+      });
+      const payload = await this.request<unknown>(
+        'GET',
+        `/repos/${this.encodePath(repository.slug)}/tags?${query.toString()}`,
+        '读取 GitHub tags',
+        undefined,
+        options.config,
+      );
+      if (!Array.isArray(payload)) throw this.invalidResponse('读取 GitHub tags');
+      for (const item of payload) {
+        if (
+          isRecord(item) &&
+          typeof item.name === 'string' &&
+          isRecord(item.commit) &&
+          typeof item.commit.sha === 'string'
+        ) {
+          tags.push({ name: item.name, sha: item.commit.sha });
+        }
+      }
+      if (payload.length < perPage) break;
+    }
+    return tags;
+  }
+
+  async compareCommits(options: GitHubCompareOptions): Promise<GitHubCommitSummary[]> {
+    const payload = await this.compare(options);
+    if (!isRecord(payload) || !Array.isArray(payload.commits)) {
+      throw this.invalidResponse('比较 GitHub commits');
+    }
+    return payload.commits
+      .map((item) => this.parseCommit(item))
+      .filter((item): item is GitHubCommitSummary => item !== null);
+  }
+
   async compare(options: GitHubCompareOptions): Promise<unknown> {
     const repository = this.assertRepository(options.repository);
     const base = this.assertRef(options.base);
@@ -209,6 +281,8 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       'GET',
       `/repos/${this.encodePath(repository.slug)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
       '比较 GitHub ref',
+      undefined,
+      options.config,
     );
   }
 
@@ -456,6 +530,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       message,
       author: typeof authorRecord?.name === 'string' ? authorRecord.name.slice(0, 256) : null,
       date: typeof authorRecord?.date === 'string' ? authorRecord.date : null,
+      isMerge: Array.isArray(value.parents) && value.parents.length > 1,
     };
   }
 

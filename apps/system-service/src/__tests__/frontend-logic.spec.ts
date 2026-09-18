@@ -321,6 +321,10 @@ describe('release automation menu contract', () => {
     expect(fragment).not.toContain('id="release-candidate-sha"');
     expect(fragment).toContain('href="#token-config"');
     expect(script).toContain('githubToken');
+    expect(script).toContain('value.ai');
+    expect(script).toContain('runtime: { ai: tokens.ai }');
+    expect(script).toContain('releaseDocs');
+    expect(fragment).toContain('当前 tag 与 GitHub 返回的上一个 tag');
     expect(script).toContain('jenkinsToken');
     expect(script).toContain('feishuAppId');
     expect(script).toContain('feishuAppSecret');
@@ -410,6 +414,12 @@ describe('plagiarism menu contract', () => {
     expect(css).toContain('.plagiarism-highlight--4');
     expect(script).toContain('sourceToTarget');
     expect(script).toContain('targetToSource');
+    expect(script).toContain('A 重复率');
+    expect(script).toContain('B 重复率');
+    expect(script).toContain('duplicateUnitCount');
+    expect(script).toContain('sourceUnitCount');
+    expect(script).toContain('countingMode');
+    expect(fragment).toContain('中文按字、英文按完整单词计算重复率');
     expect(script).toContain('requestController');
     expect(script).toContain('localStorage');
     expect(script).toContain('nestcloud:plagiarism:v1');

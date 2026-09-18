@@ -29,7 +29,16 @@
         <input id="release-jenkins-tag-marker" name="jenkinsTagMarker" maxlength="256" placeholder="image-name" />
         <small>Jenkins 输出中用于定位构建 tag 的镜像名或 marker。</small>
       </label>
+      <label class="form-field">
+        <span>环境文件路径</span>
+        <input id="release-environment-path" name="environmentFilePath" required maxlength="512" placeholder="env/sample/app.env" />
+      </label>
+      <label class="form-field">
+        <span>modify-log 路径</span>
+        <input id="release-modify-log-path" name="modifyLogPath" required maxlength="512" value="modify-log.sql" />
+      </label>
     </div>
+    <p class="release-automation-note">发布说明会自动读取当前 tag 与 GitHub 返回的上一个 tag，固定整理两者之间的提交、环境配置和 modify-log；不按提交人筛选，不写入 GitHub 或 Feishu。</p>
     <div class="release-automation-meta" aria-label="发布配置">
       <span class="status-badge status-badge--ready" data-release-version>版本由请求指定</span>
       <span class="status-badge status-badge--ready">真实执行</span>

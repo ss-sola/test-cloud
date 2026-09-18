@@ -37,6 +37,7 @@ function createRecord(
       feishuAppSecret: '',
     },
     selectedTasks,
+    releaseDocs: {},
     progress: {
       stage: 'planned',
       sequence: 0,
@@ -88,15 +89,43 @@ function createFakeService() {
       },
     ),
     packageWithJenkins: vi.fn(),
+    prepareModifyLog: vi.fn().mockResolvedValue({
+      sourceChecksum: 'a'.repeat(64),
+      generation: 'generation',
+      recordCount: 0,
+      sql: '-- sql',
+      artifact: null,
+    }),
   };
   return { fake, mergeCalls };
+}
+
+function createFakeDocsService() {
+  return {
+    generate: vi.fn().mockResolvedValue({
+      status: 'degraded',
+      repository: 'acme/project',
+      previousTag: 'release/previous',
+      currentTag: 'release/版本 tag',
+      previousSha: 'c'.repeat(40),
+      resolvedSha: 'd'.repeat(40),
+      commitCount: 1,
+      mergeCommitCount: 0,
+      markdown: '# 发布说明\n',
+      markdownChecksum: 'f'.repeat(64),
+      degraded: true,
+      warnings: ['test fallback'],
+    }),
+  };
 }
 
 describe('release automation Git execution', () => {
   it('executes tag then dev/master merges with the verified SHA chain', async () => {
     const { fake, mergeCalls } = createFakeService();
+    const docs = createFakeDocsService();
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
+      docs as never,
     );
     const record = createRecord('apply');
     const progress: ReleaseProgress[] = [];
@@ -123,6 +152,7 @@ describe('release automation Git execution', () => {
 
   it('keeps dry-run Git steps planned and never asks for apply mode', async () => {
     const { fake, mergeCalls } = createFakeService();
+    const docs = createFakeDocsService();
     fake.ensureTag.mockResolvedValue({ status: 'planned', sha: sourceSha });
     fake.mergeBranch.mockImplementation((options) => {
       mergeCalls.push(options);
@@ -137,6 +167,7 @@ describe('release automation Git execution', () => {
     });
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
+      docs as never,
     );
     const record = createRecord('dry-run');
     const progress: ReleaseProgress[] = [];
@@ -158,9 +189,11 @@ describe('release automation Git execution', () => {
 
   it('blocks the target when the single dev/master merge fails', async () => {
     const { fake } = createFakeService();
+    const docs = createFakeDocsService();
     fake.mergeBranch.mockRejectedValueOnce(new Error('GitHub merge conflict'));
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
+      docs as never,
     );
     const record = createRecord('apply');
     const progress: ReleaseProgress[] = [];

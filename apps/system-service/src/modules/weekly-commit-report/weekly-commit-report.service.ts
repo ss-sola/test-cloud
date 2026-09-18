@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ParamsErrorException, ProjectException } from '@nest-cloud/common';
+import { OpenAiCompatibleClientService } from '../../client/ai/openai-compatible-client.service';
 import type {
   DailyReportSection,
   GenerateWeeklyReportInput,
@@ -48,7 +49,9 @@ interface ProjectWorkResult {
 
 @Injectable()
 export class WeeklyCommitReportService {
-  private readonly logger = new Logger(WeeklyCommitReportService.name);
+  constructor(
+    private readonly aiClient: OpenAiCompatibleClientService = new OpenAiCompatibleClientService(),
+  ) {}
 
   async generate(
     input: GenerateWeeklyReportInput,
@@ -758,53 +761,17 @@ export class WeeklyCommitReportService {
     role: string,
     runtime: WeeklyReportRuntimeConfig,
   ): Promise<string[] | undefined> {
-    if (!ai.baseUrl || !ai.apiKey || !ai.model) return undefined;
-    if (prompt.length > this.getLimits(runtime).maxPromptCharacters) return undefined;
-
-    let baseUrl: URL;
-    try {
-      baseUrl = new URL(ai.baseUrl);
-      if (!['http:', 'https:'].includes(baseUrl.protocol)) return undefined;
-    } catch {
-      this.logger.warn('周报摘要服务地址无效，使用本地摘要。');
-      return undefined;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.getLimits(runtime).aiTimeoutMs);
-    try {
-      const response = await fetch(`${baseUrl.toString().replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${ai.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: ai.model,
-          temperature: 0.2,
-          messages: [
-            {
-              role: 'system',
-              content: `你是一名${role}。请只输出简洁、准确、适合直接汇报的中文有序列表。每行只输出一条，使用 1. 2. 这样的编号格式，不要输出标题、段落、commit hash 或虚构事实。只保留实际开发、修复、配置、测试或发布成果。`,
-            },
-            { role: 'user', content: prompt },
-          ],
-        }),
-        signal: controller.signal,
-      });
-      const contentLength = Number(response.headers.get('content-length') ?? 0);
-      if (!response.ok || contentLength > MAX_AI_RESPONSE_CHARACTERS) return undefined;
-      const raw = await response.text();
-      if (raw.length > MAX_AI_RESPONSE_CHARACTERS) return undefined;
-      const payload = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string } }> };
-      const content = payload.choices?.[0]?.message?.content?.trim() ?? '';
-      const bullets = this.normalizeBulletLines(content);
-      return bullets.length > 0 ? bullets : undefined;
-    } catch {
-      return undefined;
-    } finally {
-      clearTimeout(timeout);
-    }
+    const content = await this.aiClient.request({
+      ai,
+      prompt,
+      systemMessage: `你是一名${role}。请只输出简洁、准确、适合直接汇报的中文有序列表。每行只输出一条，使用 1. 2. 这样的编号格式，不要输出标题、段落、commit hash 或虚构事实。只保留实际开发、修复、配置、测试或发布成果。`,
+      timeoutMs: this.getLimits(runtime).aiTimeoutMs,
+      maxPromptCharacters: this.getLimits(runtime).maxPromptCharacters,
+      maxResponseCharacters: MAX_AI_RESPONSE_CHARACTERS,
+    });
+    if (!content) return undefined;
+    const bullets = this.normalizeBulletLines(content);
+    return bullets.length > 0 ? bullets : undefined;
   }
 
   private buildDailySummaryPrompt(

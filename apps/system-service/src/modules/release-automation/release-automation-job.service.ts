@@ -81,6 +81,8 @@ export class ReleaseAutomationJobService {
       releaseUnit,
       mode,
       pageConfig: input.plan.pageConfig,
+      runtime: input.plan.runtime,
+      releaseDocs: input.plan.releaseDocs,
       selectedTasks: input.plan.selectedTasks,
     };
     const hash = payloadHash(safePayload);
@@ -101,6 +103,8 @@ export class ReleaseAutomationJobService {
       releaseUnit,
       mode,
       pageConfig: input.plan.pageConfig,
+      runtime: input.plan.runtime,
+      releaseDocs: input.plan.releaseDocs,
       selectedTasks: input.plan.selectedTasks,
       progress,
       error: null,
@@ -112,7 +116,7 @@ export class ReleaseAutomationJobService {
   async getStatus(jobId: string): Promise<ReleaseJobStatusView> {
     const record = await this.queue.get(jobId);
     if (!record) throw new ProjectException('发布 Job 不存在或已过期。', 404);
-    const { pageConfig: _pageConfig, ...publicRecord } = record;
+    const { pageConfig: _pageConfig, runtime: _runtime, ...publicRecord } = record;
     return { ...publicRecord, planHash: this.hashPlan(record) };
   }
 
@@ -123,7 +127,19 @@ export class ReleaseAutomationJobService {
   }
 
   private hashPlan(record: ReleaseJobRecord): string {
-    return payloadHash({ releaseUnit: record.releaseUnit, mode: record.mode });
+    return payloadHash({
+      releaseUnit: record.releaseUnit,
+      mode: record.mode,
+      releaseDocs: record.releaseDocs,
+      runtime: record.runtime
+        ? {
+            ai: record.runtime.ai
+              ? { baseUrl: record.runtime.ai.baseUrl, model: record.runtime.ai.model }
+              : undefined,
+            limits: record.runtime.limits,
+          }
+        : undefined,
+    });
   }
 
   private toCreateResult(

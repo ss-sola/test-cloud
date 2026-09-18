@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { ProjectException } from '@nest-cloud/common';
-import { diffEnv } from './env-diff.util';
 import { GitHubApiException, GitHubReleaseClientService } from './github-release-client.service';
 import { JenkinsClientService } from './jenkins-client.service';
 import { ModifyLogArchiveService } from './modify-log-archive.service';
@@ -16,19 +15,6 @@ import type {
   ReleaseMode,
   ReleaseUnit,
 } from './release-automation.types';
-
-export interface EnvironmentDiffOptions {
-  repository?: string;
-  config: ReleaseAutomationConfig;
-}
-
-export interface EnvironmentDiffReport {
-  repository: string;
-  before: GitHubRef;
-  after: GitHubRef;
-  filePath: string;
-  diff: ReturnType<typeof diffEnv>;
-}
 
 export interface BranchPlanEntry {
   targetBranch: string;
@@ -130,39 +116,6 @@ export class ReleaseAutomationService {
   }): Promise<GitHubRef> {
     return this.github.getRef(options.repository, `heads/${options.branch}`, options.config);
   }
-  async getEnvironmentDiff(options: EnvironmentDiffOptions): Promise<EnvironmentDiffReport> {
-    const config = options.config;
-    const repository = selectRepository(options.repository);
-    if (
-      !config.environmentBeforeRef ||
-      !config.environmentAfterRef ||
-      !config.environmentFilePath
-    ) {
-      throw new ProjectException('ENV diff 的 ref 或文件路径待配置。', 503);
-    }
-    const [beforeRef, afterRef] = await Promise.all([
-      this.github.getRef(repository, config.environmentBeforeRef, config),
-      this.github.getRef(repository, config.environmentAfterRef, config),
-    ]);
-    const [beforeFile, afterFile] = await Promise.all([
-      this.github.getContents(
-        { repository, path: config.environmentFilePath, ref: beforeRef.ref },
-        config,
-      ),
-      this.github.getContents(
-        { repository, path: config.environmentFilePath, ref: afterRef.ref },
-        config,
-      ),
-    ]);
-    return {
-      repository,
-      before: beforeRef,
-      after: afterRef,
-      filePath: config.environmentFilePath,
-      diff: diffEnv(beforeFile.content, afterFile.content),
-    };
-  }
-
   async planBranches(options: { repository?: string } = {}): Promise<BranchPlanReport> {
     const repository = selectRepository(options.repository);
     const [dev, master, targets] = await Promise.all([

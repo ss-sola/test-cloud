@@ -10,8 +10,63 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import type { ReleaseMode, ReleaseTaskKey } from '../release-automation.types';
+
+export class ReleaseAiConfigDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2048)
+  baseUrl!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4096)
+  apiKey!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(256)
+  model!: string;
+}
+
+export class ReleaseRuntimeConfigDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReleaseAiConfigDto)
+  ai?: ReleaseAiConfigDto;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(120_000)
+  aiTimeoutMs?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(100_000)
+  maxPromptCharacters?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(100_000)
+  maxOutputCharacters?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(200)
+  maxCommits?: number;
+}
+
+export class ReleaseDocsInputDto {}
 
 export class CreateReleaseAutomationJobDto {
   @IsOptional()
@@ -27,6 +82,16 @@ export class CreateReleaseAutomationJobDto {
   @IsOptional()
   @IsIn(['dry-run', 'apply'])
   mode?: ReleaseMode;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReleaseRuntimeConfigDto)
+  runtime?: ReleaseRuntimeConfigDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReleaseDocsInputDto)
+  releaseDocs?: ReleaseDocsInputDto;
 
   @IsString()
   @IsNotEmpty()
@@ -78,16 +143,6 @@ export class CreateReleaseAutomationJobDto {
   @Min(1)
   @Max(10 * 1024 * 1024)
   githubMaxResponseBytes?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(256)
-  environmentBeforeRef?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(256)
-  environmentAfterRef?: string;
 
   @IsOptional()
   @IsString()

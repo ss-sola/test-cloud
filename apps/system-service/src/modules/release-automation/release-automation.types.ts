@@ -1,6 +1,58 @@
 export type ReleaseVersion = string;
 export type ReleaseMode = 'dry-run' | 'apply';
 
+export interface ReleaseAiConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+export interface ReleaseRuntimeConfig {
+  ai?: ReleaseAiConfig;
+  limits?: {
+    aiTimeoutMs?: number;
+    maxPromptCharacters?: number;
+    maxOutputCharacters?: number;
+    maxCommits?: number;
+  };
+}
+
+export interface ReleaseDocsInput {}
+
+export interface ReleaseDocsResult {
+  status: 'planned' | 'succeeded' | 'degraded' | 'failed';
+  repository: string;
+  previousTag?: string;
+  currentTag: string;
+  previousSha?: string;
+  resolvedSha: string;
+  commitCount: number;
+  mergeCommitCount: number;
+  markdown: string;
+  markdownChecksum: string;
+  degraded: boolean;
+  warnings: string[];
+  environment?: {
+    filePath: string;
+    changedKeys: number;
+    beforeChecksum: string;
+    afterChecksum: string;
+  };
+  database?: {
+    recordCount: number;
+    sourceChecksum: string;
+  };
+}
+
+export interface ReleaseModifyLogResult {
+  status: 'planned' | 'archived';
+  sourceChecksum: string;
+  generation: string;
+  recordCount: number;
+  artifactId?: string;
+  artifactChecksum?: string;
+}
+
 export interface ReleaseUnit {
   repository: string;
   targetBranch: string;
@@ -35,8 +87,6 @@ export interface ReleasePageConfig {
   githubTimeoutMs?: number;
   githubMaxRetries?: number;
   githubMaxResponseBytes?: number;
-  environmentBeforeRef?: string;
-  environmentAfterRef?: string;
   environmentFilePath?: string;
   modifyLogPath?: string;
   modifyLogArchiveDir?: string;
@@ -63,6 +113,8 @@ export interface ReleasePlanInput {
   candidateSha?: string;
   mode?: ReleaseMode;
   pageConfig?: ReleasePageConfig;
+  runtime?: ReleaseRuntimeConfig;
+  releaseDocs?: ReleaseDocsInput;
   selectedTasks?: ReleaseTaskKey[];
 }
 
@@ -108,6 +160,10 @@ export interface ReleaseProgress {
   releaseUnit: ReleaseUnit;
   taskStatuses?: Partial<Record<ReleaseTaskKey, ReleaseTaskStatus>>;
   logs?: ReleaseLogEntry[];
+  releaseDocs?: ReleaseDocsResult;
+  modifyLog?: ReleaseModifyLogResult;
+  degraded?: boolean;
+  warnings?: string[];
 }
 
 export interface ReleaseJobError {
@@ -123,6 +179,8 @@ export interface ReleaseJobRecord {
   releaseUnit: ReleaseUnit;
   mode: ReleaseMode;
   pageConfig?: ReleasePageConfig;
+  runtime?: ReleaseRuntimeConfig;
+  releaseDocs?: ReleaseDocsInput;
   selectedTasks?: ReleaseTaskKey[];
   logs?: ReleaseLogEntry[];
   progress: ReleaseProgress;
@@ -140,7 +198,7 @@ export interface ReleaseJobCreateResult {
   planHash: string;
 }
 
-export interface ReleaseJobStatusView extends Omit<ReleaseJobRecord, 'pageConfig'> {
+export interface ReleaseJobStatusView extends Omit<ReleaseJobRecord, 'pageConfig' | 'runtime'> {
   planHash: string;
 }
 
@@ -161,6 +219,7 @@ export interface GitHubCommitSummary {
   message: string;
   author: string | null;
   date: string | null;
+  isMerge?: boolean;
 }
 
 export type EnvDiffStatus = 'added' | 'removed' | 'changed' | 'unchanged';

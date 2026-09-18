@@ -51,6 +51,27 @@
     return Number.isFinite(number) ? `${(number * 100).toFixed(1)}%` : '—'
   }
 
+  function getCountingUnitLabel(direction) {
+    if (direction?.countingMode === 'word') return '单词'
+    if (direction?.countingMode === 'mixed') return '单位'
+    return '字'
+  }
+
+  function formatDuplicateUnits(direction) {
+    const duplicate = Number(direction?.duplicateUnitCount)
+    const total = Number(direction?.sourceUnitCount)
+    if (Number.isFinite(duplicate) && Number.isFinite(total)) {
+      return `${duplicate} / ${total} ${getCountingUnitLabel(direction)}`
+    }
+    return `${Number(direction?.duplicateLength || 0)} 字`
+  }
+
+  function formatMatchUnits(match, direction, side) {
+    const value = Number(side === 'source' ? match?.sourceUnitCount : match?.targetUnitCount)
+    if (!Number.isFinite(value)) return ''
+    return ` · ${value} ${getCountingUnitLabel(direction)}`
+  }
+
   function formatValue(value, key, stepKey) {
     if (typeof value === 'number') {
       const percent = key.toLowerCase().includes('similarity')
@@ -92,7 +113,7 @@
     })
   }
 
-  function renderOriginalText(codeElement, textarea, text, matches, side) {
+  function renderOriginalText(codeElement, textarea, text, matches, side, direction) {
     codeElement.replaceChildren()
     textarea.value = text
     textarea.classList.add('plagiarism-editor__textarea--highlighted')
@@ -115,7 +136,7 @@
       if (start > cursor) codeElement.append(document.createTextNode(text.slice(cursor, start)))
       const colorClass = `plagiarism-highlight--${(match.colorIndex % 4) + 1}`
       const highlight = createElement('span', `plagiarism-highlight ${colorClass}`, text.slice(start, end))
-      const details = `局部相似度 ${formatPercent(match.similarity)} · 密度 ${formatPercent(match.density)} · 评分 ${formatPercent(match.score)} · ${match.length} 个规范化字符 · 原文位置 ${start + 1}～${end}`
+      const details = `局部相似度 ${formatPercent(match.similarity)} · 密度 ${formatPercent(match.density)} · 评分 ${formatPercent(match.score)} · ${match.length} 个规范化字符${formatMatchUnits(match, direction, side)} · 原文位置 ${start + 1}～${end}`
       highlight.dataset.tooltip = details
       highlight.dataset.plagiarismMatch = String(match.colorIndex)
       highlight.title = details
@@ -136,10 +157,10 @@
     const reverse = result.targetToSource || null
     const values = [
       ['综合相似度', formatPercent(result.overallSimilarity ?? result.similarity), 'plagiarism-summary-card--blue'],
-      ['A → B 重复率', formatPercent(forward.duplicateRate), 'plagiarism-summary-card--orange'],
-      ['B → A 重复率', formatPercent(reverse?.duplicateRate ?? forward.duplicateRate), 'plagiarism-summary-card--orange'],
+      ['A 重复率', formatPercent(forward.duplicateRate), 'plagiarism-summary-card--orange'],
+      ['B 重复率', formatPercent(reverse?.duplicateRate ?? forward.duplicateRate), 'plagiarism-summary-card--orange'],
       ['重复片段', `${Number(forward.matches?.length || 0)} 段`, 'plagiarism-summary-card--green'],
-      ['重复字符', `${Number(forward.duplicateLength || 0)} 字`, 'plagiarism-summary-card--dark'],
+      ['A 重复量', formatDuplicateUnits(forward), 'plagiarism-summary-card--dark'],
     ]
     values.forEach(([label, value, className]) => {
       const card = createElement('div', `plagiarism-summary-card ${className}`)
@@ -313,14 +334,14 @@
         const result = payload.data
         const direction = result.sourceToTarget || result
         renderSummary(summary, result)
-        renderOriginalText(sourceHighlight, sourceOriginal, source.value, direction.matches, 'source')
-        renderOriginalText(targetHighlight, targetOriginal, target.value, direction.matches, 'target')
+        renderOriginalText(sourceHighlight, sourceOriginal, source.value, direction.matches, 'source', direction)
+        renderOriginalText(targetHighlight, targetOriginal, target.value, direction.matches, 'target', direction)
         renderStepList(stepList, direction.steps)
         stepCount.textContent = `${Array.isArray(direction.steps) ? direction.steps.length : 0} STEPS`
         const reverseRate = result.targetToSource
-          ? ` · B → A ${formatPercent(result.targetToSource.duplicateRate)}`
+          ? ` · B ${formatPercent(result.targetToSource.duplicateRate)}`
           : ''
-        resultNote.textContent = `高亮阈值 ${formatPercent(direction.threshold)} · 编辑距离 ${direction.editDistance} · A → B ${formatPercent(direction.duplicateRate)}${reverseRate} · 位置为输入原文下标 · 将鼠标悬浮或聚焦高亮片段查看查重数据。`
+        resultNote.textContent = `高亮阈值 ${formatPercent(direction.threshold)} · 编辑距离 ${direction.editDistance} · A ${formatPercent(direction.duplicateRate)}${reverseRate} · 位置为输入原文下标 · 将鼠标悬浮或聚焦高亮片段查看查重数据。`
         setStatus('ready', '已完成')
       } catch (requestError) {
         if (requestError?.name === 'AbortError' || controller !== requestController) return

@@ -160,27 +160,12 @@ export function mergeAdjacentMatches(
   );
   const merged: RawPlagiarismMatch[] = [];
   for (const match of ordered) {
-    const previous = merged.at(-1);
+    const previous = [...merged]
+      .reverse()
+      .find((candidate) =>
+        canMergeAdjacentMatches(candidate, match, maxSourceGap, maxTargetGap, minPartLength),
+      );
     if (!previous) {
-      merged.push({ ...match });
-      continue;
-    }
-    const sourceOverlap =
-      match.sourceStart < previous.sourceEnd && match.sourceEnd > previous.sourceStart;
-    const targetOverlap =
-      match.targetStart < previous.targetEnd && match.targetEnd > previous.targetStart;
-    const sourceGap = match.sourceStart - previous.sourceEnd;
-    const targetGap = match.targetStart - previous.targetEnd;
-    const eligibleParts = previous.length >= minPartLength && match.length >= minPartLength;
-    const related =
-      eligibleParts &&
-      (sourceOverlap ||
-        targetOverlap ||
-        (sourceGap >= 0 &&
-          targetGap >= 0 &&
-          sourceGap <= maxSourceGap &&
-          targetGap <= maxTargetGap));
-    if (!related) {
       merged.push({ ...match });
       continue;
     }
@@ -193,6 +178,31 @@ export function mergeAdjacentMatches(
     previous.targetBlockLength = undefined;
   }
   return merged;
+}
+
+function canMergeAdjacentMatches(
+  previous: RawPlagiarismMatch,
+  match: RawPlagiarismMatch,
+  maxSourceGap: number,
+  maxTargetGap: number,
+  minPartLength: number,
+): boolean {
+  const sourceOverlap =
+    match.sourceStart < previous.sourceEnd && match.sourceEnd > previous.sourceStart;
+  const targetOverlap =
+    match.targetStart < previous.targetEnd && match.targetEnd > previous.targetStart;
+  const sourceGap = match.sourceStart - previous.sourceEnd;
+  const targetGap = match.targetStart - previous.targetEnd;
+  const sourceConnected = sourceOverlap || (sourceGap >= 0 && sourceGap <= maxSourceGap);
+  const targetConnected = targetOverlap || (targetGap >= 0 && targetGap <= maxTargetGap);
+  const repeatedMapping = (sourceOverlap && !targetOverlap) || (targetOverlap && !sourceOverlap);
+  return (
+    previous.length >= minPartLength &&
+    match.length >= minPartLength &&
+    !repeatedMapping &&
+    sourceConnected &&
+    targetConnected
+  );
 }
 export function selectNonOverlappingMatches(
   candidates: RawPlagiarismMatch[],
@@ -234,11 +244,10 @@ function selectGreedy(candidates: RawPlagiarismMatch[]): RawPlagiarismMatch[] {
     if (
       selected.some(
         (match) =>
-          candidate.sourceStart < match.sourceEnd && candidate.sourceEnd > match.sourceStart,
-      ) ||
-      selected.some(
-        (match) =>
-          candidate.targetStart < match.targetEnd && candidate.targetEnd > match.targetStart,
+          candidate.sourceStart < match.sourceEnd &&
+          candidate.sourceEnd > match.sourceStart &&
+          candidate.targetStart < match.targetEnd &&
+          candidate.targetEnd > match.targetStart,
       )
     ) {
       continue;

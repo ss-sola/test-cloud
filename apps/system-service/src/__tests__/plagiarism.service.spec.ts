@@ -46,6 +46,63 @@ describe('PlagiarismService', () => {
     expect(result.duplicateLength).toBe(result.sourceLength);
   });
 
+  it('counts English repetition by complete words per direction', () => {
+    const service = createService();
+    const source = 'alpha bravo charlie delta uniqueentry';
+    const target = 'alpha bravo charlie delta';
+    const result = service.compare({ source, target, threshold: 0.6 });
+
+    expect(result.sourceToTarget.countingMode).toBe('word');
+    expect(result.sourceToTarget.sourceUnitCount).toBe(5);
+    expect(result.sourceToTarget.targetUnitCount).toBe(4);
+    expect(result.sourceToTarget.duplicateUnitCount).toBe(4);
+    expect(result.sourceToTarget.duplicateRate).toBe(0.8);
+    expect(result.targetToSource.sourceUnitCount).toBe(4);
+    expect(result.targetToSource.duplicateUnitCount).toBe(4);
+    expect(result.targetToSource.duplicateRate).toBe(1);
+  });
+
+  it('does not count a partial English word as a complete duplicate', () => {
+    const service = createService();
+    const result = service.compare({
+      source: 'information retrieval',
+      target: 'information retrievers',
+      threshold: 0,
+    });
+
+    expect(result.sourceToTarget.duplicateUnitCount).toBe(1);
+    expect(result.sourceToTarget.matches.map((match) => match.text)).toEqual(['information']);
+    expect(result.sourceToTarget.matches.every((match) => !match.text.includes('retriev'))).toBe(
+      true,
+    );
+  });
+
+  it('does not treat different English word boundaries as the same words', () => {
+    const service = createService();
+    const result = service.compare({
+      source: 'foo bar',
+      target: 'foobar',
+      threshold: 0,
+    });
+
+    expect(result.sourceToTarget.duplicateUnitCount).toBe(0);
+    expect(result.sourceToTarget.duplicateRate).toBe(0);
+    expect(result.sourceToTarget.matches).toHaveLength(0);
+  });
+
+  it('counts Chinese characters and English words separately in mixed text', () => {
+    const service = createService();
+    const source = '人工智能 improves learning uniquephrase';
+    const target = '人工智能 improves learning';
+    const result = service.compare({ source, target, threshold: 0.6 });
+
+    expect(result.sourceToTarget.countingMode).toBe('mixed');
+    expect(result.sourceToTarget.sourceUnitCount).toBe(7);
+    expect(result.sourceToTarget.targetUnitCount).toBe(6);
+    expect(result.sourceToTarget.duplicateUnitCount).toBe(6);
+    expect(result.sourceToTarget.duplicateRate).toBe(Number((6 / 7).toFixed(6)));
+  });
+
   it('returns directional duplicate rates for asymmetric inputs', () => {
     const service = createService();
     const repeated = '人工智能正在快速改变现代教育的发展方式';
@@ -67,6 +124,28 @@ describe('PlagiarismService', () => {
     );
   });
 
+  it('returns every repeated target occurrence for one source passage', () => {
+    const service = createService();
+    const repeated =
+      '随着人工智能技术的不断成熟，智能教育将应用于更多场景。然而，技术本身并不能决定教育发展的方向，教育工作者仍需要根据实际需要合理使用技术';
+    const result = service.compare({
+      source: `${repeated}。`,
+      target: `${repeated}\n\n${repeated}。`,
+      threshold: 0.6,
+    });
+
+    expect(result.sourceToTarget.matches).toHaveLength(2);
+    expect(result.sourceToTarget.matches.map((match) => match.text)).toEqual([repeated, repeated]);
+    expect(result.sourceToTarget.matches[0].sourceStart).toBe(
+      result.sourceToTarget.matches[1].sourceStart,
+    );
+    expect(result.sourceToTarget.matches[0].targetStart).not.toBe(
+      result.sourceToTarget.matches[1].targetStart,
+    );
+    expect(result.sourceToTarget.duplicateLength).toBe(result.sourceToTarget.sourceLength);
+    expect(result.sourceToTarget.duplicateRate).toBe(1);
+  });
+
   it('does not infer high similarity when both short texts lack 3-gram features', () => {
     const service = createService();
     const result = service.compare({ source: '甲', target: '乙', threshold: 0 });
@@ -78,9 +157,11 @@ describe('PlagiarismService', () => {
 
   it('keeps multiple non-overlapping matches when their order differs', () => {
     const service = createService();
+    const first = '甲'.repeat(16);
+    const second = '乙'.repeat(16);
     const result = service.compare({
-      source: `${'a'.repeat(16)}${'b'.repeat(16)}`,
-      target: `${'b'.repeat(16)}${'a'.repeat(16)}`,
+      source: `${first}${second}`,
+      target: `${second}${first}`,
       threshold: 0,
     });
 
