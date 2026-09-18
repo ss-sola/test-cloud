@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PlagiarismService } from '../modules/plagiarism/plagiarism.service';
 
-const fixture = readFileSync(resolve(process.cwd(), '../../docs/plan/test中.md'), 'utf8');
+const fixture = readFileSync(resolve(__dirname, 'fixtures/论文查重中.md'), 'utf8');
 
 function extractTextSection(title: string, nextTitle: string): string {
   const startMarker = `\n# ${title}`;
@@ -23,7 +23,7 @@ function extractTextSection(title: string, nextTitle: string): string {
 const source = extractTextSection('Text A', 'Text B');
 const target = extractTextSection('Text B', '预期查重结果');
 
-describe('docs/plan/test中.md long-form fixture', () => {
+describe('论文查重中.md long-form fixture', () => {
   it('keeps exact evidence while rejecting semantic rewrites', () => {
     const result = new PlagiarismService().compare({ source, target, threshold: 0.6 });
     const forward = result.sourceToTarget;
