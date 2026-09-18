@@ -5,4 +5,5 @@ dist/**
 coverage
 .gstack/
 docs/plan
+apps/system-service/docs/plan
 .codegraph
