@@ -41,7 +41,11 @@ describe('论文查重中.md long-form fixture', () => {
       texts.some((text) => text.includes('个性化学习是人工智能在教育领域的重要应用方向之一')),
     ).toBe(false);
     expect(texts.some((text) => text.includes('教师仍然需要根据课程目标设计教学内容'))).toBe(false);
-    expect(texts.every((text) => [...text].length >= 8)).toBe(true);
+    expect(
+      [...forward.matches, ...reverse.matches].every(
+        (match) => (match.sourceUnitCount ?? 0) >= 5 && (match.targetUnitCount ?? 0) >= 5,
+      ),
+    ).toBe(true);
     expect(forward.duplicateLength).toBeLessThanOrEqual(forward.sourceLength);
     expect(reverse.duplicateLength).toBeLessThanOrEqual(reverse.sourceLength);
   });

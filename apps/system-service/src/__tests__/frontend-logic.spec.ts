@@ -324,12 +324,14 @@ describe('release automation menu contract', () => {
     expect(script).toContain('value.ai');
     expect(script).toContain('runtime: { ai: tokens.ai }');
     expect(script).toContain('releaseDocs');
+    expect(script).toContain("storedModifyLogPath === 'modify-log.sql'");
     expect(fragment).toContain('当前 tag 与 GitHub 返回的上一个 tag');
     expect(script).toContain('jenkinsToken');
     expect(script).toContain('feishuAppId');
     expect(script).toContain('feishuAppSecret');
     expect(script).toContain('localStorage');
     expect(fragment).toContain('id="release-automation-log"');
+    expect(fragment).toContain('value=".version/modify-log.sql"');
     expect(fragment).toContain('执行任务列表');
     expect(fragment).toContain('执行发布');
     expect(script).toContain('EXECUTION_TASKS');

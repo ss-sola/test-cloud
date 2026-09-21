@@ -35,7 +35,7 @@
       </label>
       <label class="form-field">
         <span>modify-log 路径</span>
-        <input id="release-modify-log-path" name="modifyLogPath" required maxlength="512" value="modify-log.sql" />
+        <input id="release-modify-log-path" name="modifyLogPath" required maxlength="512" value=".version/modify-log.sql" />
       </label>
     </div>
     <p class="release-automation-note">发布说明会自动读取当前 tag 与 GitHub 返回的上一个 tag，固定整理两者之间的提交、环境配置和 modify-log；不按提交人筛选，不写入 GitHub 或 Feishu。</p>

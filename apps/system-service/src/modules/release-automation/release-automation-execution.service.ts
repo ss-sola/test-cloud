@@ -396,8 +396,8 @@ export class ReleaseAutomationExecutionService {
       };
       context.taskStatuses['modify-log'] = preparation.artifact ? 'succeeded' : 'planned';
       context.progressMessage = preparation.artifact
-        ? `modify-log SQL 已归档，记录 ${preparation.recordCount} 条。`
-        : `modify-log SQL 计划已生成，记录 ${preparation.recordCount} 条。`;
+        ? 'modify-log SQL 原文已归档。'
+        : 'modify-log SQL 原文已读取。';
     } catch (error) {
       context.taskStatuses['modify-log'] = 'blocked';
       this.throwStepError(

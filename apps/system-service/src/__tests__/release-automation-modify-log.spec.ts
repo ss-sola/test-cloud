@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { parseModifyLogContent } from '../modules/release-automation/modify-log-gateway.service';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  ModifyLogGatewayService,
+  parseModifyLogContent,
+} from '../modules/release-automation/modify-log-gateway.service';
 import { VersionSqlRenderer } from '../modules/release-automation/version-sql.renderer';
 import { RELEASE_AUTOMATION_VERSION } from '../modules/release-automation/release-automation.constants';
 import type { ModifyLogRecord } from '../modules/release-automation/release-automation.types';
@@ -65,5 +68,40 @@ describe('modify-log deterministic SQL', () => {
         records: [],
       }),
     ).toThrow('控制字符');
+  });
+
+  it('reads migration SQL from GitHub without parsing or touching the local filesystem', async () => {
+    const content = 'ALTER TABLE courseware_ai_summary ADD COLUMN search_summary LONGTEXT NULL;\n';
+    const github = {
+      getContents: vi.fn().mockResolvedValue({
+        content,
+        sha: 'blob-sha',
+        ref: 'candidate-sha',
+        repository: 'acme/project',
+        checksum: 'content-checksum',
+      }),
+    };
+    const service = new ModifyLogGatewayService(github as never);
+    const config = {
+      modifyLogPath: '.version/modify-log.sql',
+      modifyLogMaxBytes: 10_000,
+      modifyLogMaxLines: 100,
+    } as any;
+
+    await expect(
+      service.readSource({ repository: 'acme/project', ref: 'candidate-sha', config }),
+    ).resolves.toMatchObject({
+      path: '.version/modify-log.sql',
+      repository: 'acme/project',
+      ref: 'candidate-sha',
+      blobSha: 'blob-sha',
+      content,
+      records: [],
+      generation: 'candidate-sha:blob-sha',
+    });
+    expect(github.getContents).toHaveBeenCalledWith(
+      { repository: 'acme/project', path: '.version/modify-log.sql', ref: 'candidate-sha' },
+      config,
+    );
   });
 });

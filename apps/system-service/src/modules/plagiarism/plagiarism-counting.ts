@@ -41,12 +41,10 @@ export function alignMatchToCompleteUnits(
   const alignedSourceUnits = sourceUnits.slice(0, alignedCount);
   const alignedTargetUnits = targetUnits.slice(0, alignedCount);
   if (
-    sourceUnits.length !== targetUnits.length &&
-    !sameUnit(alignedSourceUnits[0], alignedTargetUnits[0], source, target)
+    alignedSourceUnits.some(
+      (unit, index) => !unitsAlign(unit, alignedTargetUnits[index], source, target),
+    )
   ) {
-    return null;
-  }
-  if (alignedSourceUnits.some((unit, index) => unit.kind !== alignedTargetUnits[index].kind)) {
     return null;
   }
 
@@ -72,15 +70,16 @@ function hasOverlappingWord(units: NormalizedUnit[], start: number, end: number)
   return units.some((unit) => unit.kind === 'word' && unit.start < end && unit.end > start);
 }
 
-function sameUnit(
+function unitsAlign(
   source: NormalizedUnit,
   target: NormalizedUnit,
   sourceText: NormalizedText,
   targetText: NormalizedText,
 ): boolean {
+  if (source.kind !== target.kind) return false;
+  if (source.kind === 'character') return true;
   return (
-    source.kind === target.kind &&
     sourceText.value.slice(source.start, source.end) ===
-      targetText.value.slice(target.start, target.end)
+    targetText.value.slice(target.start, target.end)
   );
 }

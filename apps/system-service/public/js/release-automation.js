@@ -117,7 +117,10 @@
       tagMarker.value = value.jenkinsTagMarker || ''
       branch.value = value.targetBranch || value.branch || ''
       environmentPath.value = value.environmentFilePath || ''
-      modifyLogPath.value = value.modifyLogPath || 'modify-log.sql'
+      const storedModifyLogPath = typeof value.modifyLogPath === 'string' ? value.modifyLogPath.trim() : ''
+      modifyLogPath.value = !storedModifyLogPath || storedModifyLogPath === 'modify-log.sql'
+        ? '.version/modify-log.sql'
+        : storedModifyLogPath
     }
 
     function persistConfig() {

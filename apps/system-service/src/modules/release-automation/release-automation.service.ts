@@ -4,8 +4,10 @@ import { GitHubApiException, GitHubReleaseClientService } from './github-release
 import { JenkinsClientService } from './jenkins-client.service';
 import { ModifyLogArchiveService } from './modify-log-archive.service';
 import { ModifyLogGatewayService } from './modify-log-gateway.service';
-import { RELEASE_AUTOMATION_VERSION } from './release-automation.constants';
-import { VersionSqlRenderer } from './version-sql.renderer';
+import {
+  RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+  RELEASE_AUTOMATION_VERSION,
+} from './release-automation.constants';
 import type { ReleaseAutomationConfig } from './release-automation.config';
 import type {
   ClearModifyLogOptions,
@@ -48,7 +50,6 @@ export class ReleaseAutomationService {
     private readonly github: GitHubReleaseClientService,
     private readonly jenkins: JenkinsClientService,
     private readonly modifyLogGateway: ModifyLogGatewayService,
-    private readonly renderer: VersionSqlRenderer,
     private readonly archive: ModifyLogArchiveService,
   ) {}
 
@@ -219,13 +220,12 @@ export class ReleaseAutomationService {
     config: ReleaseAutomationConfig;
     jobId?: string;
   }): Promise<ModifyLogPreparation> {
-    const source = await this.modifyLogGateway.readSource(options.config);
-    const sql = this.renderer.render({
-      version: options.releaseUnit.gitTag ?? options.releaseUnit.version,
-      sourceChecksum: source.checksum,
-      records: source.records,
-      releaseUnit: options.releaseUnit,
+    const source = await this.modifyLogGateway.readSource({
+      repository: options.releaseUnit.repository,
+      ref: options.releaseUnit.candidateSha ?? RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+      config: options.config,
     });
+    const sql = source.content;
     const artifact =
       options.mode === 'apply'
         ? await this.archive.archive({

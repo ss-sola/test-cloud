@@ -35,7 +35,7 @@ Content-Type: application/json
   "githubBaseUrl": "https://api.github.com",
   "githubAllowedHosts": "api.github.com",
   "environmentFilePath": "env/sample/app.env",
-  "modifyLogPath": "modify-log.sql",
+  "modifyLogPath": ".version/modify-log.sql",
   "tasks": ["git-tag", "github-merge", "jenkins", "release-docs", "modify-log"]
 }
 ```
@@ -56,7 +56,7 @@ GET /api/release-automation/jobs/status?jobId=release-...
 
 ## 副作用执行边界
 
-创建 Job 会按 `tasks` 执行真实 GitHub/Jenkins/modify-log 操作；发布 docs 任务只读收集提交/ENV/SQL 事实并生成 Markdown，不提交 GitHub 或 Feishu。任务使用幂等判断和必要的外部响应/SQL 安全约束，冲突或来源 SHA 变化会阻断。AI 请求失败时使用本地事实摘要并将 `progress.degraded=true`，不编造内容。`modify-log` 会读取、渲染并在 apply 模式归档 SQL，但本次不自动清空源文件；Feishu 文档写入仍未接通，选中后会在任何远程写操作前阻断。
+创建 Job 会按 `tasks` 执行真实 GitHub/Jenkins/modify-log 操作；发布 docs 任务只读收集提交、环境配置和 GitHub Contents 中的 modify-log 事实并生成 Markdown，不提交 GitHub 或 Feishu。modify-log 使用候选 SHA 或 `dev/master` 作为 ref，通过 GitHub Contents API 读取配置的仓库相对路径，并在 apply 模式将 SQL 原文归档；不会在服务端读取本地同名文件、执行 SQL 或清空 GitHub 源文件。任务使用幂等判断和必要的外部响应约束，冲突或来源 SHA 变化会阻断。AI 请求失败时使用本地事实摘要并将 `progress.degraded=true`，不编造内容。Feishu 文档写入仍未接通，选中后会在任何远程写操作前阻断。
 
 ## 发布 docs 输入与结果
 
@@ -72,6 +72,6 @@ Idempotency-Key: release-sync-test-001
 Content-Type: application/json
 ```
 
-该接口复用 `CreateReleaseAutomationJobDto`，但不创建 BullMQ Job、不读取或写入 Redis，适合本地/集成测试。未传 `mode` 时默认使用 `dry-run`；发布 docs 会自动解析当前/上一 tag 并读取 ENV/modify-log，选中的 Jenkins package 在两种 mode 下都会直接调用 Jenkins。`modify-log` dry-run 只渲染 SQL，apply 会归档 SQL；Feishu 仍会在远程写操作前阻断。
+该接口复用 `CreateReleaseAutomationJobDto`，但不创建 BullMQ Job、不读取或写入 Redis，适合本地/集成测试。未传 `mode` 时默认使用 `dry-run`；发布 docs 会自动解析当前/上一 tag 并通过 GitHub Contents 读取 ENV/modify-log，选中的 Jenkins package 在两种 mode 下都会直接调用 Jenkins。`modify-log` 在两种 mode 下都直接使用 GitHub 返回的 SQL 原文，apply 额外归档该原文；Feishu 仍会在远程写操作前阻断。
 
 接口同步执行完成后返回 HTTP 200。HTTP 200 只表示同步执行已返回结果，业务是否成功以 `data.error` 和 `data.progress.stage` 判断；错误也会以 `data.error` 返回，不创建可通过 `/jobs/status` 查询的持久 Job。`Idempotency-Key` 仍是 apply 写操作所需的 gate，但同步接口不提供跨请求的持久幂等，重复 apply 可能再次执行外部步骤。

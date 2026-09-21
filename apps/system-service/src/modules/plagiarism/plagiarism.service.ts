@@ -133,7 +133,7 @@ export class PlagiarismService {
         selectNonOverlappingMatches(blockResult.candidates),
         PLAGIARISM_CONFIG.maxSourceGap,
         PLAGIARISM_CONFIG.maxTargetGap,
-        PLAGIARISM_CONFIG.minDuplicateLength,
+        PLAGIARISM_CONFIG.minMergePartLength,
       ),
     )
       .map((candidate) => alignMatchToCompleteUnits(candidate, normalizedSource, normalizedTarget))
@@ -239,6 +239,7 @@ export class PlagiarismService {
         data: {
           threshold,
           editDistance,
+          minDuplicateUnitCount: PLAGIARISM_CONFIG.minDuplicateUnitCount,
           candidateCount: scoredCandidates.length,
           countedCount: countedCandidates.length,
           highlightedCount: matches.length,
@@ -417,6 +418,10 @@ export class PlagiarismService {
     );
     const sourceUnitCount = countUnitsInRange(source, candidate.sourceStart, candidate.sourceEnd);
     const targetUnitCount = countUnitsInRange(target, candidate.targetStart, candidate.targetEnd);
+    const counted =
+      validation.counted &&
+      sourceUnitCount >= PLAGIARISM_CONFIG.minDuplicateUnitCount &&
+      targetUnitCount >= PLAGIARISM_CONFIG.minDuplicateUnitCount;
     return {
       sourceStart: sourcePosition.start,
       sourceEnd: sourcePosition.end,
@@ -427,6 +432,7 @@ export class PlagiarismService {
       sourceContext: sourceText.slice(sourceContextPosition.start, sourceContextPosition.end),
       targetContext: targetText.slice(targetContextPosition.start, targetContextPosition.end),
       ...validation,
+      counted,
       similarity: this.round(validation.score),
       sourceUnitCount,
       targetUnitCount,

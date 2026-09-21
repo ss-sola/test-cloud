@@ -143,4 +143,39 @@ describe('modify-log archive gate', () => {
     ).rejects.toThrow('变化');
     expect(await readFile(sourcePath, 'utf8')).toContain('VALUES (2)');
   });
+
+  it('never clears a GitHub-backed artifact through the local filesystem gate', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'release-automation-'));
+    const archiveDir = join(directory, 'archive');
+    const content = 'ALTER TABLE users ADD COLUMN active TINYINT;\n';
+    const service = new ModifyLogArchiveService({ archiveDir });
+    const artifact = await service.archive({
+      source: {
+        path: '.version/modify-log.sql',
+        repository: 'acme/project',
+        ref: 'candidate-sha',
+        blobSha: 'blob-sha',
+        checksum: sha256(content),
+        generation: 'candidate-sha:blob-sha',
+        content,
+        records: [],
+      },
+      sql: content,
+      releaseUnit,
+    });
+    const token = service.issueClearConfirmation(artifact.archiveId);
+
+    await expect(
+      service.compareAndClear({
+        archiveId: artifact.archiveId,
+        sourcePath: '.version/modify-log.sql',
+        sourceChecksum: sha256(content),
+        generation: 'candidate-sha:blob-sha',
+        jobId: 'release-test',
+        version: '1.9.0',
+        confirmationToken: token,
+        mode: 'apply',
+      }),
+    ).rejects.toThrow('不支持本地清空');
+  });
 });

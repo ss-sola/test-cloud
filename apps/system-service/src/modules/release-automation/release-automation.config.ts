@@ -6,6 +6,7 @@ import {
   RELEASE_AUTOMATION_DEFAULT_MAX_LOG_LINES,
   RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
   RELEASE_AUTOMATION_DEFAULT_MAX_RETRIES,
+  RELEASE_AUTOMATION_DEFAULT_MODIFY_LOG_PATH,
   RELEASE_AUTOMATION_DEFAULT_POLL_INTERVAL_MS,
   RELEASE_AUTOMATION_DEFAULT_QUEUE_TIMEOUT_MS,
   RELEASE_AUTOMATION_DEFAULT_TIMEOUT_MS,
@@ -58,7 +59,7 @@ export function readReleaseAutomationConfig(overrides: ReleasePageConfig): Relea
     githubMaxResponseBytes:
       overrides.githubMaxResponseBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
     environmentFilePath: overrides.environmentFilePath?.trim() || undefined,
-    modifyLogPath: overrides.modifyLogPath?.trim() || 'modify-log.sql',
+    modifyLogPath: overrides.modifyLogPath?.trim() || RELEASE_AUTOMATION_DEFAULT_MODIFY_LOG_PATH,
     modifyLogArchiveDir:
       overrides.modifyLogArchiveDir?.trim() ?? RELEASE_AUTOMATION_DEFAULT_ARCHIVE_DIR,
     modifyLogMaxBytes: overrides.modifyLogMaxBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_LOG_BYTES,

@@ -10,7 +10,7 @@ Job 使用 `planned`、`preflight_blocked`、`branch_plan_ready`、`candidate_pr
 - 发布 docs 结果包含 requested ref、resolved SHA、提交统计、Markdown checksum、`degraded` 和 warnings；AI API Key、Prompt、完整模型响应和敏感事实不进入 progress/status；
 - BullMQ 执行期间保存短期运行上下文；成功/失败终态会移除 pageConfig/runtime 凭据，Job TTL 默认 60 分钟；Redis URL 缺失或 Redis 不可用时拒绝创建/查询 Job，绝不降级到进程内存。
 
-创建请求可通过 `tasks` 指定六个执行步骤：`git-tag`、`github-merge`、`jenkins`、`release-docs`、`modify-log`、`feishu`；未传时默认启用当前已接通的 `git-tag`、`github-merge`、`jenkins`、`release-docs`、`modify-log`。`modify-log` 在 apply 模式读取、渲染并归档 SQL，但不自动清空源文件；`feishu` 若显式选择，会在远程写操作前进入 blocked，不伪造完成。取消勾选的步骤会在服务端任务状态中标记为 `skipped`，不会调用对应副作用接口。
+创建请求可通过 `tasks` 指定六个执行步骤：`git-tag`、`github-merge`、`jenkins`、`release-docs`、`modify-log`、`feishu`；未传时默认启用当前已接通的 `git-tag`、`github-merge`、`jenkins`、`release-docs`、`modify-log`。`modify-log` 在 apply 模式通过 GitHub Contents 读取指定 ref 的 SQL 原文并归档，不执行 SQL，也不自动清空远程源文件；`feishu` 若显式选择，会在远程写操作前进入 blocked，不伪造完成。取消勾选的步骤会在服务端任务状态中标记为 `skipped`，不会调用对应副作用接口。
 
 Job ID 仍由规范化后的 Idempotency-Key SHA-256 派生，不使用用户原值作为 Redis/BullMQ ID；状态查询不再要求 `release-[A-Za-z0-9-]{8,80}` 形状，未知 ID 由队列查询后返回 404。Idempotency-Key 本身不再校验字符格式，但 GitHub apply 写操作仍要求 gate 至少 16 个字符。payload hash 对稳定排序 JSON 计算。重复请求在入队前和串行 admission gate 内各检查一次，处理并发竞态；hash 不同返回冲突。
 

@@ -1,24 +1,23 @@
-# modify-log SQL 与清空门
+# modify-log SQL 与归档门
 
-`ModifyLogGatewayService` 只读取 basename 为 `modify-log.sql` 的受控文件，限制字节数、行数和控制字符。输入支持结构化 JSONL，或受控的 `INSERT`、`UPDATE`、`DELETE` 基本语句；未知动作、原始 SQL、危险标识符、未转义值和无 WHERE 的更新/删除都会拒绝。
+`ModifyLogGatewayService` 通过 GitHub Contents API 读取发布 ref 中的仓库相对路径，页面默认路径为 `.version/modify-log.sql`。路径必须以 `modify-log.sql` 结尾，不能是绝对路径或包含路径穿越；服务端不从 `process.cwd()`、本地工作区或同名本地文件读取。
 
-`VersionSqlRenderer`：
+读取顺序如下：
 
-1. 按 `occurredAt`、`sequence` 和稳定记录键排序；
-2. 只生成白名单动作和引号标识符；
-3. 使用 SQL 字符串转义；
-4. 写入版本、source checksum、记录数、generator version 和 release unit 元数据；
-5. 不执行 SQL。
+1. 优先使用本次发布已冻结的 candidate SHA；未执行 Git tag 步骤时使用 `dev/master`；
+2. 调用 GitHub Contents API，解码返回的 base64 内容并记录 GitHub blob SHA 与内容 checksum；
+3. 将文件原文直接作为 SQL artifact 输入，不解析 SQL 动作、不重排语句、不执行 SQL；
+4. apply 模式通过 `ModifyLogArchiveService` 原子写入归档文件，并重新读取归档文件校验 artifact checksum；dry-run 不写归档。
 
-`ModifyLogArchiveService.archive` 先写随机临时文件并 fsync，再 rename 到版本稳定路径；重新读取并 SHA-256 校验后才生成 `eligible-to-clear` metadata。归档失败或 checksum 不一致不会改变源文件。
+服务只保留响应大小和行数上限，避免异常大的远程内容进入任务；这些限制不是 SQL 语法校验。归档 metadata 保存仓库、ref、blob SHA、源 checksum 和 artifact checksum，重复执行使用稳定归档 ID。
 
-## compare-and-clear
+## 清空门
 
-清空必须同时满足：
+GitHub 来源的 modify-log 只能读取和归档，不能通过服务端 `open(..., 'r+')` 清空本地文件，也不能通过当前只读 Contents API 修改远程仓库。对 GitHub 来源调用 `compare-and-clear` 会被拒绝；不会因为服务端存在同名文件而误删或截断它。
+
+`compare-and-clear` 仅保留给旧的本地来源兼容调用，必须同时满足：
 
 - `mode=apply`；
 - 独立一次性 confirmation token；
 - archive ID、版本、Job ID、source path、原始 checksum、generation 全部匹配；
-- 当前文件仍名为 `modify-log.sql`，读取 checksum 与归档一致。
-
-通过后只 truncate 原始 `modify-log.sql`，不删除 SQL artifact，不执行数据库 SQL。dry-run 永不清空。重复成功调用返回 `already-cleared`；文件被追加、替换或 token 被消费时拒绝并保留原文件。
+- 当前本地文件仍名为 `modify-log.sql` 且内容未变化。

@@ -167,6 +167,37 @@ describe('release automation remote adapters', () => {
     ).resolves.toMatchObject([{ sha: 'commit-sha', isMerge: false }]);
   });
 
+  it('reads repository files through the GitHub Contents API', async () => {
+    const content = 'ALTER TABLE release_marker ADD COLUMN ready TINYINT;\n';
+    const fetchImpl = vi.fn().mockResolvedValue(
+      response(
+        200,
+        JSON.stringify({
+          type: 'file',
+          encoding: 'base64',
+          content: Buffer.from(content, 'utf8').toString('base64'),
+          sha: 'blob-sha',
+        }),
+      ),
+    );
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+
+    await expect(
+      client.getContents(
+        { repository: 'acme/project', path: '.version/modify-log.sql', ref: 'candidate sha' },
+        config(),
+      ),
+    ).resolves.toMatchObject({
+      content,
+      sha: 'blob-sha',
+      ref: 'candidate sha',
+      repository: 'acme/project',
+    });
+    expect(String(fetchImpl.mock.calls[0][0])).toContain(
+      '/repos/acme/project/contents/.version/modify-log.sql?ref=candidate%20sha',
+    );
+  });
+
   it('passes opaque repository and ref values through encoded GitHub paths', async () => {
     const fetchImpl = vi
       .fn()

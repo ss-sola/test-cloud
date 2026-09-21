@@ -252,6 +252,9 @@ export interface ModifyLogRecord {
 
 export interface ModifyLogSource {
   path: string;
+  repository?: string;
+  ref?: string;
+  blobSha?: string;
   checksum: string;
   generation: string;
   content: string;
@@ -263,6 +266,9 @@ export interface ModifyLogArtifact {
   artifactId: string;
   releaseUnit: ReleaseUnit;
   sourcePath: string;
+  sourceRepository?: string;
+  sourceRef?: string;
+  sourceBlobSha?: string;
   sourceChecksum: string;
   artifactChecksum: string;
   recordCount: number;

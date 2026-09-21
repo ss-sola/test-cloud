@@ -51,6 +51,27 @@ describe('plagiarism counting units', () => {
     expect(aligned).toBeNull();
   });
 
+  it('rejects candidates with equal counts but incompatible word boundaries', () => {
+    const source = normalizeText('therapist finder can help now');
+    const target = normalizeText('the rapist finder can helpnow');
+    const aligned = alignMatchToCompleteUnits(
+      {
+        sourceStart: 0,
+        sourceEnd: source.value.length,
+        targetStart: 0,
+        targetEnd: target.value.length,
+        length: source.value.length,
+      },
+      source,
+      target,
+    );
+
+    expect(source.value).toBe(target.value);
+    expect(source.units).toHaveLength(5);
+    expect(target.units).toHaveLength(5);
+    expect(aligned).toBeNull();
+  });
+
   it('keeps the complete common word when a following word is only partially matched', () => {
     const source = normalizeText('information retrieval');
     const target = normalizeText('information retrievers');

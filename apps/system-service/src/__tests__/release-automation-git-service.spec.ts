@@ -49,13 +49,7 @@ describe('release automation Git service', () => {
       .mockResolvedValueOnce(response(422, JSON.stringify({ message: 'Reference exists' })))
       .mockResolvedValueOnce(response(200, refResponse('refs/tags/1.9.0')));
     const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
-    const service = new ReleaseAutomationService(
-      github,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-    );
+    const service = new ReleaseAutomationService(github, {} as never, {} as never, {} as never);
 
     await expect(
       service.ensureTag({
@@ -88,13 +82,7 @@ describe('release automation Git service', () => {
       ),
     );
     const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
-    const service = new ReleaseAutomationService(
-      github,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-    );
+    const service = new ReleaseAutomationService(github, {} as never, {} as never, {} as never);
 
     await expect(
       service.ensureTag({
@@ -116,13 +104,7 @@ describe('release automation Git service', () => {
       .mockResolvedValueOnce(response(200, refResponse('refs/heads/main')))
       .mockResolvedValueOnce(response(200, refResponse('refs/heads/dev/master')));
     const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
-    const service = new ReleaseAutomationService(
-      github,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-    );
+    const service = new ReleaseAutomationService(github, {} as never, {} as never, {} as never);
 
     await expect(
       service.getBranchRef({ repository: 'acme/project', branch: 'main', config: config() }),
@@ -141,5 +123,104 @@ describe('release automation Git service', () => {
       sourceBranch: 'dev/master',
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads and archives the exact GitHub modify-log content at the candidate ref', async () => {
+    const content = 'CREATE TABLE release_marker (id INT NOT NULL);\n';
+    const gateway = {
+      readSource: vi.fn().mockResolvedValue({
+        path: '.version/modify-log.sql',
+        repository: 'acme/project',
+        ref: sha,
+        blobSha: 'blob-sha',
+        checksum: 'content-checksum',
+        generation: `${sha}:blob-sha`,
+        content,
+        records: [],
+      }),
+    };
+    const archive = {
+      archive: vi.fn().mockResolvedValue({
+        archiveId: 'archive-id',
+        artifactId: 'modify-log-artifact',
+        releaseUnit: {
+          repository: 'acme/project',
+          targetBranch: 'main',
+          candidateSha: sha,
+          version: '1.9.0',
+        },
+        sourcePath: '.version/modify-log.sql',
+        sourceRepository: 'acme/project',
+        sourceRef: sha,
+        sourceBlobSha: 'blob-sha',
+        sourceChecksum: 'content-checksum',
+        artifactChecksum: 'artifact-checksum',
+        recordCount: 0,
+        archivePath: 'var/archive/1.9.0.sql',
+        clearStatus: 'eligible-to-clear',
+      }),
+    };
+    const service = new ReleaseAutomationService(
+      {} as never,
+      {} as never,
+      gateway as never,
+      archive as never,
+    );
+    const runtimeConfig = config();
+    const releaseUnit = {
+      repository: 'acme/project',
+      targetBranch: 'main',
+      candidateSha: sha,
+      version: '1.9.0',
+    };
+
+    await expect(
+      service.prepareModifyLog({
+        releaseUnit,
+        mode: 'apply',
+        config: runtimeConfig,
+        jobId: 'release-job',
+      }),
+    ).resolves.toMatchObject({ sql: content, sourceChecksum: 'content-checksum' });
+    expect(gateway.readSource).toHaveBeenCalledWith({
+      repository: 'acme/project',
+      ref: sha,
+      config: runtimeConfig,
+    });
+    expect(archive.archive).toHaveBeenCalledWith(
+      expect.objectContaining({ source: expect.objectContaining({ content }), sql: content }),
+    );
+  });
+
+  it('falls back to the release source branch when no candidate SHA exists', async () => {
+    const gateway = {
+      readSource: vi.fn().mockResolvedValue({
+        path: '.version/modify-log.sql',
+        repository: 'acme/project',
+        ref: 'dev/master',
+        blobSha: 'blob-sha',
+        checksum: 'content-checksum',
+        generation: 'dev/master:blob-sha',
+        content: 'ALTER TABLE release_marker ADD COLUMN ready TINYINT;\n',
+        records: [],
+      }),
+    };
+    const archive = { archive: vi.fn() };
+    const service = new ReleaseAutomationService(
+      {} as never,
+      {} as never,
+      gateway as never,
+      archive as never,
+    );
+
+    await service.prepareModifyLog({
+      releaseUnit: { repository: 'acme/project', targetBranch: 'main', version: '1.9.0' },
+      mode: 'dry-run',
+      config: config(),
+    });
+    expect(gateway.readSource).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'acme/project', ref: 'dev/master' }),
+    );
+    expect(archive.archive).not.toHaveBeenCalled();
   });
 });
