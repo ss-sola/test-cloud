@@ -57,21 +57,35 @@ describe('release automation remote adapters', () => {
       fetchImpl,
     });
     await expect(
-      client.merge({
+      client.createPullRequest({
         repository: 'acme/project',
         base: 'custom/prod',
-        head: 'dev',
-        message: 'Release 1.9.0',
+        head: 'dev/master',
+        title: 'Release 1.9.0',
         mode: 'dry-run',
       }),
     ).rejects.toThrow('apply gate');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('performs guarded GitHub merge and tag writes with runtime credentials', async () => {
+  it('performs guarded GitHub PR and tag writes with runtime credentials', async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce(response(201, JSON.stringify({ sha })))
+      .mockResolvedValueOnce(
+        response(
+          201,
+          JSON.stringify({
+            number: 42,
+            html_url: 'https://github.com/acme/project/pull/42',
+            title: 'Release 1.9.0',
+            state: 'open',
+            base: { ref: 'main' },
+            head: { ref: 'dev/master', sha },
+            mergeable: false,
+            mergeable_state: 'dirty',
+          }),
+        ),
+      )
       .mockResolvedValueOnce(
         response(
           201,
@@ -87,15 +101,21 @@ describe('release automation remote adapters', () => {
     });
 
     await expect(
-      client.merge({
+      client.createPullRequest({
         repository: 'acme/project',
         base: 'main',
         head: 'dev/master',
-        message: 'Merge dev/master into main for Release Version 1.9.0',
+        title: 'Release 1.9.0',
+        body: 'PR body',
         mode: 'apply',
         sideEffectGate: 'gate-' + 'x'.repeat(20),
       }),
-    ).resolves.toMatchObject({ status: 'merged', sha });
+    ).resolves.toMatchObject({
+      number: 42,
+      headSha: sha,
+      mergeable: false,
+      mergeableState: 'dirty',
+    });
     await expect(
       client.createTag({
         repository: 'acme/project',
@@ -110,6 +130,7 @@ describe('release automation remote adapters', () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[0][0]).toContain('/repos/acme/project/pulls');
     expect(fetchImpl.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       headers: expect.objectContaining({ Authorization: 'Bearer runtime-token' }),
@@ -196,6 +217,173 @@ describe('release automation remote adapters', () => {
     expect(String(fetchImpl.mock.calls[0][0])).toContain(
       '/repos/acme/project/contents/.version/modify-log.sql?ref=candidate%20sha',
     );
+  });
+
+  it('creates, updates, and skips unchanged GitHub update-log files', async () => {
+    const content = '# update log\n';
+    const encoded = Buffer.from(content, 'utf8').toString('base64');
+    const createFetch = vi
+      .fn()
+      .mockResolvedValueOnce(response(404, JSON.stringify({ message: 'Not Found' })))
+      .mockResolvedValueOnce(
+        response(
+          201,
+          JSON.stringify({
+            content: { path: 'update-log/v1-v2.md', sha: 'new-blob' },
+            commit: { sha: 'new-commit' },
+          }),
+        ),
+      );
+    const createClient = new GitHubReleaseClientService({
+      config: config(),
+      fetchImpl: createFetch,
+    });
+    await expect(
+      createClient.putContents(
+        {
+          repository: 'acme/project',
+          path: 'update-log/v1-v2.md',
+          branch: 'release/v2',
+          content,
+          commitMessage: 'docs: update log v1 -> v2',
+          mode: 'apply',
+          sideEffectGate: 'gate-' + 'x'.repeat(20),
+        },
+        config(),
+      ),
+    ).resolves.toMatchObject({ status: 'created', commitSha: 'new-commit' });
+    expect(JSON.parse(String(createFetch.mock.calls[1][1]?.body))).toMatchObject({
+      branch: 'release/v2',
+      content: encoded,
+    });
+
+    const updateFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify({
+            type: 'file',
+            encoding: 'base64',
+            content: Buffer.from('# old\n', 'utf8').toString('base64'),
+            sha: 'old-blob',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify({
+            content: { path: 'update-log/v1-v2.md', sha: 'updated-blob' },
+            commit: { sha: 'updated-commit' },
+          }),
+        ),
+      );
+    const updateClient = new GitHubReleaseClientService({
+      config: config(),
+      fetchImpl: updateFetch,
+    });
+    await expect(
+      updateClient.putContents(
+        {
+          repository: 'acme/project',
+          path: 'update-log/v1-v2.md',
+          branch: 'release/v2',
+          content,
+          commitMessage: 'docs: update log v1 -> v2',
+          mode: 'apply',
+          sideEffectGate: 'gate-' + 'x'.repeat(20),
+        },
+        config(),
+      ),
+    ).resolves.toMatchObject({ status: 'updated', commitSha: 'updated-commit' });
+    expect(JSON.parse(String(updateFetch.mock.calls[1][1]?.body))).toMatchObject({
+      sha: 'old-blob',
+    });
+
+    const unchangedFetch = vi.fn().mockResolvedValueOnce(
+      response(
+        200,
+        JSON.stringify({
+          type: 'file',
+          encoding: 'base64',
+          content: encoded,
+          sha: 'same-blob',
+        }),
+      ),
+    );
+    const unchangedClient = new GitHubReleaseClientService({
+      config: config(),
+      fetchImpl: unchangedFetch,
+    });
+    await expect(
+      unchangedClient.putContents(
+        {
+          repository: 'acme/project',
+          path: 'update-log/v1-v2.md',
+          branch: 'release/v2',
+          content,
+          commitMessage: 'docs: update log v1 -> v2',
+          mode: 'apply',
+          sideEffectGate: 'gate-' + 'x'.repeat(20),
+        },
+        config(),
+      ),
+    ).resolves.toMatchObject({ status: 'unchanged', blobSha: 'same-blob' });
+    expect(unchangedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces GitHub update-log conflicts without retrying the PUT', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify({
+            type: 'file',
+            encoding: 'base64',
+            content: Buffer.from('# old\n', 'utf8').toString('base64'),
+            sha: 'old-blob',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(response(409, JSON.stringify({ message: 'Conflict' })));
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+
+    await expect(
+      client.putContents(
+        {
+          repository: 'acme/project',
+          path: 'update-log/v1-v2.md',
+          branch: 'release/v2',
+          content: '# new\n',
+          commitMessage: 'docs: update log v1 -> v2',
+          mode: 'apply',
+          sideEffectGate: 'gate-' + 'x'.repeat(20),
+        },
+        config(),
+      ),
+    ).rejects.toThrow('HTTP 409');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not write update-log contents in dry-run mode', async () => {
+    const fetchImpl = vi.fn();
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+    await expect(
+      client.putContents(
+        {
+          repository: 'acme/project',
+          path: 'update-log/v1-v2.md',
+          branch: 'release/v2',
+          content: '# update log\n',
+          commitMessage: 'docs: update log v1 -> v2',
+          mode: 'dry-run',
+        },
+        config(),
+      ),
+    ).rejects.toThrow('apply gate');
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('passes opaque repository and ref values through encoded GitHub paths', async () => {

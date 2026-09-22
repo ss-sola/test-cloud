@@ -9,7 +9,6 @@ import type {
 
 const targetSha = 'a'.repeat(40);
 const sourceSha = 'b'.repeat(40);
-const mergedSha = 'd'.repeat(40);
 
 function createRecord(
   mode: 'dry-run' | 'apply',
@@ -58,33 +57,44 @@ function createRecord(
 }
 
 function createFakeService() {
-  const mergeCalls: Array<{
+  const pullRequestCalls: Array<{
     sourceBranch: string;
+    targetBranch: string;
     expectedTargetSha?: string;
     expectedSourceSha?: string;
-    mode: string;
+    mode: 'dry-run' | 'apply';
   }> = [];
+  const pullRequest = {
+    number: 42,
+    url: 'https://github.com/acme/project/pull/42',
+    title: 'Release 1.9.0',
+    state: 'open' as const,
+    baseBranch: 'custom/prod',
+    headBranch: 'dev/master',
+    headSha: sourceSha,
+  };
   const fake = {
     ensureTag: vi.fn().mockResolvedValue({ status: 'created', sha: sourceSha }),
     getBranchRef: vi.fn(({ branch }: { branch: string }) => {
       const sha = branch === 'custom/prod' ? targetSha : sourceSha;
       return Promise.resolve({ ref: `refs/heads/${branch}`, sha });
     }),
-    mergeBranch: vi.fn(
+    createOrReusePullRequest: vi.fn(
       (options: {
         sourceBranch: string;
+        targetBranch: string;
         expectedTargetSha?: string;
         expectedSourceSha?: string;
-        mode: string;
+        mode: 'dry-run' | 'apply';
       }) => {
-        mergeCalls.push(options);
+        pullRequestCalls.push(options);
         return Promise.resolve({
-          status: 'merged' as 'merged' | 'planned',
-          beforeSha: options.expectedTargetSha,
-          afterSha: mergedSha,
-          sourceSha: options.expectedSourceSha,
-          targetBranch: 'custom/prod',
+          status: options.mode === 'dry-run' ? ('planned' as const) : ('submitted' as const),
+          targetSha,
+          sourceSha,
+          targetBranch: options.targetBranch,
           sourceBranch: options.sourceBranch,
+          ...(options.mode === 'apply' ? { pullRequest } : {}),
         });
       },
     ),
@@ -97,7 +107,7 @@ function createFakeService() {
       artifact: null,
     }),
   };
-  return { fake, mergeCalls };
+  return { fake, pullRequestCalls, pullRequest };
 }
 
 function createFakeDocsService() {
@@ -120,8 +130,8 @@ function createFakeDocsService() {
 }
 
 describe('release automation Git execution', () => {
-  it('executes tag then dev/master merges with the verified SHA chain', async () => {
-    const { fake, mergeCalls } = createFakeService();
+  it('submits a PR after the tag and stops apply before post-merge steps', async () => {
+    const { fake, pullRequestCalls, pullRequest } = createFakeService();
     const docs = createFakeDocsService();
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
@@ -135,33 +145,98 @@ describe('release automation Git execution', () => {
     });
 
     expect(error).toBeNull();
+    expect(docs.generate).not.toHaveBeenCalled();
+    expect(fake.packageWithJenkins).not.toHaveBeenCalled();
+    expect(fake.prepareModifyLog).not.toHaveBeenCalled();
     expect(fake.ensureTag).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceBranch: 'dev/master',
         mode: 'apply',
       }),
     );
-    expect(mergeCalls.map(({ sourceBranch }) => sourceBranch)).toEqual(['dev/master']);
-    expect(mergeCalls[0]).toMatchObject({
+    expect(pullRequestCalls.map(({ sourceBranch }) => sourceBranch)).toEqual(['dev/master']);
+    expect(pullRequestCalls[0]).toMatchObject({
       expectedTargetSha: targetSha,
       expectedSourceSha: sourceSha,
       mode: 'apply',
     });
-    expect(progress.at(-1)).toMatchObject({ stage: 'completed', percent: 100 });
+    expect(progress.at(-1)).toMatchObject({
+      stage: 'manual_intervention',
+      percent: 35,
+      pullRequest,
+    });
+    expect(progress.at(-1)?.stage).not.toBe('completed');
+    const logText = progress
+      .flatMap((item) => item.logs ?? [])
+      .map((entry) => entry.message)
+      .join('\n');
+    expect(logText).toContain('开始：初始化任务');
+    expect(logText).toContain('完成：执行 Git tag');
+    expect(logText).toContain('GitHub PR：submitted');
+    expect(logText).not.toContain('runtime-token');
   });
 
+  it('stops post-PR steps when GitHub reports a merge conflict', async () => {
+    const { fake, pullRequest } = createFakeService();
+    Object.assign(pullRequest, { mergeable: false, mergeableState: 'dirty' });
+    const docs = createFakeDocsService();
+    const service = new ReleaseAutomationExecutionService(
+      fake as unknown as ReleaseAutomationService,
+      docs as never,
+    );
+    const record = createRecord('apply');
+    const progress: ReleaseProgress[] = [];
+
+    const error = await service.execute(record, async (next) => {
+      progress.push(next);
+    });
+
+    expect(error).toBeNull();
+    expect(record.error).toBeNull();
+    expect(fake.packageWithJenkins).not.toHaveBeenCalled();
+    expect(fake.prepareModifyLog).not.toHaveBeenCalled();
+    expect(docs.generate).not.toHaveBeenCalled();
+    expect(progress.at(-1)).toMatchObject({
+      stage: 'manual_intervention',
+      taskStatuses: { 'github-merge': 'blocked' },
+    });
+    expect(progress.at(-1)?.message).toContain('合并冲突');
+    expect(progress.at(-1)?.message).toContain('拒绝继续执行');
+  });
+
+  it('does not treat GitHub mergeability unknown as a conflict', async () => {
+    const { fake, pullRequest } = createFakeService();
+    Object.assign(pullRequest, { mergeable: null, mergeableState: 'unknown' });
+    const docs = createFakeDocsService();
+    const service = new ReleaseAutomationExecutionService(
+      fake as unknown as ReleaseAutomationService,
+      docs as never,
+    );
+    const record = createRecord('apply');
+    const progress: ReleaseProgress[] = [];
+
+    const error = await service.execute(record, async (next) => {
+      progress.push(next);
+    });
+
+    expect(error).toBeNull();
+    expect(progress.at(-1)).toMatchObject({
+      stage: 'manual_intervention',
+      taskStatuses: { 'github-merge': 'succeeded' },
+    });
+    expect(progress.at(-1)?.message).not.toContain('合并冲突');
+  });
   it('keeps dry-run Git steps planned and never asks for apply mode', async () => {
-    const { fake, mergeCalls } = createFakeService();
+    const { fake, pullRequestCalls } = createFakeService();
     const docs = createFakeDocsService();
     fake.ensureTag.mockResolvedValue({ status: 'planned', sha: sourceSha });
-    fake.mergeBranch.mockImplementation((options) => {
-      mergeCalls.push(options);
+    fake.createOrReusePullRequest.mockImplementation((options) => {
+      pullRequestCalls.push(options);
       return Promise.resolve({
         status: 'planned' as const,
-        beforeSha: targetSha,
-        afterSha: targetSha,
-        sourceSha: options.expectedSourceSha,
-        targetBranch: 'custom/prod',
+        targetSha,
+        sourceSha: options.expectedSourceSha ?? sourceSha,
+        targetBranch: options.targetBranch,
         sourceBranch: options.sourceBranch,
       });
     });
@@ -177,9 +252,14 @@ describe('release automation Git execution', () => {
     });
 
     expect(error).toBeNull();
+    expect(docs.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publish: { mode: 'dry-run', sideEffectGate: record.idempotencyKey },
+      }),
+    );
     expect(fake.ensureTag).toHaveBeenCalledWith(expect.objectContaining({ mode: 'dry-run' }));
-    expect(mergeCalls).toHaveLength(1);
-    expect(mergeCalls.every(({ mode }) => mode === 'dry-run')).toBe(true);
+    expect(pullRequestCalls).toHaveLength(1);
+    expect(pullRequestCalls.every(({ mode }) => mode === 'dry-run')).toBe(true);
     expect(progress.at(-1)).toMatchObject({ stage: 'completed', percent: 100 });
     expect(progress.at(-1)?.taskStatuses).toMatchObject({
       'git-tag': 'planned',
@@ -187,10 +267,10 @@ describe('release automation Git execution', () => {
     });
   });
 
-  it('blocks the target when the single dev/master merge fails', async () => {
-    const { fake } = createFakeService();
+  it('blocks the target when PR submission fails', async () => {
+    const { fake, pullRequestCalls } = createFakeService();
     const docs = createFakeDocsService();
-    fake.mergeBranch.mockRejectedValueOnce(new Error('GitHub merge conflict'));
+    fake.createOrReusePullRequest.mockRejectedValueOnce(new Error('GitHub PR has conflicts'));
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
       docs as never,
@@ -202,10 +282,10 @@ describe('release automation Git execution', () => {
       progress.push(next);
     });
 
-    expect(error).toMatchObject({ code: 'GITHUB_MERGE_FAILED', retryable: false });
-    expect(fake.mergeBranch.mock.calls.map(([options]) => options.sourceBranch)).toEqual([
-      'dev/master',
-    ]);
+    expect(error).toMatchObject({ code: 'GITHUB_PR_FAILED', retryable: false });
+    expect(fake.createOrReusePullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceBranch: 'dev/master', targetBranch: 'custom/prod' }),
+    );
     expect(progress.at(-1)).toMatchObject({
       stage: 'preflight_blocked',
       taskStatuses: { 'git-tag': 'succeeded', 'github-merge': 'blocked' },

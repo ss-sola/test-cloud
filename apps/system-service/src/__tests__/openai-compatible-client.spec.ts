@@ -65,6 +65,30 @@ describe('OpenAI-compatible client', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('reports a safe reason for provider failures without exposing response content', async () => {
+    const fetchImpl = vi
+      .fn<OpenAiCompatibleFetch>()
+      .mockResolvedValue(response(401, 'secret error'));
+    const failures: string[] = [];
+    const client = new OpenAiCompatibleClientService();
+
+    await expect(
+      client.request(
+        {
+          ai: { baseUrl: 'https://ai.example.com/v1', apiKey: 'secret', model: 'model' },
+          prompt: 'facts',
+          systemMessage: 'json only',
+          timeoutMs: 100,
+          maxPromptCharacters: 1000,
+          maxResponseCharacters: 10_000,
+          onFailure: (reason) => failures.push(reason),
+        },
+        fetchImpl,
+      ),
+    ).resolves.toBeUndefined();
+    expect(failures).toEqual(['AI HTTP 请求失败（HTTP 401）。']);
+  });
+
   it('rejects URLs with credentials or query parameters', async () => {
     const fetchImpl = vi.fn<OpenAiCompatibleFetch>();
     const client = new OpenAiCompatibleClientService();

@@ -15,6 +15,7 @@ import type {
   JenkinsPackageResult,
   ModifyLogArtifact,
   ReleaseMode,
+  ReleasePullRequest,
   ReleaseUnit,
 } from './release-automation.types';
 
@@ -41,6 +42,9 @@ export interface ModifyLogPreparation {
   generation: string;
   recordCount: number;
   sql: string;
+  sourcePath?: string;
+  sourceRef?: string;
+  sourceBlobSha?: string;
   artifact: ModifyLogArtifact | null;
 }
 
@@ -153,65 +157,102 @@ export class ReleaseAutomationService {
     };
   }
 
-  async mergeBranch(options: {
+  async createOrReusePullRequest(options: {
     repository: string;
     targetBranch: string;
     sourceBranch: string;
+    releaseTag?: string;
     mode: ReleaseMode;
     sideEffectGate?: string;
     config?: ReleaseAutomationConfig;
     expectedTargetSha?: string;
     expectedSourceSha?: string;
-  }) {
+  }): Promise<{
+    status: 'submitted' | 'reused' | 'planned';
+    targetSha: string;
+    sourceSha: string;
+    targetBranch: string;
+    sourceBranch: string;
+    pullRequest?: ReleasePullRequest;
+  }> {
     const [targetBefore, source] = await Promise.all([
       this.github.getRef(options.repository, `heads/${options.targetBranch}`, options.config),
       this.github.getRef(options.repository, `heads/${options.sourceBranch}`, options.config),
     ]);
     if (options.expectedTargetSha && targetBefore.sha !== options.expectedTargetSha) {
-      throw new ProjectException('远程合并目标 SHA 已变化，必须重新 plan。', 409);
+      throw new ProjectException('远程 PR 目标 SHA 已变化，必须重新 plan。', 409);
     }
     if (options.expectedSourceSha && source.sha !== options.expectedSourceSha) {
-      throw new ProjectException('远程合并来源 SHA 已变化，必须重新 plan。', 409);
+      throw new ProjectException('远程 PR 来源 SHA 已变化，必须重新 plan。', 409);
     }
-    if (options.mode === 'dry-run') {
-      return {
-        status: 'planned' as const,
-        beforeSha: targetBefore.sha,
-        afterSha: targetBefore.sha,
-        sourceSha: source.sha,
-        targetBranch: options.targetBranch,
-        sourceBranch: options.sourceBranch,
-      };
-    }
-
-    const result = await this.github.merge({
-      repository: options.repository,
-      base: options.targetBranch,
-      head: options.sourceBranch,
-      message: `Merge ${options.sourceBranch} into ${options.targetBranch} for Release Version ${RELEASE_AUTOMATION_VERSION}`,
-      mode: options.mode,
-      sideEffectGate: options.sideEffectGate,
-      config: options.config,
-    });
-    const targetAfter = await this.github.getRef(
-      options.repository,
-      `heads/${options.targetBranch}`,
-      options.config,
-    );
-    if (result.status === 'merged' && (!result.sha || targetAfter.sha !== result.sha)) {
-      throw new ProjectException('远程合并后目标 SHA 与响应不一致。', 409);
-    }
-    if (result.status === 'already-applied' && targetAfter.sha !== targetBefore.sha) {
-      throw new ProjectException('远程合并返回已完成但目标 SHA 发生变化。', 409);
-    }
-    return {
-      ...result,
-      beforeSha: targetBefore.sha,
-      afterSha: targetAfter.sha,
+    const baseResult = {
+      targetSha: targetBefore.sha,
       sourceSha: source.sha,
       targetBranch: options.targetBranch,
       sourceBranch: options.sourceBranch,
-    };
+    } as const;
+    if (options.mode === 'dry-run') return { status: 'planned', ...baseResult };
+
+    const existing = await this.findMatchingPullRequest(options, source.sha);
+    if (existing) return { status: 'reused', ...baseResult, pullRequest: existing };
+
+    const releaseTag = options.releaseTag ?? RELEASE_AUTOMATION_VERSION;
+    try {
+      const pullRequest = await this.github.createPullRequest({
+        repository: options.repository,
+        base: options.targetBranch,
+        head: options.sourceBranch,
+        title: `Release ${releaseTag}: ${options.sourceBranch} -> ${options.targetBranch}`,
+        body: [
+          '由 NestCloud 发布流程提交。',
+          `来源分支：${options.sourceBranch}（${source.sha}）`,
+          `目标分支：${options.targetBranch}（${targetBefore.sha}）`,
+          `发布 tag：${releaseTag}`,
+          'PR 合并前不会触发 Jenkins。',
+        ].join('\n'),
+        mode: options.mode,
+        sideEffectGate: options.sideEffectGate,
+        config: options.config,
+      });
+      if (pullRequest.headSha !== source.sha) {
+        throw new ProjectException('GitHub PR 来源 SHA 已在创建期间变化，请重新 plan。', 409);
+      }
+      return { status: 'submitted', ...baseResult, pullRequest };
+    } catch (error) {
+      if (!isExistingPullRequestValidation(error)) throw error;
+      const reconciled = await this.findMatchingPullRequest(options, source.sha);
+      if (reconciled) return { status: 'reused', ...baseResult, pullRequest: reconciled };
+      throw error;
+    }
+  }
+
+  private async findMatchingPullRequest(
+    options: {
+      repository: string;
+      targetBranch: string;
+      sourceBranch: string;
+      config?: ReleaseAutomationConfig;
+    },
+    sourceSha: string,
+  ): Promise<ReleasePullRequest | undefined> {
+    const pullRequests = await this.github.listPullRequests({
+      repository: options.repository,
+      base: options.targetBranch,
+      head: options.sourceBranch,
+      config: options.config,
+    });
+    const matches = pullRequests.filter(
+      (pullRequest) =>
+        pullRequest.baseBranch === options.targetBranch &&
+        pullRequest.headBranch === options.sourceBranch,
+    );
+    if (matches.length > 1)
+      throw new ProjectException('同一来源和目标分支存在多个 open PR，请先人工清理。', 409);
+    const existing = matches[0];
+    if (existing && existing.headSha !== sourceSha) {
+      throw new ProjectException('已有 PR 的来源 SHA 已过期，请先在 GitHub 处理该 PR。', 409);
+    }
+    return existing;
   }
 
   async prepareModifyLog(options: {
@@ -226,22 +267,15 @@ export class ReleaseAutomationService {
       config: options.config,
     });
     const sql = source.content;
-    const artifact =
-      options.mode === 'apply'
-        ? await this.archive.archive({
-            source,
-            sql,
-            releaseUnit: options.releaseUnit,
-            config: options.config,
-            jobId: options.jobId,
-          })
-        : null;
     return {
       sourceChecksum: source.checksum,
       generation: source.generation,
       recordCount: source.records.length,
       sql,
-      artifact,
+      sourcePath: source.path,
+      sourceRef: source.ref,
+      sourceBlobSha: source.blobSha,
+      artifact: null,
     };
   }
 
@@ -276,6 +310,14 @@ function selectRepository(input: string | undefined): string {
   const repository = input?.trim();
   if (!repository) throw new ProjectException('必须指定 GitHub repository。', 400);
   return normalizeRepository(repository);
+}
+
+function isExistingPullRequestValidation(error: unknown): error is GitHubApiException {
+  return (
+    error instanceof GitHubApiException &&
+    error.getStatus() === 422 &&
+    error.detail?.toLowerCase().includes('pull request already exists') === true
+  );
 }
 
 function normalizeRepository(value: string): string {

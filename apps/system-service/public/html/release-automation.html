@@ -3,7 +3,7 @@
     <div>
       <p class="eyebrow">RELEASE</p>
       <h1 id="release-automation-title">发布版本</h1>
-      <p class="page-description">通过 GitHub API 生成远程合并与发布计划；Jenkins 仅负责后续验证和打包。</p>
+      <p class="page-description">通过 GitHub API 提交远程 PR；PR 合并后再由 Jenkins 执行验证和打包。</p>
     </div>
     <span class="heading-mark" aria-hidden="true">08</span>
   </div>
@@ -20,9 +20,14 @@
         <small>本次创建的 release tag，具体名称由 Git 服务判定。</small>
       </label>
       <label class="form-field">
-        <span>Git 分支</span>
-        <input id="release-target-branch" name="branch" required maxlength="256" placeholder="release/v1.9.0" />
-        <small>填写本次发布使用的 Git 分支。</small>
+        <span>Jenkins 构建分支</span>
+        <input id="release-jenkins-branch" name="branch" required maxlength="256" placeholder="release/v1.9.0" />
+        <small>仅用于 Jenkins 构建参数。</small>
+      </label>
+      <label class="form-field">
+        <span>GitHub PR 目标分支</span>
+        <input id="release-target-branch" name="targetBranch" required maxlength="256" placeholder="release/v1.9.0" />
+        <small>固定来源 dev/master 将提交 PR 到此分支；PR 未合并前不会触发 Jenkins。</small>
       </label>
       <label class="form-field">
         <span>Jenkins Pipeline tag marker</span>

@@ -41,7 +41,7 @@ export class ReleaseRuntimeConfigDto {
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  @Max(120_000)
+  @Max(300_000)
   aiTimeoutMs?: number;
 
   @IsOptional()

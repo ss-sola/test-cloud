@@ -97,7 +97,7 @@ describe('release automation Git service', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts a non-custom target branch for a dry-run merge', async () => {
+  it('accepts a non-custom target branch for a dry-run PR', async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(response(200, refResponse('refs/heads/main')))
@@ -110,7 +110,7 @@ describe('release automation Git service', () => {
       service.getBranchRef({ repository: 'acme/project', branch: 'main', config: config() }),
     ).resolves.toMatchObject({ ref: 'refs/heads/main', sha });
     await expect(
-      service.mergeBranch({
+      service.createOrReusePullRequest({
         repository: 'acme/project',
         targetBranch: 'main',
         sourceBranch: 'dev/master',
@@ -125,7 +125,87 @@ describe('release automation Git service', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it('reads and archives the exact GitHub modify-log content at the candidate ref', async () => {
+  it('reconciles a concurrent PR creation after GitHub returns 422', async () => {
+    const pullRequest = {
+      number: 42,
+      html_url: 'https://github.com/acme/project/pull/42',
+      title: 'Release 1.9.0',
+      state: 'open',
+      base: { ref: 'main' },
+      head: { ref: 'dev/master', sha },
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/main')))
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/dev/master')))
+      .mockResolvedValueOnce(response(200, JSON.stringify([])))
+      .mockResolvedValueOnce(
+        response(422, JSON.stringify({ message: 'A pull request already exists' })),
+      )
+      .mockResolvedValueOnce(response(200, JSON.stringify([pullRequest])));
+    const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
+    const service = new ReleaseAutomationService(github, {} as never, {} as never, {} as never);
+
+    await expect(
+      service.createOrReusePullRequest({
+        repository: 'acme/project',
+        targetBranch: 'main',
+        sourceBranch: 'dev/master',
+        releaseTag: '1.9.0',
+        mode: 'apply',
+        sideEffectGate: 'release-gate-' + 'x'.repeat(20),
+        config: config(),
+      }),
+    ).resolves.toMatchObject({ status: 'reused', pullRequest: { number: 42, headSha: sha } });
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+    expect(fetchImpl.mock.calls.map(([, init]) => init?.method ?? 'GET')).toEqual([
+      'GET',
+      'GET',
+      'GET',
+      'POST',
+      'GET',
+    ]);
+  });
+
+  it('does not reconcile an unrelated GitHub 422 validation error', async () => {
+    const pullRequest = {
+      number: 42,
+      html_url: 'https://github.com/acme/project/pull/42',
+      title: 'Release 1.9.0',
+      state: 'open',
+      base: { ref: 'main' },
+      head: { ref: 'dev/master', sha },
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/main')))
+      .mockResolvedValueOnce(response(200, refResponse('refs/heads/dev/master')))
+      .mockResolvedValueOnce(response(200, JSON.stringify([])))
+      .mockResolvedValueOnce(response(422, JSON.stringify({ message: 'Validation Failed' })));
+    const github = new GitHubReleaseClientService({ config: config(), fetchImpl });
+    const service = new ReleaseAutomationService(github, {} as never, {} as never, {} as never);
+
+    await expect(
+      service.createOrReusePullRequest({
+        repository: 'acme/project',
+        targetBranch: 'main',
+        sourceBranch: 'dev/master',
+        releaseTag: '1.9.0',
+        mode: 'apply',
+        sideEffectGate: 'release-gate-' + 'x'.repeat(20),
+        config: config(),
+      }),
+    ).rejects.toThrow('HTTP 422');
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(fetchImpl.mock.calls.map(([, init]) => init?.method ?? 'GET')).toEqual([
+      'GET',
+      'GET',
+      'GET',
+      'POST',
+    ]);
+    void pullRequest;
+  });
+  it('reads exact GitHub modify-log content without creating a local archive', async () => {
     const content = 'CREATE TABLE release_marker (id INT NOT NULL);\n';
     const gateway = {
       readSource: vi.fn().mockResolvedValue({
@@ -181,15 +261,13 @@ describe('release automation Git service', () => {
         config: runtimeConfig,
         jobId: 'release-job',
       }),
-    ).resolves.toMatchObject({ sql: content, sourceChecksum: 'content-checksum' });
+    ).resolves.toMatchObject({ sql: content, sourceChecksum: 'content-checksum', artifact: null });
     expect(gateway.readSource).toHaveBeenCalledWith({
       repository: 'acme/project',
       ref: sha,
       config: runtimeConfig,
     });
-    expect(archive.archive).toHaveBeenCalledWith(
-      expect.objectContaining({ source: expect.objectContaining({ content }), sql: content }),
-    );
+    expect(archive.archive).not.toHaveBeenCalled();
   });
 
   it('falls back to the release source branch when no candidate SHA exists', async () => {

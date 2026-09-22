@@ -63,6 +63,12 @@ function createGithub(
       content: 'FEATURE_ENABLED=true\n',
       checksum: 'environment-checksum',
     }),
+    putContents: vi.fn().mockResolvedValue({
+      status: 'created',
+      path: 'update-log/release_previous-release_ref.md',
+      branch: 'release/ref',
+      commitSha: 'update-commit',
+    }),
   };
 }
 
@@ -117,9 +123,91 @@ describe('release docs generation', () => {
     });
     expect(github.compareCommits.mock.calls[0][0]).not.toHaveProperty('author');
     expect(ai.request).toHaveBeenCalledTimes(1);
+    expect(ai.request.mock.calls[0][0]).toMatchObject({ timeoutMs: 300_000 });
   });
 
-  it('falls back to a local summary when AI is not configured', async () => {
+  it('writes complete facts to a GitHub update-log on apply', async () => {
+    const github = createGithub([
+      { sha: 'abc123', message: 'feat: update', author: null, date: null, isMerge: false },
+    ]);
+    github.getContents
+      .mockReset()
+      .mockResolvedValueOnce({ content: 'FEATURE_ENABLED=true\n', checksum: 'after-env' })
+      .mockResolvedValueOnce({ content: 'FEATURE_ENABLED=false\n', checksum: 'before-env' });
+    const releaseService = createReleaseService();
+    const progressMessages: string[] = [];
+    const service = new ReleaseDocsService(
+      github as never,
+      releaseService as never,
+      { request: vi.fn() } as never,
+    );
+
+    const result = await service.generate({
+      repository: 'acme/project',
+      releaseUnit: releaseUnit(),
+      config,
+      input: {},
+      runtime: { ai: { baseUrl: 'https://ai.example.com/v1', apiKey: 'secret', model: 'model' } },
+      publish: { mode: 'apply', sideEffectGate: 'gate-' + 'x'.repeat(20) },
+      progress: async (message) => {
+        progressMessages.push(message);
+      },
+    });
+
+    expect(result.publication).toMatchObject({
+      status: 'created',
+      path: 'update-log/release_previous-release_ref.md',
+      branch: 'release/ref',
+      commitSha: 'update-commit',
+    });
+    expect(progressMessages).toContain('正在通过 GitHub API 获取两个 tag 之间的提交记录。');
+    expect(progressMessages).toContain('正在调用 AI 整理提交、环境差异和 modify-log。');
+    expect(result.markdown).toContain('# release/previous-release/ref');
+    expect(result.markdown).toContain('## 各服务版本对应关系');
+    expect(result.markdown).toContain('## 各服务迁移SQL');
+    expect(result.markdown).toContain('## 各服务迁移环境变量');
+    expect(result.markdown).toContain('## 更新内容(测试人员)');
+    expect(result.markdown).toContain('FEATURE_ENABLED');
+    expect(result.markdown).not.toContain('- modify-log.sql');
+    expect(result.markdown).not.toContain('- env/app.env');
+    expect(result.markdown).toContain('```sql');
+    expect(result.markdown).toContain('-- sql');
+    expect(github.putContents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: 'update-log/release_previous-release_ref.md',
+        branch: 'release/ref',
+        content: result.markdown,
+        mode: 'apply',
+      }),
+      config,
+    );
+  });
+
+  it('does not write an update-log during dry-run generation', async () => {
+    const github = createGithub([]);
+    const releaseService = createReleaseService();
+    const service = new ReleaseDocsService(
+      github as never,
+      releaseService as never,
+      { request: vi.fn() } as never,
+    );
+
+    const result = await service.generate({
+      repository: 'acme/project',
+      releaseUnit: releaseUnit(),
+      config,
+      input: {},
+      publish: { mode: 'dry-run', sideEffectGate: '' },
+    });
+
+    expect(result.publication).toMatchObject({
+      status: 'planned',
+      path: 'update-log/release_previous-release_ref.md',
+    });
+    expect(github.putContents).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the local summary when AI is not configured', async () => {
     const github = createGithub([
       {
         sha: 'abc123',
@@ -143,6 +231,7 @@ describe('release docs generation', () => {
     expect(result.status).toBe('degraded');
     expect(result.degraded).toBe(true);
     expect(result.markdown).toContain('local fallback works');
+    expect(result.warnings).toContain('未配置 AI，使用本地发布摘要。');
     expect(ai.request).not.toHaveBeenCalled();
   });
 
@@ -193,7 +282,7 @@ describe('release docs generation', () => {
     });
 
     expect(result.previousTag).toBeUndefined();
-    expect(result.markdown).toContain('首次发布');
+    expect(result.markdown).toContain('# initial-release/ref');
     expect(github.compareCommits).not.toHaveBeenCalled();
   });
 });

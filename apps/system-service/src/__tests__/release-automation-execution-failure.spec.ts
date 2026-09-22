@@ -46,7 +46,16 @@ function record(selectedTasks: ReleaseTaskKey[] = ['release-docs']): ReleaseJobR
 
 describe('release automation task failure progress', () => {
   it('marks release-docs blocked instead of leaving it pending', async () => {
-    const service = new ReleaseAutomationExecutionService({} as never);
+    const releaseService = {
+      prepareModifyLog: vi.fn().mockResolvedValue({
+        sourceChecksum: 'a'.repeat(64),
+        generation: 'generation',
+        recordCount: 0,
+        sql: '-- sql',
+        artifact: null,
+      }),
+    };
+    const service = new ReleaseAutomationExecutionService(releaseService as never);
     const progress: ReleaseProgress[] = [];
     const job = record();
 
@@ -59,6 +68,12 @@ describe('release automation task failure progress', () => {
       stage: 'preflight_blocked',
       taskStatuses: { 'release-docs': 'blocked' },
     });
+    const logText = progress
+      .flatMap((item) => item.logs ?? [])
+      .map((entry) => entry.message)
+      .join('\n');
+    expect(logText).toContain('开始：生成并发布更新日志');
+    expect(logText).toContain('失败：生成并发布更新日志');
   });
 
   it('runs the selected modify-log task and reports planned status in dry-run', async () => {

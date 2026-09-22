@@ -19,6 +19,15 @@ export interface ReleaseRuntimeConfig {
 
 export interface ReleaseDocsInput {}
 
+export type ReleaseDocsPublicationStatus = 'planned' | 'created' | 'updated' | 'unchanged';
+
+export interface ReleaseDocsPublication {
+  status: ReleaseDocsPublicationStatus;
+  path: string;
+  branch: string;
+  commitSha?: string;
+}
+
 export interface ReleaseDocsResult {
   status: 'planned' | 'succeeded' | 'degraded' | 'failed';
   repository: string;
@@ -32,25 +41,51 @@ export interface ReleaseDocsResult {
   markdownChecksum: string;
   degraded: boolean;
   warnings: string[];
+  publication?: ReleaseDocsPublication;
   environment?: {
     filePath: string;
     changedKeys: number;
     beforeChecksum: string;
     afterChecksum: string;
+    diff: EnvDiffResult;
   };
   database?: {
     recordCount: number;
     sourceChecksum: string;
+    path: string;
+    ref?: string;
+    blobSha?: string;
   };
 }
 
 export interface ReleaseModifyLogResult {
-  status: 'planned' | 'archived';
+  status: 'planned' | 'read' | 'archived';
   sourceChecksum: string;
   generation: string;
   recordCount: number;
   artifactId?: string;
   artifactChecksum?: string;
+}
+
+export interface ReleasePullRequest {
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'closed';
+  baseBranch: string;
+  headBranch: string;
+  headSha: string;
+  mergeable?: boolean | null;
+  mergeableState?:
+    | 'behind'
+    | 'blocked'
+    | 'clean'
+    | 'dirty'
+    | 'draft'
+    | 'has_hooks'
+    | 'unknown'
+    | 'unstable'
+    | 'unreachable';
 }
 
 export interface ReleaseUnit {
@@ -162,6 +197,7 @@ export interface ReleaseProgress {
   logs?: ReleaseLogEntry[];
   releaseDocs?: ReleaseDocsResult;
   modifyLog?: ReleaseModifyLogResult;
+  pullRequest?: ReleasePullRequest;
   degraded?: boolean;
   warnings?: string[];
 }

@@ -1,12 +1,10 @@
 # 发布自动化
 
-本模块为输入 `gitTag` 的发布单元提供真实执行能力和受控适配器。发布单元由以下字段组成：
+本模块为输入 `gitTag` 的第三方项目发布单元提供受控的远程执行流程。发布单元由以下字段组成：
 
 ```text
 repository + targetBranch + gitTag
 ```
-
-发布单元字段是字符串协议值：`gitTag` 不要求 SemVer 或固定字符集，repository、targetBranch、branch、ref 和 SHA 不执行本地业务格式校验，最终由 GitHub/Jenkins 判定是否可用。服务仍保留 GitHub host/HTTPS/同源、写 gate、响应结构、动态 queue/build ID 及 SQL 转义等传输和副作用安全边界。
 
 ## 文档导航
 
@@ -18,13 +16,16 @@ repository + targetBranch + gitTag
 
 ## 当前交付范围
 
-- GitHub Contents、commits、tags、branches、refs、compare、merge 和 tag API client；发布文档收集当前 tag 与 GitHub 返回的上一 tag 之间的提交，不按 person/author 筛选。
-- 发布 docs 任务生成确定性 Markdown；AI 使用 Token 配置中的 nested `ai`，仅输出带事实引用的摘要，AI 不可用时降级为本地摘要，并通过 Job 结果返回。
-- `modify-log.sql` 通过 GitHub Contents 按 release ref 读取并按原文归档，记录 checksum 与远程 blob 来源；不在服务端执行 SQL，也不把本地同名文件作为输入。
-- Jenkins queue/build/text 轮询与 Pipeline tag 解析，全部使用本次动态 queue/build 编号。
-- 真实执行 Job、Redis 缺失时拒绝入队、独立 Redis prefix、服务端 sequence 进度和幂等冲突检测。dry-run/apply 由 Job 的 mode 决定；apply 仍需独立 gate。默认支持 Git tag、GitHub merge、Jenkins、release docs 和 modify-log 归档；Feishu 任务未配置目标时在远程写操作前阻断。
-- 提供测试用同步执行入口 `POST /api/release-automation/test/execute`；默认 dry-run、不创建 BullMQ Job，不能替代生产 Job 的持久化与跨请求幂等流程。
+- 页面分别收集 Jenkins 构建分支 `branch` 和 GitHub PR 目标分支 `targetBranch`；PR 来源固定为 `dev/master`。
+- GitHub tag 创建、PR 查询/提交/复用、SHA 快照和 422 并发对账；不调用 Merge API，不执行本地 Git。
+- apply 在 PR 提交/复用后进入 `manual_intervention`，返回 PR URL 并停止 Jenkins、modify-log、Feishu 和 completed；PR 合并后需重新发起完整 Job。
+- 发布 docs、modify-log 远程读取、Jenkins queue/build/text 轮询和 Feishu 未接通阻断等既有能力继续受流程门禁保护。
+- 提供测试同步执行入口 `POST /api/release-automation/test/execute`；默认 dry-run，不创建 BullMQ Job。
+
+## 冲突处理原则
+
+GitHub PR 的冲突不在 NestCloud 服务端自动解决。服务端只提交或复用 PR，展示 GitHub URL，并在 PR 未合并期间拒绝继续后置步骤。维护人员在 GitHub 上解决冲突并完成审核；合并后重新发起完整发布 Job。多个重复 PR、来源 SHA 变化和创建 422 无法对账时 fail closed，要求人工清理或重新 plan。
 
 ## 当前限制
 
-本模块不会执行本地 Git merge、clone、pull、fetch、checkout 或 worktree；远程分支和文件操作全部通过 GitHub API。发布 Markdown 本次只生成并返回，不提交 GitHub 或 Feishu；AI API 失败时使用本地摘要，不伪造事实。modify-log 读取 GitHub Contents 返回的原文并在 apply 模式归档，不执行 SQL，不支持通过服务端清空远程仓库文件；Feishu 文档写入仍需后续独立契约。
+本模块不会执行本地 Git merge、clone、pull、fetch、checkout 或 worktree，不在本地拉取或构建第三方代码，不执行 SQL。远程分支、文件读取和 update-log 写入全部通过 GitHub API；Feishu 文档写入仍需后续独立契约。
