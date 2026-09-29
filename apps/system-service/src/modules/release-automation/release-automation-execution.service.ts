@@ -479,7 +479,9 @@ export class ReleaseAutomationExecutionService {
         },
       });
       context.releaseDocs = result;
-      context.record.progress.releaseDocs = result;
+      context.record.progress.releaseDocs = context.config?.environmentToSql
+        ? { ...result, markdown: '' }
+        : result;
       context.record.progress.degraded = result.degraded;
       context.record.progress.warnings = result.warnings;
       await appendExecutionLog(

@@ -123,6 +123,7 @@ export interface ReleasePageConfig {
   githubMaxRetries?: number;
   githubMaxResponseBytes?: number;
   environmentFilePath?: string;
+  environmentToSql?: boolean;
   modifyLogPath?: string;
   modifyLogArchiveDir?: string;
   modifyLogMaxBytes?: number;

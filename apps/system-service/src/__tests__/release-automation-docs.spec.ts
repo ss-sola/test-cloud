@@ -15,6 +15,7 @@ const config = {
   modifyLogMaxBytes: 100_000,
   modifyLogMaxLines: 100,
   environmentFilePath: 'env/app.env',
+  environmentToSql: false,
   jenkinsTimeoutMs: 100,
   jenkinsMaxRetries: 0,
   jenkinsPollIntervalMs: 1,
@@ -180,6 +181,52 @@ describe('release docs generation', () => {
         mode: 'apply',
       }),
       config,
+    );
+  });
+
+  it('publishes only changed env config rows without exposing them to AI', async () => {
+    const github = createGithub([]);
+    github.getContents
+      .mockReset()
+      .mockResolvedValueOnce({
+        content: 'APP_NAME=new\nNEW_PORT=3000\nAPI_TOKEN=latest-secret\nSAME=stable\n',
+        checksum: 'after-env',
+      })
+      .mockResolvedValueOnce({
+        content: 'APP_NAME=old\nAPI_TOKEN=old-secret\nSAME=stable\nREMOVED=yes\n',
+        checksum: 'before-env',
+      });
+    const ai = {
+      request: vi.fn().mockResolvedValue(JSON.stringify({ summary: [] })),
+    };
+    const releaseConfig = { ...config, environmentToSql: true };
+    const service = new ReleaseDocsService(
+      github as never,
+      createReleaseService() as never,
+      ai as never,
+    );
+
+    const result = await service.generate({
+      repository: 'acme/project',
+      releaseUnit: releaseUnit(),
+      config: releaseConfig,
+      input: {},
+      runtime: { ai: { baseUrl: 'https://ai.example.com/v1', apiKey: 'secret', model: 'model' } },
+      publish: { mode: 'apply', sideEffectGate: 'gate-' + 'x'.repeat(20) },
+    });
+
+    const sqlSection = result.markdown.split('### env → sys_config\n')[1]?.split('\n## 各服务迁移环境变量')[0];
+    const envSection = result.markdown.split('## 各服务迁移环境变量\n')[1];
+    expect(sqlSection).toContain("VALUES ('APP_NAME', 'new', 'string', '')");
+    expect(sqlSection).toContain("VALUES ('NEW_PORT', '3000', 'number', '')");
+    expect(sqlSection).toContain("VALUES ('API_TOKEN', 'latest-secret', 'string', '')");
+    expect(sqlSection).not.toContain('SAME');
+    expect(sqlSection).not.toContain('REMOVED');
+    expect(envSection).not.toContain('latest-secret');
+    expect(ai.request.mock.calls[0][0].prompt).not.toContain('latest-secret');
+    expect(github.putContents).toHaveBeenCalledWith(
+      expect.objectContaining({ content: result.markdown, mode: 'apply' }),
+      releaseConfig,
     );
   });
 

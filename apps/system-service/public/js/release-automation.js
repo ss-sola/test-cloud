@@ -42,6 +42,7 @@
     const gitTag = root.querySelector('#release-git-tag')
     const tagMarker = root.querySelector('#release-jenkins-tag-marker')
     const environmentPath = root.querySelector('#release-environment-path')
+    const environmentToSql = root.querySelector('#release-environment-to-sql')
     const modifyLogPath = root.querySelector('#release-modify-log-path')
     const submit = root.querySelector('#release-automation-submit')
     const progress = root.querySelector('#release-automation-progress')
@@ -59,6 +60,7 @@
       || !(gitAddress instanceof HTMLInputElement) || !(gitTag instanceof HTMLInputElement)
       || !(tagMarker instanceof HTMLInputElement)
       || !(environmentPath instanceof HTMLInputElement)
+      || !(environmentToSql instanceof HTMLInputElement)
       || !(modifyLogPath instanceof HTMLInputElement)
       || !(submit instanceof HTMLButtonElement)
       || !(progress instanceof HTMLElement) || !(stageLabel instanceof HTMLElement)
@@ -132,6 +134,7 @@
       branch.value = value.branch || value.targetBranch || ''
       targetBranch.value = value.targetBranch || value.branch || ''
       environmentPath.value = value.environmentFilePath || ''
+      environmentToSql.checked = value.environmentToSql === true
       const storedModifyLogPath = typeof value.modifyLogPath === 'string' ? value.modifyLogPath.trim() : ''
       modifyLogPath.value = !storedModifyLogPath || storedModifyLogPath === 'modify-log.sql'
         ? '.version/modify-log.sql'
@@ -148,6 +151,7 @@
         branch: branch.value.trim(),
         targetBranch: targetBranch.value.trim(),
         environmentFilePath: environmentPath.value.trim(),
+        environmentToSql: environmentToSql.checked,
         modifyLogPath: modifyLogPath.value.trim(),
         selectedTasks: [...selectedTasks],
       })
@@ -171,6 +175,7 @@
       gitTag.disabled = value
       tagMarker.disabled = value
       environmentPath.disabled = value
+      environmentToSql.disabled = value
       modifyLogPath.disabled = value
       progress.hidden = false
       progress.setAttribute('aria-busy', String(value))
@@ -300,6 +305,7 @@
             jenkinsBaseUrl: tokens.jenkinsBaseUrl,
             jenkinsTagMarker: tagMarker.value.trim(),
             environmentFilePath: environmentPath.value.trim(),
+            environmentToSql: environmentToSql.checked,
             modifyLogPath: modifyLogPath.value.trim(),
             feishuAppId: tokens.feishuAppId,
             feishuAppSecret: tokens.feishuAppSecret,
@@ -320,6 +326,7 @@
           branch: branch.value.trim(),
           targetBranch: targetBranch.value.trim(),
           environmentFilePath: environmentPath.value.trim(),
+          environmentToSql: environmentToSql.checked,
           modifyLogPath: modifyLogPath.value.trim(),
           selectedTasks: [...selectedTasks],
           idempotencyKey,
@@ -360,6 +367,7 @@
 
     renderTaskList()
     form.addEventListener('submit', createJob)
+    environmentToSql.addEventListener('change', persistConfig)
     ;[gitAddress, gitTag, branch, targetBranch, tagMarker]
       .forEach((field) => field.addEventListener('input', persistConfig))
     void resumeDraft()

@@ -35,6 +35,7 @@ Content-Type: application/json
   "githubBaseUrl": "https://api.github.com",
   "githubAllowedHosts": "api.github.com",
   "environmentFilePath": "env/sample/app.env",
+  "environmentToSql": false,
   "modifyLogPath": ".version/modify-log.sql",
   "tasks": ["git-tag", "github-merge", "jenkins", "release-docs", "modify-log"]
 }
@@ -43,6 +44,8 @@ Content-Type: application/json
 `repository` 可省略并从 `gitAddress` 解析；`gitTag` 必须由请求显式提供。`targetBranch` 是 GitHub Pull Request 的目标（base）分支，`branch` 只作为 Jenkins 构建分支参数，两者可以不同。GitHub Pull Request 的来源固定为 `dev/master`，页面不会再用 Jenkins 分支代替 PR 目标。
 
 `gitTag`、`targetBranch` 和 `branch` 都只按字符串字段传递，不要求 SemVer、固定前缀或字符集，最终由 GitHub/Jenkins 判定是否可用。请求字段缺失或超过 DTO 长度边界返回 400；容量超限返回 429。成功创建返回 HTTP 202 和 `ResponseUtil.success` envelope。
+
+`environmentToSql` 是可选布尔值，缺省为 `false`。开启后，当前 env 文件中新增或变更的 key 会以 MySQL upsert 数据语句写入 update-log 的 `### env → sys_config` 段落；未变化和删除项不生成语句，不包含建表或时间戳字段。类型按值推断，数字为 `number`、JSON 对象/数组为 `json`、其余为 `string`，description 为空。SQL 会包含实际 env 值（含敏感值），并提交至 GitHub；启用时 Job 状态不返回带 SQL 的 Markdown。
 
 ## 发布执行顺序
 

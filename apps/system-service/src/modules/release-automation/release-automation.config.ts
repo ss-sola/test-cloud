@@ -24,6 +24,7 @@ export interface ReleaseAutomationConfig {
   githubMaxRetries: number;
   githubMaxResponseBytes: number;
   environmentFilePath?: string;
+  environmentToSql?: boolean;
   modifyLogPath: string;
   modifyLogArchiveDir: string;
   modifyLogMaxBytes: number;
@@ -59,6 +60,7 @@ export function readReleaseAutomationConfig(overrides: ReleasePageConfig): Relea
     githubMaxResponseBytes:
       overrides.githubMaxResponseBytes ?? RELEASE_AUTOMATION_DEFAULT_MAX_RESPONSE_BYTES,
     environmentFilePath: overrides.environmentFilePath?.trim() || undefined,
+    environmentToSql: overrides.environmentToSql ?? false,
     modifyLogPath: overrides.modifyLogPath?.trim() || RELEASE_AUTOMATION_DEFAULT_MODIFY_LOG_PATH,
     modifyLogArchiveDir:
       overrides.modifyLogArchiveDir?.trim() ?? RELEASE_AUTOMATION_DEFAULT_ARCHIVE_DIR,

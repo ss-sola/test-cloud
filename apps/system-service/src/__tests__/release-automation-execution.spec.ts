@@ -110,7 +110,7 @@ function createFakeService() {
   return { fake, pullRequestCalls, pullRequest };
 }
 
-function createFakeDocsService() {
+function createFakeDocsService(markdown = '# 发布说明\n') {
   return {
     generate: vi.fn().mockResolvedValue({
       status: 'degraded',
@@ -121,7 +121,7 @@ function createFakeDocsService() {
       resolvedSha: 'd'.repeat(40),
       commitCount: 1,
       mergeCommitCount: 0,
-      markdown: '# 发布说明\n',
+      markdown,
       markdownChecksum: 'f'.repeat(64),
       degraded: true,
       warnings: ['test fallback'],
@@ -265,6 +265,30 @@ describe('release automation Git execution', () => {
       'git-tag': 'planned',
       'github-merge': 'planned',
     });
+  });
+
+  it('does not persist env SQL markdown to job progress when enabled', async () => {
+    const { fake } = createFakeService();
+    const docs = createFakeDocsService("INSERT INTO sys_config VALUES ('SECRET_TOKEN', 'secret-value');");
+    const service = new ReleaseAutomationExecutionService(
+      fake as unknown as ReleaseAutomationService,
+      docs as never,
+    );
+    const record = createRecord('dry-run');
+    record.pageConfig!.environmentToSql = true;
+    const progress: ReleaseProgress[] = [];
+
+    const error = await service.execute(record, async (next) => {
+      progress.push(next);
+    });
+
+    expect(error).toBeNull();
+    expect(record.progress.releaseDocs?.markdown).toBe('');
+    const logText = progress
+      .flatMap((item) => item.logs ?? [])
+      .map((entry) => entry.message)
+      .join('\n');
+    expect(logText).not.toContain('secret-value');
   });
 
   it('blocks the target when PR submission fails', async () => {

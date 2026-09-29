@@ -313,6 +313,13 @@ describe('release automation menu contract', () => {
     expect(fragment).toContain('id="release-git-address"');
     expect(fragment).toContain('id="release-git-tag"');
     expect(fragment).toContain(
+      'id="release-environment-to-sql" name="environmentToSql" type="checkbox"',
+    );
+    expect(fragment).toContain('敏感值）会以明文写入 update-log 并提交到 GitHub');
+    expect(script).toContain('environmentToSql.checked = value.environmentToSql === true');
+    expect(script).toContain('environmentToSql: environmentToSql.checked');
+    expect(script).toContain("environmentToSql.addEventListener('change', persistConfig)");
+    expect(fragment).toContain(
       'id="release-jenkins-branch" name="branch" required maxlength="256"',
     );
     expect(fragment).toContain(
@@ -332,6 +339,7 @@ describe('release automation menu contract', () => {
     expect(script).toContain('releaseDocs');
     expect(script).toContain("storedModifyLogPath === 'modify-log.sql'");
     expect(fragment).toContain('当前 tag 与 GitHub 返回的上一个 tag');
+    expect(fragment).toContain('写入 GitHub update-log');
     expect(script).toContain('jenkinsToken');
     expect(script).toContain('feishuAppId');
     expect(script).toContain('feishuAppSecret');

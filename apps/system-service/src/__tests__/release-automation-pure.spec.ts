@@ -1,6 +1,9 @@
+import { validateSync } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { parseJenkinsJobUrl } from '../modules/release-automation/release-automation.config';
+import { CreateReleaseAutomationJobDto } from '../modules/release-automation/dto/release-automation.dto';
+import { parseJenkinsJobUrl, readReleaseAutomationConfig } from '../modules/release-automation/release-automation.config';
 import { diffEnv, normalizeEnvValue, parseEnv } from '../modules/release-automation/env-diff.util';
+import { renderEnvConfigSql } from '../modules/release-automation/env-sql.renderer';
 import { RELEASE_AUTOMATION_REDACTED_VALUE } from '../modules/release-automation/release-automation.constants';
 import {
   payloadHash,
@@ -32,6 +35,57 @@ describe('release automation pure security and ENV rules', () => {
       sensitive: false,
     });
     expect(redactSensitiveText('token=secret-value')).not.toContain('secret-value');
+  });
+
+  it('renders only added and changed env values as sorted sys_config upserts', () => {
+    const sql = renderEnvConfigSql(
+      'CHANGED=old\nREMOVED=gone\nSAME=stable\n',
+      'CHANGED=O\'Reilly\nNEW_BOOL=true\nNEW_JSON={"enabled":true}\nNEW_NUMBER=3000\nEMPTY=\nSAME=stable\n',
+    );
+
+    expect(sql).toContain("VALUES ('CHANGED', 'O''Reilly', 'string', '')");
+    expect(sql).toContain("VALUES ('NEW_BOOL', 'true', 'string', '')");
+    expect(sql).toContain("VALUES ('NEW_JSON', '{\"enabled\":true}', 'json', '')");
+    expect(sql).toContain("VALUES ('NEW_NUMBER', '3000', 'number', '')");
+    expect(sql).toContain("VALUES ('EMPTY', '', 'string', '')");
+    expect(sql).not.toContain('REMOVED');
+    expect(sql).not.toContain('SAME');
+    expect(sql).not.toContain('CREATE TABLE');
+    expect(sql).not.toContain('created_at');
+    expect(sql.indexOf('CHANGED')).toBeLessThan(sql.indexOf('EMPTY'));
+    expect(() => renderEnvConfigSql('', `${'A'.repeat(129)}=value`)).toThrow('sys_config.key');
+  });
+
+  it('validates the env SQL option as a boolean and defaults it off', () => {
+    const dto = (environmentToSql: unknown) =>
+      Object.assign(new CreateReleaseAutomationJobDto(), {
+        targetBranch: 'release',
+        gitTag: 'v1',
+        gitAddress: 'https://github.com/acme/project.git',
+        branch: 'release',
+        environmentToSql,
+      });
+
+    expect(validateSync(dto(true)).some((error) => error.property === 'environmentToSql')).toBe(
+      false,
+    );
+    expect(validateSync(dto('true')).some((error) => error.property === 'environmentToSql')).toBe(
+      true,
+    );
+
+    const pageConfig = {
+      gitAddress: 'https://github.com/acme/project.git',
+      branch: 'release',
+      githubToken: '',
+      jenkinsToken: '',
+      jenkinsBaseUrl: '',
+      feishuAppId: '',
+      feishuAppSecret: '',
+    };
+    expect(readReleaseAutomationConfig(pageConfig).environmentToSql).toBe(false);
+    expect(readReleaseAutomationConfig({ ...pageConfig, environmentToSql: true }).environmentToSql).toBe(
+      true,
+    );
   });
 
   it('redacts credentials and query data from URL error details', () => {

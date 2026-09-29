@@ -43,7 +43,14 @@
         <input id="release-modify-log-path" name="modifyLogPath" required maxlength="512" value=".version/modify-log.sql" />
       </label>
     </div>
-    <p class="release-automation-note">发布说明会自动读取当前 tag 与 GitHub 返回的上一个 tag，固定整理两者之间的提交、环境配置和 modify-log；不按提交人筛选，不写入 GitHub 或 Feishu。</p>
+    <div class="release-env-sql-option">
+      <label class="release-env-sql-toggle" for="release-environment-to-sql">
+        <input id="release-environment-to-sql" name="environmentToSql" type="checkbox" aria-describedby="release-environment-to-sql-warning" />
+        <span>将新增或变更的 env 转为 sys_config SQL</span>
+      </label>
+      <p class="release-credential-warning" id="release-environment-to-sql-warning" role="note">勾选后，新增或变更的环境变量值（包括密钥、密码等敏感值）会以明文写入 update-log 并提交到 GitHub。</p>
+    </div>
+    <p class="release-automation-note">发布说明会自动读取当前 tag 与 GitHub 返回的上一个 tag，固定整理两者之间的提交、环境配置和 modify-log，并写入 GitHub update-log；不按提交人筛选，不写入 Feishu。</p>
     <div class="release-automation-meta" aria-label="发布配置">
       <span class="status-badge status-badge--ready" data-release-version>版本由请求指定</span>
       <span class="status-badge status-badge--ready">真实执行</span>

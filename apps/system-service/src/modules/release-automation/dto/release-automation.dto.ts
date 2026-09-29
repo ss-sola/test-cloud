@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsNotEmpty,
   IsNumber,
@@ -148,6 +149,10 @@ export class CreateReleaseAutomationJobDto {
   @IsString()
   @MaxLength(512)
   environmentFilePath?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  environmentToSql?: boolean;
 
   @IsOptional()
   @IsString()

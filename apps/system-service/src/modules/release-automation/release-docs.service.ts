@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { OpenAiCompatibleClientService } from '../../client/ai/openai-compatible-client.service';
 import { GitHubReleaseClientService } from './github-release-client.service';
 import { diffEnv } from './env-diff.util';
+import { renderEnvConfigSql } from './env-sql.renderer';
 import type { ReleaseAutomationConfig } from './release-automation.config';
 import { ReleaseAutomationService } from './release-automation.service';
 import { sha256, stableStringify } from './release-automation.security';
@@ -49,6 +50,7 @@ interface ReleaseFacts {
     beforeChecksum: string;
     afterChecksum: string;
     diff: EnvDiffResult;
+    configurationSql?: string;
   };
   database: {
     recordCount: number;
@@ -278,12 +280,16 @@ export class ReleaseDocsService {
         )
       : { content: '', checksum: sha256('') };
     const diff = diffEnv(beforeFile.content, afterFile.content);
+    const configurationSql = options.config.environmentToSql
+      ? renderEnvConfigSql(beforeFile.content, afterFile.content)
+      : undefined;
     return {
       filePath,
       changedKeys: diff.added.length + diff.removed.length + diff.changed.length,
       beforeChecksum: diff.beforeChecksum,
       afterChecksum: diff.afterChecksum,
       diff,
+      configurationSql,
     };
   }
 
@@ -377,6 +383,15 @@ export class ReleaseDocsService {
       '## 各服务迁移SQL',
       ...renderCodeFence(options.facts.database.content, 'sql'),
       ...renderSummary(options.summary?.databaseNotes ?? []),
+      ...(options.facts.environment.configurationSql !== undefined
+        ? [
+            '',
+            '### env → sys_config',
+            ...(options.facts.environment.configurationSql
+              ? renderCodeFence(options.facts.environment.configurationSql, 'sql')
+              : ['本次无新增或变更环境变量。']),
+          ]
+        : []),
       '',
       '## 各服务迁移环境变量',
       ...renderEnvironmentCodeBlock(environmentChanges),
