@@ -1,3 +1,8 @@
 packages:
   - apps/*
   - web/*
+allowBuilds:
+  '@nestjs/core': true
+  '@swc/core': true
+  esbuild: true
+  msgpackr-extract: true

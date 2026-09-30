@@ -1,8 +1,9 @@
 export const PLAGIARISM_CONFIG = {
   maxTextLength: 10000,
   ngramSize: 3,
-  minDuplicateLength: 8,
-  minMatchLength: 6,
+  minMatchLength: 5,
+  minDuplicateUnitCount: 5,
+  minMergePartLength: 8,
   minBlockLength: 16,
   contextBefore: 20,
   contextAfter: 20,

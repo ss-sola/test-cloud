@@ -87,6 +87,7 @@ export class ReleaseAutomationController {
         githubMaxRetries: body.githubMaxRetries,
         githubMaxResponseBytes: body.githubMaxResponseBytes,
         environmentFilePath: body.environmentFilePath,
+        environmentToSql: body.environmentToSql,
         modifyLogPath: body.modifyLogPath,
         modifyLogArchiveDir: body.modifyLogArchiveDir,
         modifyLogMaxBytes: body.modifyLogMaxBytes,

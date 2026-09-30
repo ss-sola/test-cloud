@@ -12,6 +12,7 @@ import type {
   GitHubRef,
   GitHubRepository,
   ReleaseMode,
+  ReleasePullRequest,
 } from './release-automation.types';
 
 export const GITHUB_RELEASE_CLIENT_OPTIONS = Symbol('GITHUB_RELEASE_CLIENT_OPTIONS');
@@ -43,6 +44,25 @@ export interface GitHubContentsResult {
   sha: string;
   ref: string;
   repository: string;
+  checksum: string;
+}
+
+export interface GitHubContentsWriteOptions {
+  repository: string;
+  path: string;
+  branch: string;
+  content: string;
+  commitMessage: string;
+  mode: ReleaseMode;
+  sideEffectGate?: string;
+}
+
+export interface GitHubContentsWriteResult {
+  status: 'created' | 'updated' | 'unchanged';
+  path: string;
+  branch: string;
+  commitSha?: string;
+  blobSha?: string;
   checksum: string;
 }
 
@@ -85,11 +105,19 @@ export interface GitHubBranchesOptions {
   maxPages?: number;
 }
 
-export interface GitHubMergeOptions {
+export interface GitHubPullRequestsOptions {
   repository: string;
   base: string;
   head: string;
-  message: string;
+  config?: ReleaseAutomationConfig;
+}
+
+export interface GitHubCreatePullRequestOptions {
+  repository: string;
+  base: string;
+  head: string;
+  title: string;
+  body?: string;
   mode: ReleaseMode;
   sideEffectGate?: string;
   config?: ReleaseAutomationConfig;
@@ -104,25 +132,23 @@ export interface GitHubTagOptions {
   config?: ReleaseAutomationConfig;
 }
 
-export interface GitHubMergeResult {
-  status: 'merged' | 'already-applied';
-  sha?: string;
-}
-
 interface GitHubApiErrorOptions {
   status: number;
   retryable: boolean;
   operation: string;
+  detail?: string;
 }
 
 export class GitHubApiException extends ProjectException {
   readonly retryable: boolean;
   readonly operation: string;
+  readonly detail?: string;
 
   constructor(message: string, options: GitHubApiErrorOptions) {
     super(message, options.status);
     this.retryable = options.retryable;
     this.operation = options.operation;
+    this.detail = options.detail;
   }
 }
 
@@ -166,6 +192,73 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       ref,
       repository: repository.slug,
       checksum: sha256(content),
+    };
+  }
+
+  async putContents(
+    options: GitHubContentsWriteOptions,
+    config?: ReleaseAutomationConfig,
+  ): Promise<GitHubContentsWriteResult> {
+    this.assertWriteGate(options.mode, options.sideEffectGate);
+    const repository = this.assertRepository(options.repository);
+    const path = this.assertFilePath(options.path);
+    const branch = this.assertRef(options.branch);
+    if (
+      !options.commitMessage ||
+      options.commitMessage.length > 256 ||
+      hasControlCharacter(options.commitMessage)
+    ) {
+      throw new ProjectException('GitHub 文件提交消息无效。', 400);
+    }
+
+    let existing: GitHubContentsResult | undefined;
+    try {
+      existing = await this.getContents({ repository: repository.slug, path, ref: branch }, config);
+    } catch (error) {
+      if (!(error instanceof GitHubApiException) || error.getStatus() !== 404) throw error;
+    }
+    const checksum = sha256(options.content);
+    if (existing?.checksum === checksum) {
+      return {
+        status: 'unchanged',
+        path,
+        branch,
+        blobSha: existing.sha,
+        checksum,
+      };
+    }
+
+    const payload = await this.requestWithStatus(
+      'PUT',
+      `/repos/${this.encodePath(repository.slug)}/contents/${this.encodePath(path)}`,
+      '写入 GitHub Contents',
+      {
+        message: options.commitMessage,
+        content: Buffer.from(options.content, 'utf8').toString('base64'),
+        branch,
+        ...(existing ? { sha: existing.sha } : {}),
+      },
+      [200, 201],
+      false,
+      config,
+    );
+    const value = parseJson(payload.text);
+    if (
+      !isRecord(value) ||
+      !isRecord(value.content) ||
+      typeof value.content.sha !== 'string' ||
+      !isRecord(value.commit) ||
+      typeof value.commit.sha !== 'string'
+    ) {
+      throw this.invalidResponse('写入 GitHub Contents');
+    }
+    return {
+      status: existing ? 'updated' : 'created',
+      path,
+      branch,
+      blobSha: value.content.sha,
+      commitSha: value.commit.sha,
+      checksum,
     };
   }
 
@@ -307,29 +400,62 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     return [...new Set(branches)].sort((left, right) => left.localeCompare(right));
   }
 
-  async merge(options: GitHubMergeOptions): Promise<GitHubMergeResult> {
+  async listPullRequests(options: GitHubPullRequestsOptions): Promise<ReleasePullRequest[]> {
+    const repository = this.assertRepository(options.repository);
+    const base = this.assertRef(options.base);
+    const head = this.assertRef(options.head);
+    const query = new URLSearchParams({
+      state: 'open',
+      head: `${repository.owner}:${head}`,
+      base,
+      per_page: '100',
+    });
+    const payload = await this.request<unknown>(
+      'GET',
+      `/repos/${this.encodePath(repository.slug)}/pulls?${query.toString()}`,
+      '查询 GitHub Pull Request',
+      undefined,
+      options.config,
+    );
+    if (!Array.isArray(payload)) throw this.invalidResponse('查询 GitHub Pull Request');
+    const pullRequests: ReleasePullRequest[] = [];
+    for (const item of payload) {
+      const pullRequest = this.parsePullRequest(item);
+      if (!pullRequest) throw this.invalidResponse('查询 GitHub Pull Request');
+      pullRequests.push(pullRequest);
+    }
+    return pullRequests;
+  }
+
+  async createPullRequest(options: GitHubCreatePullRequestOptions): Promise<ReleasePullRequest> {
     this.assertWriteGate(options.mode, options.sideEffectGate);
     const repository = this.assertRepository(options.repository);
-    const base = options.base;
-    const head = options.head;
-    if (!options.message || options.message.length > 256 || hasControlCharacter(options.message)) {
-      throw new ProjectException('GitHub 合并提交消息无效。', 400);
+    const base = this.assertRef(options.base);
+    const head = this.assertRef(options.head);
+    if (!options.title || options.title.length > 256 || hasControlCharacter(options.title)) {
+      throw new ProjectException('GitHub Pull Request 标题无效。', 400);
+    }
+    if (options.body && (options.body.length > 65_536 || hasControlCharacter(options.body, true))) {
+      throw new ProjectException('GitHub Pull Request 内容无效。', 400);
     }
     const response = await this.requestWithStatus(
       'POST',
-      `/repos/${this.encodePath(repository.slug)}/merges`,
-      '创建 GitHub 远程合并',
-      { base, head, commit_message: options.message },
-      [201, 204],
+      `/repos/${this.encodePath(repository.slug)}/pulls`,
+      '创建 GitHub Pull Request',
+      {
+        title: options.title,
+        head,
+        base,
+        ...(options.body ? { body: options.body } : {}),
+      },
+      [201],
       false,
       options.config,
     );
-    if (response.status === 204) return { status: 'already-applied' };
     const payload = parseJson(response.text);
-    if (!isRecord(payload) || typeof payload.sha !== 'string') {
-      throw this.invalidResponse('创建 GitHub 远程合并');
-    }
-    return { status: 'merged', sha: payload.sha };
+    const pullRequest = this.parsePullRequest(payload);
+    if (!pullRequest) throw this.invalidResponse('创建 GitHub Pull Request');
+    return pullRequest;
   }
 
   async createTag(options: GitHubTagOptions): Promise<GitHubRef> {
@@ -379,7 +505,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   }
 
   private async requestWithStatus(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
     operation: string,
     body: unknown,
@@ -429,6 +555,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
               status: response.status,
               retryable: response.status === 429 || response.status >= 500,
               operation,
+              detail: redactSensitiveText(text).slice(0, 2_000),
             },
           );
         }
@@ -534,6 +661,56 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     };
   }
 
+  private parsePullRequest(value: unknown): ReleasePullRequest | null {
+    if (!isRecord(value)) return null;
+    const base = isRecord(value.base) ? value.base : undefined;
+    const head = isRecord(value.head) ? value.head : undefined;
+    const state = value.state === 'open' || value.state === 'closed' ? value.state : undefined;
+    const mergeable =
+      value.mergeable === null || typeof value.mergeable === 'boolean'
+        ? value.mergeable
+        : undefined;
+    const mergeableState =
+      value.mergeable_state === 'behind' ||
+      value.mergeable_state === 'blocked' ||
+      value.mergeable_state === 'clean' ||
+      value.mergeable_state === 'dirty' ||
+      value.mergeable_state === 'draft' ||
+      value.mergeable_state === 'has_hooks' ||
+      value.mergeable_state === 'unknown' ||
+      value.mergeable_state === 'unstable' ||
+      value.mergeable_state === 'unreachable'
+        ? value.mergeable_state
+        : undefined;
+    if (
+      typeof value.number !== 'number' ||
+      !Number.isInteger(value.number) ||
+      value.number <= 0 ||
+      typeof value.html_url !== 'string' ||
+      !value.html_url ||
+      typeof value.title !== 'string' ||
+      !state ||
+      !base ||
+      typeof base.ref !== 'string' ||
+      !head ||
+      typeof head.ref !== 'string' ||
+      typeof head.sha !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      number: value.number,
+      url: value.html_url,
+      title: value.title,
+      state,
+      baseBranch: base.ref,
+      headBranch: head.ref,
+      headSha: head.sha,
+      mergeable,
+      mergeableState,
+    };
+  }
+
   private invalidResponse(operation: string): GitHubApiException {
     return new GitHubApiException(`GitHub ${operation}返回结构无效。`, {
       status: 502,
@@ -583,9 +760,10 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   }
 }
 
-function hasControlCharacter(value: string): boolean {
+function hasControlCharacter(value: string, allowLineBreaks = false): boolean {
   for (const character of value) {
     const code = character.charCodeAt(0);
+    if (allowLineBreaks && (code === 0x0a || code === 0x0d)) continue;
     if (code <= 0x1f || code === 0x7f) return true;
   }
   return false;

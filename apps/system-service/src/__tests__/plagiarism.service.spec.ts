@@ -48,21 +48,21 @@ describe('PlagiarismService', () => {
 
   it('counts English repetition by complete words per direction', () => {
     const service = createService();
-    const source = 'alpha bravo charlie delta uniqueentry';
-    const target = 'alpha bravo charlie delta';
+    const source = 'alpha bravo charlie delta echo uniqueentry';
+    const target = 'alpha bravo charlie delta echo';
     const result = service.compare({ source, target, threshold: 0.6 });
 
     expect(result.sourceToTarget.countingMode).toBe('word');
-    expect(result.sourceToTarget.sourceUnitCount).toBe(5);
-    expect(result.sourceToTarget.targetUnitCount).toBe(4);
-    expect(result.sourceToTarget.duplicateUnitCount).toBe(4);
-    expect(result.sourceToTarget.duplicateRate).toBe(0.8);
-    expect(result.targetToSource.sourceUnitCount).toBe(4);
-    expect(result.targetToSource.duplicateUnitCount).toBe(4);
+    expect(result.sourceToTarget.sourceUnitCount).toBe(6);
+    expect(result.sourceToTarget.targetUnitCount).toBe(5);
+    expect(result.sourceToTarget.duplicateUnitCount).toBe(5);
+    expect(result.sourceToTarget.duplicateRate).toBe(Number((5 / 6).toFixed(6)));
+    expect(result.targetToSource.sourceUnitCount).toBe(5);
+    expect(result.targetToSource.duplicateUnitCount).toBe(5);
     expect(result.targetToSource.duplicateRate).toBe(1);
   });
 
-  it('does not count a partial English word as a complete duplicate', () => {
+  it('does not count a partial English word below the minimum unit count', () => {
     const service = createService();
     const result = service.compare({
       source: 'information retrieval',
@@ -70,11 +70,87 @@ describe('PlagiarismService', () => {
       threshold: 0,
     });
 
-    expect(result.sourceToTarget.duplicateUnitCount).toBe(1);
-    expect(result.sourceToTarget.matches.map((match) => match.text)).toEqual(['information']);
-    expect(result.sourceToTarget.matches.every((match) => !match.text.includes('retriev'))).toBe(
-      true,
-    );
+    expect(result.sourceToTarget.duplicateUnitCount).toBe(0);
+    expect(result.sourceToTarget.duplicateRate).toBe(0);
+    expect(result.sourceToTarget.matches).toHaveLength(0);
+  });
+
+  it('filters Chinese fragments below five characters and counts five characters', () => {
+    const service = createService();
+    const belowMinimum = service.compare({ source: '甲乙丙丁', target: '甲乙丙丁', threshold: 0 });
+    const minimum = service.compare({ source: '甲乙丙丁戊', target: '甲乙丙丁戊', threshold: 0 });
+
+    expect(belowMinimum.sourceToTarget.duplicateLength).toBe(0);
+    expect(belowMinimum.sourceToTarget.duplicateUnitCount).toBe(0);
+    expect(belowMinimum.sourceToTarget.duplicateRate).toBe(0);
+    expect(belowMinimum.sourceToTarget.matches).toHaveLength(0);
+    expect(belowMinimum.targetToSource.duplicateLength).toBe(0);
+    expect(belowMinimum.targetToSource.duplicateUnitCount).toBe(0);
+    expect(belowMinimum.targetToSource.duplicateRate).toBe(0);
+    expect(belowMinimum.targetToSource.matches).toHaveLength(0);
+    expect(minimum.sourceToTarget.duplicateUnitCount).toBe(5);
+    expect(minimum.sourceToTarget.duplicateRate).toBe(1);
+    expect(minimum.targetToSource.duplicateUnitCount).toBe(5);
+    expect(minimum.targetToSource.duplicateRate).toBe(1);
+    expect(minimum.sourceToTarget.matches.length).toBeGreaterThan(0);
+    expect(
+      minimum.sourceToTarget.matches.every(
+        (match) => (match.sourceUnitCount ?? 0) >= 5 && (match.targetUnitCount ?? 0) >= 5,
+      ),
+    ).toBe(true);
+  });
+
+  it('filters four long English words and counts five single-letter words', () => {
+    const service = createService();
+    const fourWords = 'extraordinary internationalization characterization documentation';
+    const belowMinimum = service.compare({ source: fourWords, target: fourWords, threshold: 0 });
+    const minimum = service.compare({ source: 'a b c d e', target: 'a b c d e', threshold: 0 });
+
+    expect(belowMinimum.sourceToTarget.sourceUnitCount).toBe(4);
+    expect(belowMinimum.sourceToTarget.duplicateLength).toBe(0);
+    expect(belowMinimum.sourceToTarget.duplicateUnitCount).toBe(0);
+    expect(belowMinimum.sourceToTarget.duplicateRate).toBe(0);
+    expect(belowMinimum.sourceToTarget.matches).toHaveLength(0);
+    expect(belowMinimum.targetToSource.duplicateLength).toBe(0);
+    expect(belowMinimum.targetToSource.duplicateUnitCount).toBe(0);
+    expect(belowMinimum.targetToSource.duplicateRate).toBe(0);
+    expect(belowMinimum.targetToSource.matches).toHaveLength(0);
+    expect(minimum.sourceToTarget.countingMode).toBe('word');
+    expect(minimum.sourceToTarget.duplicateUnitCount).toBe(5);
+    expect(minimum.sourceToTarget.duplicateRate).toBe(1);
+    expect(minimum.targetToSource.duplicateUnitCount).toBe(5);
+    expect(minimum.targetToSource.duplicateRate).toBe(1);
+    expect(minimum.sourceToTarget.matches.length).toBeGreaterThan(0);
+  });
+
+  it('applies the five-unit boundary to mixed Chinese and English text', () => {
+    const service = createService();
+    const belowMinimum = service.compare({
+      source: '人工 AI 学',
+      target: '人工 AI 学',
+      threshold: 0,
+    });
+    const minimum = service.compare({
+      source: '人工 AI 教育',
+      target: '人工 AI 教育',
+      threshold: 0,
+    });
+
+    expect(belowMinimum.sourceToTarget.countingMode).toBe('mixed');
+    expect(belowMinimum.sourceToTarget.sourceUnitCount).toBe(4);
+    expect(belowMinimum.sourceToTarget.duplicateLength).toBe(0);
+    expect(belowMinimum.sourceToTarget.duplicateUnitCount).toBe(0);
+    expect(belowMinimum.sourceToTarget.duplicateRate).toBe(0);
+    expect(belowMinimum.sourceToTarget.matches).toHaveLength(0);
+    expect(belowMinimum.targetToSource.duplicateLength).toBe(0);
+    expect(belowMinimum.targetToSource.duplicateUnitCount).toBe(0);
+    expect(belowMinimum.targetToSource.duplicateRate).toBe(0);
+    expect(belowMinimum.targetToSource.matches).toHaveLength(0);
+    expect(minimum.sourceToTarget.sourceUnitCount).toBe(5);
+    expect(minimum.sourceToTarget.duplicateUnitCount).toBe(5);
+    expect(minimum.sourceToTarget.duplicateRate).toBe(1);
+    expect(minimum.targetToSource.duplicateUnitCount).toBe(5);
+    expect(minimum.targetToSource.duplicateRate).toBe(1);
   });
 
   it('does not treat different English word boundaries as the same words', () => {
@@ -88,6 +164,28 @@ describe('PlagiarismService', () => {
     expect(result.sourceToTarget.duplicateUnitCount).toBe(0);
     expect(result.sourceToTarget.duplicateRate).toBe(0);
     expect(result.sourceToTarget.matches).toHaveLength(0);
+  });
+
+  it('rejects equal-length text with incompatible English word boundaries in both directions', () => {
+    const service = createService();
+    const result = service.compare({
+      source: 'therapist finder can help now',
+      target: 'the rapist finder can helpnow',
+      threshold: 0,
+    });
+
+    expect(result.sourceToTarget).toMatchObject({
+      duplicateLength: 0,
+      duplicateUnitCount: 0,
+      duplicateRate: 0,
+      matches: [],
+    });
+    expect(result.targetToSource).toMatchObject({
+      duplicateLength: 0,
+      duplicateUnitCount: 0,
+      duplicateRate: 0,
+      matches: [],
+    });
   });
 
   it('counts Chinese characters and English words separately in mixed text', () => {
@@ -230,7 +328,10 @@ describe('PlagiarismService', () => {
     expect(strict.duplicateRate).toBe(all.duplicateRate);
     expect(strict.similarity).toBe(all.similarity);
     expect(lcsStep?.data.candidateCount).toBeGreaterThan(0);
-    expect(thresholdStep?.data).toMatchObject({ highlightedCount: 0 });
+    expect(thresholdStep?.data).toMatchObject({
+      minDuplicateUnitCount: 5,
+      highlightedCount: 0,
+    });
   });
 
   it('uses request editDistance to control approximate bridge merging', () => {
@@ -278,9 +379,13 @@ describe('PlagiarismService', () => {
     const target =
       '近年来在线教育发展迅速。教师可以利用人工智能分析学生的学习情况，从而了解学生的知识掌握程度。智能教育平台还可以根据学生的学习表现推荐相关课程。';
     const result = service.compare({ source, target, threshold: 0.6 });
-    const longest = result.matches.reduce((max, match) => Math.max(max, match.length), 0);
 
-    expect(longest).toBeGreaterThanOrEqual(8);
+    expect(result.matches.length).toBeGreaterThan(0);
+    expect(
+      result.matches.every(
+        (match) => (match.sourceUnitCount ?? 0) >= 5 && (match.targetUnitCount ?? 0) >= 5,
+      ),
+    ).toBe(true);
     expect(result.duplicateRate).toBeGreaterThan(0);
     expect(result.duplicateRate).toBeLessThan(1);
   });
@@ -376,8 +481,10 @@ describe('PlagiarismService', () => {
     const target = '人工智能技术正在改变现代教育的发展方式。';
     const result = service.compare({ source, target, threshold: 0.6 });
 
-    expect(result.duplicateRate).toBeGreaterThan(0.7);
-    expect(result.matches.length).toBeGreaterThan(0);
+    expect(result.sourceToTarget.duplicateRate).toBeGreaterThan(0.7);
+    expect(result.targetToSource.duplicateRate).toBeGreaterThan(0.7);
+    expect(result.sourceToTarget.matches.length).toBeGreaterThan(0);
+    expect(result.targetToSource.matches.length).toBeGreaterThan(0);
   });
 
   it('test.md case 12 returns no duplicate for unrelated text', () => {

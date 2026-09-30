@@ -9,12 +9,18 @@ export class OpenAiCompatibleClientService {
     fetchImpl?: OpenAiCompatibleFetch,
   ): Promise<string | undefined> {
     const { ai, prompt } = options;
-    if (!ai.baseUrl || !ai.apiKey || !ai.model || prompt.length > options.maxPromptCharacters) {
+    const fail = (reason: string): undefined => {
+      options.onFailure?.(reason);
       return undefined;
+    };
+    if (!ai.baseUrl || !ai.apiKey || !ai.model)
+      return fail('AI 配置不完整，需要 baseUrl、apiKey 和 model。');
+    if (prompt.length > options.maxPromptCharacters) {
+      return fail(`AI prompt 超过长度限制（${options.maxPromptCharacters} 字符）。`);
     }
 
     const baseUrl = this.parseBaseUrl(ai.baseUrl);
-    if (!baseUrl) return undefined;
+    if (!baseUrl) return fail('AI baseUrl 无效，必须是无凭据、无查询参数的 HTTP(S) 地址。');
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
@@ -37,17 +43,28 @@ export class OpenAiCompatibleClientService {
         redirect: 'error',
         signal: controller.signal,
       });
+      if (!response.ok) return fail(`AI HTTP 请求失败（HTTP ${response.status}）。`);
       const contentLength = Number(response.headers.get('content-length') ?? 0);
-      if (!response.ok || contentLength > options.maxResponseCharacters) return undefined;
+      if (contentLength > options.maxResponseCharacters) {
+        return fail(`AI 响应超过长度限制（${options.maxResponseCharacters} 字符）。`);
+      }
       const raw = await response.text();
-      if (Buffer.byteLength(raw, 'utf8') > options.maxResponseCharacters) return undefined;
-      const payload = JSON.parse(raw) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
+      if (Buffer.byteLength(raw, 'utf8') > options.maxResponseCharacters) {
+        return fail(`AI 响应超过长度限制（${options.maxResponseCharacters} 字符）。`);
+      }
+      let payload: { choices?: Array<{ message?: { content?: string } }> };
+      try {
+        payload = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string } }> };
+      } catch {
+        return fail('AI 响应不是有效 JSON。');
+      }
       const content = payload.choices?.[0]?.message?.content?.trim();
-      return content || undefined;
-    } catch {
-      return undefined;
+      return content ? content : fail('AI 响应缺少 choices[0].message.content。');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return fail(`AI 请求超时（${options.timeoutMs}ms）。`);
+      }
+      return fail('AI 请求异常，请检查网络、baseUrl 和服务端可用性。');
     } finally {
       clearTimeout(timeout);
     }

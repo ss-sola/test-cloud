@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsNotEmpty,
   IsNumber,
@@ -41,7 +42,7 @@ export class ReleaseRuntimeConfigDto {
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  @Max(120_000)
+  @Max(300_000)
   aiTimeoutMs?: number;
 
   @IsOptional()
@@ -148,6 +149,10 @@ export class CreateReleaseAutomationJobDto {
   @IsString()
   @MaxLength(512)
   environmentFilePath?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  environmentToSql?: boolean;
 
   @IsOptional()
   @IsString()

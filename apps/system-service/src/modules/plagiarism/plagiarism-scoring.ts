@@ -50,8 +50,10 @@ export function expandContext(
 export function calculateDensity(match: RawPlagiarismMatch, context: MatchContext): DensityResult {
   const sourceLength = context.sourceContextEnd - context.sourceContextStart;
   const targetLength = context.targetContextEnd - context.targetContextStart;
-  const sourceDensity = sourceLength === 0 ? 0 : match.length / sourceLength;
-  const targetDensity = targetLength === 0 ? 0 : match.length / targetLength;
+  const sourceMatchLength = match.sourceEnd - match.sourceStart;
+  const targetMatchLength = match.targetEnd - match.targetStart;
+  const sourceDensity = sourceLength === 0 ? 0 : sourceMatchLength / sourceLength;
+  const targetDensity = targetLength === 0 ? 0 : targetMatchLength / targetLength;
   return {
     sourceDensity,
     targetDensity,
@@ -60,7 +62,7 @@ export function calculateDensity(match: RawPlagiarismMatch, context: MatchContex
 }
 
 export function calculateLengthScore(length: number): number {
-  if (length < 6) return 0;
+  if (length < 5) return 0;
   if (length < 10) return 0.3;
   if (length < 16) return 0.6;
   if (length < 30) return 0.85;
@@ -84,7 +86,11 @@ export function validateMatch(
   densityScoreWeight: number,
 ): MatchValidation {
   const density = calculateDensity(match, context);
-  const lengthScore = calculateLengthScore(match.length);
+  const matchLength = Math.min(
+    match.sourceEnd - match.sourceStart,
+    match.targetEnd - match.targetStart,
+  );
+  const lengthScore = calculateLengthScore(matchLength);
   const densityScore = calculateDensityScore(density.density);
   const score = lengthScore * lengthScoreWeight + densityScore * densityScoreWeight;
   return {

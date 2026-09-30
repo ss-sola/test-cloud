@@ -12,6 +12,7 @@ export interface OpenAiCompatibleRequest {
   maxPromptCharacters: number;
   maxResponseCharacters: number;
   temperature?: number;
+  onFailure?: (reason: string) => void;
 }
 
 export type OpenAiCompatibleFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;

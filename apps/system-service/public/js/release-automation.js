@@ -8,7 +8,7 @@
   const STAGE_LABELS = {
     planned: '计划已创建',
     preflight_blocked: '前置条件阻断',
-    branch_plan_ready: '远程分支计划',
+    branch_plan_ready: 'GitHub PR 已准备',
     candidate_prepared: '候选版本冻结',
     jenkins_queued: 'Jenkins 排队',
     jenkins_running: 'Jenkins 验证与打包',
@@ -19,14 +19,14 @@
     release_tag_created: 'tag 已创建',
     modify_log_clear_pending: '等待清空 modify-log.sql',
     cleanup_pending: '等待清理',
-    manual_intervention: '需要人工处理',
+    manual_intervention: '等待 GitHub PR 合并',
     'partial-success': '部分完成',
     completed: '已完成',
     failed: '失败',
   }
   const EXECUTION_TASKS = [
     ['git-tag', '创建 Git tag（已存在则跳过）'],
-    ['github-merge', 'GitHub Merge API 合并 dev/master → 目标分支'],
+    ['github-merge', '提交/复用 GitHub PR（dev/master → 目标分支）'],
     ['jenkins', 'Jenkins API 校验并打包，获取 Pipeline tag'],
     ['modify-log', '读取并归档 modify-log SQL'],
     ['feishu', 'Feishu 文档输出（当前未接通）'],
@@ -36,11 +36,13 @@
   function mount(root) {
     if (!(root instanceof HTMLElement)) return
     const form = root.querySelector('#release-automation-form')
-    const branch = root.querySelector('#release-target-branch')
+    const branch = root.querySelector('#release-jenkins-branch')
+    const targetBranch = root.querySelector('#release-target-branch')
     const gitAddress = root.querySelector('#release-git-address')
     const gitTag = root.querySelector('#release-git-tag')
     const tagMarker = root.querySelector('#release-jenkins-tag-marker')
     const environmentPath = root.querySelector('#release-environment-path')
+    const environmentToSql = root.querySelector('#release-environment-to-sql')
     const modifyLogPath = root.querySelector('#release-modify-log-path')
     const submit = root.querySelector('#release-automation-submit')
     const progress = root.querySelector('#release-automation-progress')
@@ -54,9 +56,11 @@
     const error = root.querySelector('#release-automation-error')
 
     if (!(form instanceof HTMLFormElement) || !(branch instanceof HTMLInputElement)
+      || !(targetBranch instanceof HTMLInputElement)
       || !(gitAddress instanceof HTMLInputElement) || !(gitTag instanceof HTMLInputElement)
       || !(tagMarker instanceof HTMLInputElement)
       || !(environmentPath instanceof HTMLInputElement)
+      || !(environmentToSql instanceof HTMLInputElement)
       || !(modifyLogPath instanceof HTMLInputElement)
       || !(submit instanceof HTMLButtonElement)
       || !(progress instanceof HTMLElement) || !(stageLabel instanceof HTMLElement)
@@ -76,8 +80,18 @@
         const raw = window.localStorage.getItem(STORAGE_KEY)
         const value = raw ? JSON.parse(raw) : null
         if (!value || typeof value !== 'object') return null
-        if (typeof value.targetBranch !== 'string' || typeof value.gitAddress !== 'string' || typeof value.gitTag !== 'string') return null
-        return value
+        if (typeof value.gitAddress !== 'string' || typeof value.gitTag !== 'string') return null
+        const legacyBranch = typeof value.branch === 'string' ? value.branch.trim() : ''
+        const savedTargetBranch = typeof value.targetBranch === 'string' ? value.targetBranch.trim() : ''
+        const resolvedTargetBranch = savedTargetBranch || legacyBranch
+        if (!resolvedTargetBranch) return null
+        return {
+          ...value,
+          schemaVersion: 2,
+          branch: legacyBranch || resolvedTargetBranch,
+          targetBranch: resolvedTargetBranch,
+          migratedFromLegacyBranch: !savedTargetBranch,
+        }
       } catch { return null }
     }
 
@@ -85,7 +99,9 @@
       try {
         const raw = window.localStorage.getItem(TOKEN_STORAGE_KEY)
         const value = raw ? JSON.parse(raw) : null
-        if (!value || typeof value !== 'object') return {}
+        if (!value || typeof value !== 'object') {
+          return { ai: { baseUrl: '', apiKey: '', model: '' } }
+        }
         return {
           githubToken: typeof value.githubToken === 'string' ? value.githubToken : '',
           jenkinsBaseUrl: typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : '',
@@ -100,7 +116,7 @@
               }
             : { baseUrl: '', apiKey: '', model: '' },
         }
-      } catch { return {} }
+      } catch { return { ai: { baseUrl: '', apiKey: '', model: '' } } }
     }
 
     function writeDraft(value) {
@@ -115,9 +131,14 @@
       gitAddress.value = value.gitAddress || ''
       gitTag.value = value.gitTag || ''
       tagMarker.value = value.jenkinsTagMarker || ''
-      branch.value = value.targetBranch || value.branch || ''
+      branch.value = value.branch || value.targetBranch || ''
+      targetBranch.value = value.targetBranch || value.branch || ''
       environmentPath.value = value.environmentFilePath || ''
-      modifyLogPath.value = value.modifyLogPath || 'modify-log.sql'
+      environmentToSql.checked = value.environmentToSql === true
+      const storedModifyLogPath = typeof value.modifyLogPath === 'string' ? value.modifyLogPath.trim() : ''
+      modifyLogPath.value = !storedModifyLogPath || storedModifyLogPath === 'modify-log.sql'
+        ? '.version/modify-log.sql'
+        : storedModifyLogPath
     }
 
     function persistConfig() {
@@ -127,8 +148,10 @@
         gitAddress: gitAddress.value.trim(),
         gitTag: gitTag.value.trim(),
         jenkinsTagMarker: tagMarker.value.trim(),
-        targetBranch: branch.value.trim(),
+        branch: branch.value.trim(),
+        targetBranch: targetBranch.value.trim(),
         environmentFilePath: environmentPath.value.trim(),
+        environmentToSql: environmentToSql.checked,
         modifyLogPath: modifyLogPath.value.trim(),
         selectedTasks: [...selectedTasks],
       })
@@ -147,10 +170,12 @@
     function setBusy(value) {
       submit.disabled = value
       branch.disabled = value
+      targetBranch.disabled = value
       gitAddress.disabled = value
       gitTag.disabled = value
       tagMarker.disabled = value
       environmentPath.disabled = value
+      environmentToSql.disabled = value
       modifyLogPath.disabled = value
       progress.hidden = false
       progress.setAttribute('aria-busy', String(value))
@@ -195,18 +220,28 @@
       status.className = `status-badge status-badge--${stage === 'completed' ? 'ready' : stage.includes('failed') || stage.includes('blocked') || stage === 'manual_intervention' ? 'error' : 'loading'}`
       bar.style.width = `${percent}%`
       bar.setAttribute('aria-valuenow', String(percent))
-      message.textContent = typeof current.message === 'string' ? current.message : '服务端正在处理。'
-      const logs = Array.isArray(data.logs) ? data.logs : Array.isArray(current.logs) ? current.logs : []
+      const baseMessage = typeof current.message === 'string' ? current.message : '服务端正在处理。'
+      const pullRequest = current.pullRequest && typeof current.pullRequest === 'object'
+        ? current.pullRequest
+        : null
+      const pullRequestNumber = Number.isInteger(pullRequest?.number) ? `#${pullRequest.number}` : ''
+      const pullRequestUrl = typeof pullRequest?.url === 'string' ? pullRequest.url : ''
+      message.textContent = pullRequestUrl
+        ? `${baseMessage} PR ${pullRequestNumber}：${pullRequestUrl}`
+        : baseMessage
+      const rawLogs = Array.isArray(data.logs) ? data.logs : Array.isArray(current.logs) ? current.logs : []
+      const logs = rawLogs.slice(-500)
       if (logs.length > 0) {
         logOutput.textContent = logs.map((entry) => {
-          if (typeof entry === 'string') return entry
+          if (typeof entry === 'string') return entry.slice(0, 1000)
           const time = typeof entry.timestamp === 'string' ? entry.timestamp : ''
           const level = typeof entry.level === 'string' ? entry.level.toUpperCase() : 'INFO'
-          const text = typeof entry.message === 'string' ? entry.message : ''
+          const text = typeof entry.message === 'string' ? entry.message.slice(0, 1000) : ''
           return `[${time}] [${level}] ${text}`
         }).join('\n')
         logOutput.scrollTop = logOutput.scrollHeight
-      }      if (typeof data.jobId === 'string') {
+      }
+      if (typeof data.jobId === 'string') {
         jobId = data.jobId
         jobLabel.textContent = `Job: ${jobId}`
         jobLabel.dataset.jobId = jobId
@@ -262,7 +297,7 @@
           body: JSON.stringify({
             gitAddress: gitAddress.value.trim(),
             branch: branch.value.trim(),
-            targetBranch: branch.value.trim(),
+            targetBranch: targetBranch.value.trim(),
             gitTag: gitTag.value.trim(),
             mode: 'apply',
             githubToken: tokens.githubToken,
@@ -270,6 +305,7 @@
             jenkinsBaseUrl: tokens.jenkinsBaseUrl,
             jenkinsTagMarker: tagMarker.value.trim(),
             environmentFilePath: environmentPath.value.trim(),
+            environmentToSql: environmentToSql.checked,
             modifyLogPath: modifyLogPath.value.trim(),
             feishuAppId: tokens.feishuAppId,
             feishuAppSecret: tokens.feishuAppSecret,
@@ -287,8 +323,10 @@
           gitAddress: gitAddress.value.trim(),
           gitTag: gitTag.value.trim(),
           jenkinsTagMarker: tagMarker.value.trim(),
-          targetBranch: branch.value.trim(),
+          branch: branch.value.trim(),
+          targetBranch: targetBranch.value.trim(),
           environmentFilePath: environmentPath.value.trim(),
+          environmentToSql: environmentToSql.checked,
           modifyLogPath: modifyLogPath.value.trim(),
           selectedTasks: [...selectedTasks],
           idempotencyKey,
@@ -329,7 +367,8 @@
 
     renderTaskList()
     form.addEventListener('submit', createJob)
-    ;[gitAddress, gitTag, branch, tagMarker]
+    environmentToSql.addEventListener('change', persistConfig)
+    ;[gitAddress, gitTag, branch, targetBranch, tagMarker]
       .forEach((field) => field.addEventListener('input', persistConfig))
     void resumeDraft()
 

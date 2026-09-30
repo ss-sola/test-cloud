@@ -1,24 +1,21 @@
-# modify-log SQL 与清空门
+# modify-log SQL 与归档边界
 
-`ModifyLogGatewayService` 只读取 basename 为 `modify-log.sql` 的受控文件，限制字节数、行数和控制字符。输入支持结构化 JSONL，或受控的 `INSERT`、`UPDATE`、`DELETE` 基本语句；未知动作、原始 SQL、危险标识符、未转义值和无 WHERE 的更新/删除都会拒绝。
+`ModifyLogGatewayService` 通过 GitHub Contents API 读取发布 ref 中的仓库相对路径，页面默认路径为 `.version/modify-log.sql`。服务端不从 `process.cwd()`、本地工作区或同名本地文件读取。
 
-`VersionSqlRenderer`：
+apply 流程只有在新的 Job 完成 GitHub PR 阶段后才会进入 modify-log；PR 未合并的 Job 不读取、不归档、不清空 SQL。读取到的 SQL 原文参与发布 Markdown 事实，服务端不解析、不执行 SQL，也不以本地文件保存业务状态。
 
-1. 按 `occurredAt`、`sequence` 和稳定记录键排序；
-2. 只生成白名单动作和引号标识符；
-3. 使用 SQL 字符串转义；
-4. 写入版本、source checksum、记录数、generator version 和 release unit 元数据；
-5. 不执行 SQL。
+## GitHub 更新日志
 
-`ModifyLogArchiveService.archive` 先写随机临时文件并 fsync，再 rename 到版本稳定路径；重新读取并 SHA-256 校验后才生成 `eligible-to-clear` metadata。归档失败或 checksum 不一致不会改变源文件。
+更新日志写入当前发布的 `targetBranch`：
 
-## compare-and-clear
+```text
+update-log/{previousTag}-{currentTag}.md
+```
 
-清空必须同时满足：
+同名文件内容 checksum 未变化时返回 `unchanged`，内容变化时携带现有 GitHub 文件 SHA 更新。dry-run 只生成预览，不发起 GitHub PUT；GitHub 409/422 冲突会阻断 release-docs。
 
-- `mode=apply`；
-- 独立一次性 confirmation token；
-- archive ID、版本、Job ID、source path、原始 checksum、generation 全部匹配；
-- 当前文件仍名为 `modify-log.sql`，读取 checksum 与归档一致。
+可选的 env → `sys_config` 转换会把新增或变更变量的写入 SQL 附在同一 Markdown 的“各服务迁移 SQL”段落中；删除项与未变化项不生成语句。SQL 仅包含 `key`、`value`、`type`、`description` 配置数据，不包含建表语句或时间戳列；敏感 env 值按配置明文进入 GitHub update-log。该转换仅生成 SQL，不执行 SQL；原 modify-log 仍按原文读取并原样纳入发布说明。
 
-通过后只 truncate 原始 `modify-log.sql`，不删除 SQL artifact，不执行数据库 SQL。dry-run 永不清空。重复成功调用返回 `already-cleared`；文件被追加、替换或 token 被消费时拒绝并保留原文件。
+## 清空边界
+
+当前发布流程不执行本地清空，也不调用 GitHub 写接口删除或截断源文件。GitHub 来源的 modify-log 只能被读取并纳入发布事实；旧的 compare-and-clear 兼容接口仍会拒绝 GitHub 来源，避免误操作远程仓库文件。
