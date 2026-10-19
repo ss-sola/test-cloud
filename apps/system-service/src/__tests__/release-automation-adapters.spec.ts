@@ -219,6 +219,250 @@ describe('release automation remote adapters', () => {
     );
   });
 
+  it('reads commit details including the parent and changed-file identity', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      response(
+        200,
+        JSON.stringify({
+          sha: 'commit-sha',
+          commit: { message: 'docs: update log v1 -> v2', tree: { sha: 'tree-sha' } },
+          parents: [{ sha: 'parent-sha' }],
+          files: [{ filename: 'update-log/v1-v2.md', sha: 'blob-sha', status: 'modified' }],
+        }),
+      ),
+    );
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+
+    await expect(client.getCommitDetails('acme/project', 'commit-sha', config())).resolves.toEqual({
+      sha: 'commit-sha',
+      message: 'docs: update log v1 -> v2',
+      treeSha: 'tree-sha',
+      parents: ['parent-sha'],
+      files: [{ path: 'update-log/v1-v2.md', sha: 'blob-sha', status: 'modified' }],
+    });
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/repos/acme/project/commits/commit-sha');
+  });
+
+  it('creates Git Data objects with the requested tree and sole parent', async () => {
+    const content = '# replacement update-log\n';
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(201, JSON.stringify({ sha: 'blob-sha' })))
+      .mockResolvedValueOnce(
+        response(
+          201,
+          JSON.stringify({
+            sha: 'tree-sha',
+            tree: [{ path: 'update-log/v1-v2.md', mode: '100644', type: 'blob', sha: 'blob-sha' }],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          201,
+          JSON.stringify({
+            sha: 'replacement-sha',
+            tree: { sha: 'tree-sha' },
+            parents: [{ sha: 'parent-sha' }],
+          }),
+        ),
+      );
+    const client = new GitHubReleaseClientService({
+      config: config({ githubMaxRetries: 2 }),
+      fetchImpl,
+    });
+    const sideEffectGate = 'gate-' + 'x'.repeat(20);
+
+    await expect(
+      client.createBlob(
+        { repository: 'acme/project', content, mode: 'apply', sideEffectGate },
+        config(),
+      ),
+    ).resolves.toEqual({ sha: 'blob-sha' });
+    await expect(
+      client.createTree(
+        {
+          repository: 'acme/project',
+          baseTreeSha: 'parent-tree-sha',
+          path: 'update-log/v1-v2.md',
+          blobSha: 'blob-sha',
+          mode: 'apply',
+          sideEffectGate,
+        },
+        config(),
+      ),
+    ).resolves.toEqual({ sha: 'tree-sha' });
+    await expect(
+      client.createCommit(
+        {
+          repository: 'acme/project',
+          message: 'docs: replace update-log',
+          treeSha: 'tree-sha',
+          parentSha: 'parent-sha',
+          mode: 'apply',
+          sideEffectGate,
+        },
+        config(),
+      ),
+    ).resolves.toEqual({ sha: 'replacement-sha' });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/repos/acme/project/git/blobs');
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({
+      content: Buffer.from(content, 'utf8').toString('base64'),
+      encoding: 'base64',
+    });
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('/repos/acme/project/git/trees');
+    expect(JSON.parse(String(fetchImpl.mock.calls[1][1]?.body))).toEqual({
+      base_tree: 'parent-tree-sha',
+      tree: [{ path: 'update-log/v1-v2.md', mode: '100644', type: 'blob', sha: 'blob-sha' }],
+    });
+    expect(String(fetchImpl.mock.calls[2][0])).toContain('/repos/acme/project/git/commits');
+    expect(JSON.parse(String(fetchImpl.mock.calls[2][1]?.body))).toMatchObject({
+      message: 'docs: replace update-log',
+      tree: 'tree-sha',
+      parents: ['parent-sha'],
+    });
+  });
+
+  it('rejects a created tree that does not contain the expected blob', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      response(
+        201,
+        JSON.stringify({
+          sha: 'wrong-tree',
+          tree: [{ path: 'README.md', mode: '100644', type: 'blob', sha: 'wrong-blob' }],
+        }),
+      ),
+    );
+    const client = new GitHubReleaseClientService({ config: config(), fetchImpl });
+
+    await expect(
+      client.createTree(
+        {
+          repository: 'acme/project',
+          baseTreeSha: 'parent-tree',
+          path: 'update-log/v1-v2.md',
+          blobSha: 'expected-blob',
+          mode: 'apply',
+          sideEffectGate: 'gate-' + 'x'.repeat(20),
+        },
+        config(),
+      ),
+    ).rejects.toThrow('结构无效');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('force-updates only the expected source branch head and does not retry', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify({
+            ref: 'refs/heads/feature/release',
+            object: { sha: 'old-head', type: 'commit' },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          200,
+          JSON.stringify({
+            ref: 'refs/heads/feature/release',
+            object: { sha: 'new-head', type: 'commit' },
+          }),
+        ),
+      );
+    const client = new GitHubReleaseClientService({
+      config: config({ githubMaxRetries: 2 }),
+      fetchImpl,
+    });
+    const sideEffectGate = 'gate-' + 'x'.repeat(20);
+
+    await expect(
+      client.updateBranchRef(
+        {
+          repository: 'acme/project',
+          branch: 'feature/release',
+          sha: 'new-head',
+          expectedSha: 'old-head',
+          mode: 'apply',
+          sideEffectGate,
+        },
+        config({ githubMaxRetries: 2 }),
+      ),
+    ).resolves.toMatchObject({ ref: 'refs/heads/feature/release', sha: 'new-head' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/git/ref/heads/feature/release');
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('/git/refs/heads/feature/release');
+    expect(fetchImpl.mock.calls[1][1]).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(String(fetchImpl.mock.calls[1][1]?.body))).toEqual({
+      sha: 'new-head',
+      force: true,
+    });
+
+    const driftFetch = vi.fn().mockResolvedValueOnce(
+      response(
+        200,
+        JSON.stringify({
+          ref: 'refs/heads/feature/release',
+          object: { sha: 'manual-head', type: 'commit' },
+        }),
+      ),
+    );
+    const driftClient = new GitHubReleaseClientService({ config: config(), fetchImpl: driftFetch });
+    await expect(
+      driftClient.updateBranchRef(
+        {
+          repository: 'acme/project',
+          branch: 'feature/release',
+          sha: 'replacement',
+          expectedSha: 'old-head',
+          mode: 'apply',
+          sideEffectGate,
+        },
+        config(),
+      ),
+    ).rejects.toThrow('已变化');
+    expect(driftFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('guards Git Data writes with the apply gate and does not retry failures', async () => {
+    const dryRunFetch = vi.fn();
+    const dryRunClient = new GitHubReleaseClientService({
+      config: config(),
+      fetchImpl: dryRunFetch,
+    });
+    await expect(
+      dryRunClient.createBlob(
+        { repository: 'acme/project', content: '# update-log', mode: 'dry-run' },
+        config(),
+      ),
+    ).rejects.toThrow('apply gate');
+    expect(dryRunFetch).not.toHaveBeenCalled();
+
+    const failingFetch = vi
+      .fn()
+      .mockResolvedValueOnce(response(500, JSON.stringify({ message: 'error' })));
+    const failingClient = new GitHubReleaseClientService({
+      config: config({ githubMaxRetries: 2 }),
+      fetchImpl: failingFetch,
+    });
+    await expect(
+      failingClient.createBlob(
+        {
+          repository: 'acme/project',
+          content: '# update-log',
+          mode: 'apply',
+          sideEffectGate: 'gate-' + 'x'.repeat(20),
+        },
+        config({ githubMaxRetries: 2 }),
+      ),
+    ).rejects.toThrow('HTTP 500');
+    expect(failingFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('creates, updates, and skips unchanged GitHub update-log files', async () => {
     const content = '# update log\n';
     const encoded = Buffer.from(content, 'utf8').toString('base64');
@@ -540,6 +784,7 @@ describe('release automation remote adapters', () => {
       config({
         jenkinsTriggerPath: '/job/override/buildWithParameters',
         jenkinsToken: 'runtime-token',
+        jenkinsBranch: 'release/target',
       }),
     );
     expect(result).toMatchObject({
@@ -551,6 +796,9 @@ describe('release automation remote adapters', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(String(fetchImpl.mock.calls[0][0])).not.toContain('Authorization sentinel');
     expect(String(fetchImpl.mock.calls[0][0])).toContain('/job/override/buildWithParameters');
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get('branch')).toBe(
+      'release/target',
+    );
     expect(fetchImpl.mock.calls[0][1]?.headers).toMatchObject({
       Authorization: `Basic ${Buffer.from('root:runtime-token').toString('base64')}`,
     });

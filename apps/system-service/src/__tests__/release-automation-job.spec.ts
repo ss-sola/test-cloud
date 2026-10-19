@@ -27,13 +27,13 @@ describe('release automation job idempotency', () => {
       idempotencyKey: 'release-test-001',
       plan: {
         repository: 'acme/project',
+        currentBranch: 'feature/release',
         targetBranch: 'release/v1',
         candidateSha: 'a'.repeat(40),
         gitTag: 'release/版本 tag',
         mode: 'dry-run' as const,
         pageConfig: {
           gitAddress: 'https://github.com/acme/project.git',
-          branch: 'release/v1',
           githubToken: '',
           jenkinsToken: '',
           jenkinsBaseUrl: '',
@@ -52,6 +52,12 @@ describe('release automation job idempotency', () => {
       service.create({
         ...first,
         plan: { ...first.plan, candidateSha: 'b'.repeat(40) },
+      }),
+    ).rejects.toThrow('payload 不一致');
+    await expect(
+      service.create({
+        ...first,
+        plan: { ...first.plan, currentBranch: 'hotfix/release' },
       }),
     ).rejects.toThrow('payload 不一致');
   });

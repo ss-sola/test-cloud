@@ -8,22 +8,39 @@ import type { EnvDiffEntry, EnvDiffResult } from './release-automation.types';
 interface ParsedEnvValue {
   normalized: string;
   sensitive: boolean;
+  description?: string;
 }
 
+/** 解析 ENV 值，并将紧邻的整行 # 注释合并为描述。 */
 export function parseEnv(text: string): Map<string, ParsedEnvValue> {
   const result = new Map<string, ParsedEnvValue>();
+  let pendingComments: string[] = [];
   for (const rawLine of text.replace(/^﻿/, '').split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
+    if (!line) {
+      pendingComments = [];
+      continue;
+    }
+    if (line.startsWith('#')) {
+      const comment = line.slice(1).trim();
+      if (comment) pendingComments.push(comment);
+      continue;
+    }
     const assignment = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-    if (!assignment) continue;
+    if (!assignment) {
+      pendingComments = [];
+      continue;
+    }
     const key = assignment[1];
     const rawValue = assignment[2].trim();
     const normalized = normalizeEnvValue(rawValue);
+    const description = pendingComments.join(' ');
     result.set(key, {
       normalized,
       sensitive: RELEASE_AUTOMATION_SENSITIVE_KEY_PATTERN.test(key),
+      ...(description ? { description } : {}),
     });
+    pendingComments = [];
   }
   return result;
 }

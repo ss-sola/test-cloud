@@ -17,7 +17,7 @@
     docs_ready: '更新文档已准备',
     feishu_failed: '飞书输出失败',
     release_tag_created: 'tag 已创建',
-    modify_log_clear_pending: '等待清空 modify-log.sql',
+    modify_log_read: '读取 modify-log SQL',
     cleanup_pending: '等待清理',
     manual_intervention: '等待 GitHub PR 合并',
     'partial-success': '部分完成',
@@ -26,17 +26,17 @@
   }
   const EXECUTION_TASKS = [
     ['git-tag', '创建 Git tag（已存在则跳过）'],
-    ['github-merge', '提交/复用 GitHub PR（dev/master → 目标分支）'],
+    ['modify-log', '读取并纳入发布 Markdown'],
+    ['github-merge', '提交/复用 GitHub PR（当前分支 → 目标分支）'],
     ['jenkins', 'Jenkins API 校验并打包，获取 Pipeline tag'],
-    ['modify-log', '读取并归档 modify-log SQL'],
     ['feishu', 'Feishu 文档输出（当前未接通）'],
   ]
-  const DEFAULT_EXECUTION_TASKS = new Set(['git-tag', 'github-merge', 'jenkins', 'release-docs', 'modify-log'])
+  const DEFAULT_EXECUTION_TASKS = new Set(['git-tag', 'modify-log', 'github-merge', 'jenkins', 'release-docs'])
 
   function mount(root) {
     if (!(root instanceof HTMLElement)) return
     const form = root.querySelector('#release-automation-form')
-    const branch = root.querySelector('#release-jenkins-branch')
+    const branch = root.querySelector('#release-current-branch')
     const targetBranch = root.querySelector('#release-target-branch')
     const gitAddress = root.querySelector('#release-git-address')
     const gitTag = root.querySelector('#release-git-tag')
@@ -81,16 +81,14 @@
         const value = raw ? JSON.parse(raw) : null
         if (!value || typeof value !== 'object') return null
         if (typeof value.gitAddress !== 'string' || typeof value.gitTag !== 'string') return null
-        const legacyBranch = typeof value.branch === 'string' ? value.branch.trim() : ''
+        const currentBranch = typeof value.branch === 'string' ? value.branch.trim() : ''
         const savedTargetBranch = typeof value.targetBranch === 'string' ? value.targetBranch.trim() : ''
-        const resolvedTargetBranch = savedTargetBranch || legacyBranch
-        if (!resolvedTargetBranch) return null
+        if (!currentBranch && !savedTargetBranch) return null
         return {
           ...value,
-          schemaVersion: 2,
-          branch: legacyBranch || resolvedTargetBranch,
-          targetBranch: resolvedTargetBranch,
-          migratedFromLegacyBranch: !savedTargetBranch,
+          schemaVersion: 3,
+          branch: currentBranch || savedTargetBranch,
+          targetBranch: savedTargetBranch,
         }
       } catch { return null }
     }
@@ -131,8 +129,8 @@
       gitAddress.value = value.gitAddress || ''
       gitTag.value = value.gitTag || ''
       tagMarker.value = value.jenkinsTagMarker || ''
-      branch.value = value.branch || value.targetBranch || ''
-      targetBranch.value = value.targetBranch || value.branch || ''
+      branch.value = value.branch || ''
+      targetBranch.value = value.targetBranch || ''
       environmentPath.value = value.environmentFilePath || ''
       environmentToSql.checked = value.environmentToSql === true
       const storedModifyLogPath = typeof value.modifyLogPath === 'string' ? value.modifyLogPath.trim() : ''

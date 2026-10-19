@@ -21,6 +21,7 @@ function createRecord(
     payloadHash: 'e'.repeat(64),
     releaseUnit: {
       repository: 'acme/project',
+      currentBranch: 'feature/release',
       targetBranch: 'custom/prod',
       gitTag: 'release/版本 tag',
       version: '1.9.0',
@@ -28,7 +29,6 @@ function createRecord(
     mode,
     pageConfig: {
       gitAddress: 'https://github.com/acme/project.git',
-      branch: 'custom/prod',
       githubToken: '',
       jenkinsToken: '',
       jenkinsBaseUrl: '',
@@ -45,6 +45,7 @@ function createRecord(
       updatedAt: now,
       releaseUnit: {
         repository: 'acme/project',
+        currentBranch: 'feature/release',
         targetBranch: 'custom/prod',
         gitTag: 'release/版本 tag',
         version: '1.9.0',
@@ -56,7 +57,7 @@ function createRecord(
   };
 }
 
-function createFakeService() {
+function createFakeService(events: string[] = []) {
   const pullRequestCalls: Array<{
     sourceBranch: string;
     targetBranch: string;
@@ -70,12 +71,24 @@ function createFakeService() {
     title: 'Release 1.9.0',
     state: 'open' as const,
     baseBranch: 'custom/prod',
-    headBranch: 'dev/master',
+    headBranch: 'feature/release',
     headSha: sourceSha,
+  };
+  const modifyLogPreparation = {
+    sourceChecksum: 'a'.repeat(64),
+    generation: 'generation',
+    recordCount: 0,
+    sql: '-- sql',
+    artifact: null,
   };
   const fake = {
     ensureTag: vi.fn().mockResolvedValue({ status: 'created', sha: sourceSha }),
+    findMergedPullRequest: vi.fn().mockImplementation(async () => {
+      events.push('merged-pr-check');
+      return undefined;
+    }),
     getBranchRef: vi.fn(({ branch }: { branch: string }) => {
+      events.push('pr-ref');
       const sha = branch === 'custom/prod' ? targetSha : sourceSha;
       return Promise.resolve({ ref: `refs/heads/${branch}`, sha });
     }),
@@ -87,6 +100,7 @@ function createFakeService() {
         expectedSourceSha?: string;
         mode: 'dry-run' | 'apply';
       }) => {
+        events.push('pr-submit');
         pullRequestCalls.push(options);
         return Promise.resolve({
           status: options.mode === 'dry-run' ? ('planned' as const) : ('submitted' as const),
@@ -98,41 +112,51 @@ function createFakeService() {
         });
       },
     ),
-    packageWithJenkins: vi.fn(),
-    prepareModifyLog: vi.fn().mockResolvedValue({
-      sourceChecksum: 'a'.repeat(64),
-      generation: 'generation',
-      recordCount: 0,
-      sql: '-- sql',
-      artifact: null,
+    packageWithJenkins: vi.fn().mockResolvedValue({ status: 'verified', pipelineTag: 'build-tag' }),
+    prepareModifyLog: vi.fn().mockImplementation(async () => {
+      events.push('modify-log');
+      return modifyLogPreparation;
     }),
   };
-  return { fake, pullRequestCalls, pullRequest };
+  return { fake, pullRequestCalls, pullRequest, modifyLogPreparation };
 }
 
-function createFakeDocsService(markdown = '# 发布说明\n') {
+function createFakeDocsService(markdown = '# 发布说明\n', events: string[] = []) {
   return {
-    generate: vi.fn().mockResolvedValue({
-      status: 'degraded',
-      repository: 'acme/project',
-      previousTag: 'release/previous',
-      currentTag: 'release/版本 tag',
-      previousSha: 'c'.repeat(40),
-      resolvedSha: 'd'.repeat(40),
-      commitCount: 1,
-      mergeCommitCount: 0,
-      markdown,
-      markdownChecksum: 'f'.repeat(64),
-      degraded: true,
-      warnings: ['test fallback'],
-    }),
+    generate: vi
+      .fn()
+      .mockImplementation(
+        async ({ publish }: { publish?: { mode: 'dry-run' | 'apply' }; modifyLog?: unknown }) => {
+          events.push('release-docs');
+          return {
+            status: 'degraded',
+            repository: 'acme/project',
+            previousTag: 'release/previous',
+            currentTag: 'release/版本 tag',
+            previousSha: 'c'.repeat(40),
+            resolvedSha: 'd'.repeat(40),
+            commitCount: 1,
+            mergeCommitCount: 0,
+            markdown,
+            markdownChecksum: 'f'.repeat(64),
+            degraded: true,
+            warnings: ['test fallback'],
+            publication: {
+              status: publish?.mode === 'dry-run' ? ('planned' as const) : ('created' as const),
+              path: 'update-log/release-previous-release.md',
+              branch: 'feature/release',
+            },
+          };
+        },
+      ),
   };
 }
 
 describe('release automation Git execution', () => {
-  it('submits a PR after the tag and stops apply before post-merge steps', async () => {
-    const { fake, pullRequestCalls, pullRequest } = createFakeService();
-    const docs = createFakeDocsService();
+  it('publishes update-log before PR and stops apply before post-merge steps', async () => {
+    const events: string[] = [];
+    const { fake, pullRequestCalls, pullRequest, modifyLogPreparation } = createFakeService(events);
+    const docs = createFakeDocsService(undefined, events);
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
       docs as never,
@@ -145,16 +169,32 @@ describe('release automation Git execution', () => {
     });
 
     expect(error).toBeNull();
-    expect(docs.generate).not.toHaveBeenCalled();
+    expect(docs.generate).toHaveBeenCalledOnce();
+    expect(docs.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ modifyLog: modifyLogPreparation }),
+    );
+    expect(events).toEqual([
+      'modify-log',
+      'merged-pr-check',
+      'release-docs',
+      'pr-ref',
+      'pr-ref',
+      'pr-submit',
+    ]);
+    expect(record.progress.releaseDocs?.publication).toMatchObject({
+      status: 'created',
+      path: 'update-log/release-previous-release.md',
+      branch: 'feature/release',
+    });
     expect(fake.packageWithJenkins).not.toHaveBeenCalled();
-    expect(fake.prepareModifyLog).not.toHaveBeenCalled();
+    expect(fake.prepareModifyLog).toHaveBeenCalledOnce();
     expect(fake.ensureTag).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceBranch: 'dev/master',
+        sourceBranch: 'feature/release',
         mode: 'apply',
       }),
     );
-    expect(pullRequestCalls.map(({ sourceBranch }) => sourceBranch)).toEqual(['dev/master']);
+    expect(pullRequestCalls.map(({ sourceBranch }) => sourceBranch)).toEqual(['feature/release']);
     expect(pullRequestCalls[0]).toMatchObject({
       expectedTargetSha: targetSha,
       expectedSourceSha: sourceSha,
@@ -176,10 +216,39 @@ describe('release automation Git execution', () => {
     expect(logText).not.toContain('runtime-token');
   });
 
+  it('blocks PR work when modify-log cannot be read', async () => {
+    const events: string[] = [];
+    const { fake } = createFakeService(events);
+    fake.prepareModifyLog.mockImplementationOnce(async () => {
+      events.push('modify-log');
+      throw new Error('modify-log unavailable');
+    });
+    const docs = createFakeDocsService(undefined, events);
+    const service = new ReleaseAutomationExecutionService(
+      fake as unknown as ReleaseAutomationService,
+      docs as never,
+    );
+    const record = createRecord('apply');
+
+    const error = await service.execute(record, async () => {});
+
+    expect(error).toMatchObject({ code: 'MODIFY_LOG_FAILED', retryable: false });
+    expect(events).toEqual(['modify-log']);
+    expect(docs.generate).not.toHaveBeenCalled();
+    expect(fake.findMergedPullRequest).not.toHaveBeenCalled();
+    expect(fake.getBranchRef).not.toHaveBeenCalled();
+    expect(fake.createOrReusePullRequest).not.toHaveBeenCalled();
+    expect(record.progress.taskStatuses).toMatchObject({
+      'modify-log': 'blocked',
+      'github-merge': 'pending',
+    });
+  });
+
   it('stops post-PR steps when GitHub reports a merge conflict', async () => {
-    const { fake, pullRequest } = createFakeService();
+    const events: string[] = [];
+    const { fake, pullRequest } = createFakeService(events);
     Object.assign(pullRequest, { mergeable: false, mergeableState: 'dirty' });
-    const docs = createFakeDocsService();
+    const docs = createFakeDocsService(undefined, events);
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
       docs as never,
@@ -193,9 +262,21 @@ describe('release automation Git execution', () => {
 
     expect(error).toBeNull();
     expect(record.error).toBeNull();
+    expect(docs.generate).toHaveBeenCalledOnce();
+    expect(events).toEqual([
+      'modify-log',
+      'merged-pr-check',
+      'release-docs',
+      'pr-ref',
+      'pr-ref',
+      'pr-submit',
+    ]);
+    expect(record.progress.releaseDocs?.publication).toMatchObject({
+      status: 'created',
+      path: 'update-log/release-previous-release.md',
+    });
     expect(fake.packageWithJenkins).not.toHaveBeenCalled();
-    expect(fake.prepareModifyLog).not.toHaveBeenCalled();
-    expect(docs.generate).not.toHaveBeenCalled();
+    expect(fake.prepareModifyLog).toHaveBeenCalledOnce();
     expect(progress.at(-1)).toMatchObject({
       stage: 'manual_intervention',
       taskStatuses: { 'github-merge': 'blocked' },
@@ -226,11 +307,63 @@ describe('release automation Git execution', () => {
     });
     expect(progress.at(-1)?.message).not.toContain('合并冲突');
   });
-  it('keeps dry-run Git steps planned and never asks for apply mode', async () => {
-    const { fake, pullRequestCalls } = createFakeService();
+  it('continues after finding the merged release PR and builds the target branch', async () => {
+    const events: string[] = [];
+    const { fake, pullRequest } = createFakeService(events);
+    const mergedPullRequest = {
+      ...pullRequest,
+      state: 'closed' as const,
+      mergedAt: '2026-09-29T10:00:00Z',
+    };
+    fake.findMergedPullRequest.mockImplementationOnce(async () => {
+      events.push('merged-pr-check');
+      return mergedPullRequest;
+    });
     const docs = createFakeDocsService();
+    const service = new ReleaseAutomationExecutionService(
+      fake as unknown as ReleaseAutomationService,
+      docs as never,
+    );
+    const record = createRecord('apply', ['git-tag', 'github-merge', 'jenkins']);
+    record.pageConfig!.jenkinsBaseUrl = 'https://jenkins.example.com/job/package';
+    record.pageConfig!.jenkinsToken = 'jenkins-token';
+    record.pageConfig!.jenkinsTagMarker = 'image-name';
+    const progress: ReleaseProgress[] = [];
+
+    const error = await service.execute(record, async (next) => {
+      progress.push(next);
+    });
+
+    expect(error).toBeNull();
+    expect(fake.prepareModifyLog).toHaveBeenCalledOnce();
+    expect(events).toEqual(['modify-log', 'merged-pr-check']);
+    expect(fake.findMergedPullRequest).toHaveBeenCalledWith({
+      repository: 'acme/project',
+      sourceBranch: 'feature/release',
+      targetBranch: 'custom/prod',
+      releaseTag: 'release/版本 tag',
+      config: expect.any(Object),
+    });
+    expect(docs.generate).not.toHaveBeenCalled();
+    expect(fake.createOrReusePullRequest).not.toHaveBeenCalled();
+    expect(fake.packageWithJenkins).toHaveBeenCalledWith(
+      expect.objectContaining({ jenkinsBranch: 'custom/prod' }),
+    );
+    expect(progress.at(-1)).toMatchObject({ stage: 'completed', percent: 100 });
+    expect(record.progress.taskStatuses).toMatchObject({
+      'github-merge': 'succeeded',
+      'release-docs': 'succeeded',
+      jenkins: 'succeeded',
+    });
+  });
+
+  it('keeps dry-run Git steps planned and never asks for apply mode', async () => {
+    const events: string[] = [];
+    const { fake, pullRequestCalls } = createFakeService(events);
+    const docs = createFakeDocsService(undefined, events);
     fake.ensureTag.mockResolvedValue({ status: 'planned', sha: sourceSha });
     fake.createOrReusePullRequest.mockImplementation((options) => {
+      events.push('pr-submit');
       pullRequestCalls.push(options);
       return Promise.resolve({
         status: 'planned' as const,
@@ -252,6 +385,8 @@ describe('release automation Git execution', () => {
     });
 
     expect(error).toBeNull();
+    expect(events).toEqual(['modify-log', 'release-docs', 'pr-ref', 'pr-ref', 'pr-submit']);
+    expect(record.progress.releaseDocs?.publication).toMatchObject({ status: 'planned' });
     expect(docs.generate).toHaveBeenCalledWith(
       expect.objectContaining({
         publish: { mode: 'dry-run', sideEffectGate: record.idempotencyKey },
@@ -269,7 +404,9 @@ describe('release automation Git execution', () => {
 
   it('does not persist env SQL markdown to job progress when enabled', async () => {
     const { fake } = createFakeService();
-    const docs = createFakeDocsService("INSERT INTO sys_config VALUES ('SECRET_TOKEN', 'secret-value');");
+    const docs = createFakeDocsService(
+      "INSERT INTO sys_config VALUES ('SECRET_TOKEN', 'secret-value');",
+    );
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
       docs as never,
@@ -291,10 +428,14 @@ describe('release automation Git execution', () => {
     expect(logText).not.toContain('secret-value');
   });
 
-  it('blocks the target when PR submission fails', async () => {
-    const { fake, pullRequestCalls } = createFakeService();
-    const docs = createFakeDocsService();
-    fake.createOrReusePullRequest.mockRejectedValueOnce(new Error('GitHub PR has conflicts'));
+  it('blocks the target when PR submission fails after publishing docs', async () => {
+    const events: string[] = [];
+    const { fake } = createFakeService(events);
+    const docs = createFakeDocsService(undefined, events);
+    fake.createOrReusePullRequest.mockImplementationOnce(async () => {
+      events.push('pr-submit');
+      throw new Error('GitHub PR has conflicts');
+    });
     const service = new ReleaseAutomationExecutionService(
       fake as unknown as ReleaseAutomationService,
       docs as never,
@@ -307,8 +448,21 @@ describe('release automation Git execution', () => {
     });
 
     expect(error).toMatchObject({ code: 'GITHUB_PR_FAILED', retryable: false });
+    expect(docs.generate).toHaveBeenCalledOnce();
+    expect(events).toEqual([
+      'modify-log',
+      'merged-pr-check',
+      'release-docs',
+      'pr-ref',
+      'pr-ref',
+      'pr-submit',
+    ]);
+    expect(record.progress.releaseDocs?.publication).toMatchObject({
+      status: 'created',
+      path: 'update-log/release-previous-release.md',
+    });
     expect(fake.createOrReusePullRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceBranch: 'dev/master', targetBranch: 'custom/prod' }),
+      expect.objectContaining({ sourceBranch: 'feature/release', targetBranch: 'custom/prod' }),
     );
     expect(progress.at(-1)).toMatchObject({
       stage: 'preflight_blocked',

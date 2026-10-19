@@ -49,6 +49,7 @@ describe('modify-log deterministic SQL', () => {
       records: [],
       releaseUnit: {
         repository: 'owner/repository with spaces',
+        currentBranch: 'feature/release',
         targetBranch: 'main/release candidate',
         gitTag: 'release tag/非标准',
         candidateSha: 'candidate SHA',

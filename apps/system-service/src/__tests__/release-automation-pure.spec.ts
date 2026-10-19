@@ -1,7 +1,10 @@
 import { validateSync } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { CreateReleaseAutomationJobDto } from '../modules/release-automation/dto/release-automation.dto';
-import { parseJenkinsJobUrl, readReleaseAutomationConfig } from '../modules/release-automation/release-automation.config';
+import {
+  parseJenkinsJobUrl,
+  readReleaseAutomationConfig,
+} from '../modules/release-automation/release-automation.config';
 import { diffEnv, normalizeEnvValue, parseEnv } from '../modules/release-automation/env-diff.util';
 import { renderEnvConfigSql } from '../modules/release-automation/env-sql.renderer';
 import { RELEASE_AUTOMATION_REDACTED_VALUE } from '../modules/release-automation/release-automation.constants';
@@ -37,6 +40,44 @@ describe('release automation pure security and ENV rules', () => {
     expect(redactSensitiveText('token=secret-value')).not.toContain('secret-value');
   });
 
+  it('attaches contiguous comments to the next ENV assignment', () => {
+    const values = parseEnv(
+      [
+        '# database host',
+        '# primary endpoint',
+        'export DATABASE_URL=https://db.example',
+        '',
+        '# detached comment',
+        '',
+        'BLANK=value',
+        'BROKEN LINE',
+        '# inline comment marker is still value data',
+        'NAME=value # inline is data',
+        '# first description',
+        'DUPLICATE=old',
+        '# final description',
+        'DUPLICATE=new',
+      ].join('\n'),
+    );
+
+    expect(values.get('DATABASE_URL')).toEqual({
+      normalized: 'https://db.example',
+      sensitive: false,
+      description: 'database host primary endpoint',
+    });
+    expect(values.get('BLANK')).toEqual({ normalized: 'value', sensitive: false });
+    expect(values.get('NAME')).toEqual({
+      normalized: 'value # inline is data',
+      sensitive: false,
+      description: 'inline comment marker is still value data',
+    });
+    expect(values.get('DUPLICATE')).toEqual({
+      normalized: 'new',
+      sensitive: false,
+      description: 'final description',
+    });
+  });
+
   it('renders only added and changed env values as sorted sys_config upserts', () => {
     const sql = renderEnvConfigSql(
       'CHANGED=old\nREMOVED=gone\nSAME=stable\n',
@@ -52,8 +93,29 @@ describe('release automation pure security and ENV rules', () => {
     expect(sql).not.toContain('SAME');
     expect(sql).not.toContain('CREATE TABLE');
     expect(sql).not.toContain('created_at');
+    const statements = sql.split(/\r?\n/);
+    expect(statements).toHaveLength(5);
+    expect(
+      statements.every(
+        (statement) => statement.startsWith('INSERT INTO') && statement.endsWith(';'),
+      ),
+    ).toBe(true);
     expect(sql.indexOf('CHANGED')).toBeLessThan(sql.indexOf('EMPTY'));
     expect(() => renderEnvConfigSql('', `${'A'.repeat(129)}=value`)).toThrow('sys_config.key');
+  });
+
+  it('updates sys_config description when comments change without an ENV value change', () => {
+    const after = "# Owner's path C:\\release\n# Used by application\nFEATURE_ENABLED=true\n";
+    const sql = renderEnvConfigSql('FEATURE_ENABLED=true\n', after);
+
+    expect(sql).toContain(
+      "VALUES ('FEATURE_ENABLED', 'true', 'string', 'Owner''s path C:\\\\release Used by application')",
+    );
+    expect(sql.split(/\r?\n/)).toHaveLength(1);
+    expect(renderEnvConfigSql(after, after)).toBe('');
+    expect(renderEnvConfigSql(after, 'FEATURE_ENABLED=true\n')).toContain(
+      "VALUES ('FEATURE_ENABLED', 'true', 'string', '')",
+    );
   });
 
   it('validates the env SQL option as a boolean and defaults it off', () => {
@@ -75,7 +137,6 @@ describe('release automation pure security and ENV rules', () => {
 
     const pageConfig = {
       gitAddress: 'https://github.com/acme/project.git',
-      branch: 'release',
       githubToken: '',
       jenkinsToken: '',
       jenkinsBaseUrl: '',
@@ -83,9 +144,10 @@ describe('release automation pure security and ENV rules', () => {
       feishuAppSecret: '',
     };
     expect(readReleaseAutomationConfig(pageConfig).environmentToSql).toBe(false);
-    expect(readReleaseAutomationConfig({ ...pageConfig, environmentToSql: true }).environmentToSql).toBe(
-      true,
-    );
+    expect(readReleaseAutomationConfig(pageConfig).jenkinsBranch).toBeUndefined();
+    expect(
+      readReleaseAutomationConfig({ ...pageConfig, environmentToSql: true }).environmentToSql,
+    ).toBe(true);
   });
 
   it('redacts credentials and query data from URL error details', () => {

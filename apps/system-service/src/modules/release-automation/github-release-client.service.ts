@@ -55,6 +55,7 @@ export interface GitHubContentsWriteOptions {
   commitMessage: string;
   mode: ReleaseMode;
   sideEffectGate?: string;
+  expectedBlobSha?: string | null;
 }
 
 export interface GitHubContentsWriteResult {
@@ -64,6 +65,42 @@ export interface GitHubContentsWriteResult {
   commitSha?: string;
   blobSha?: string;
   checksum: string;
+}
+
+export interface GitHubCommitDetails {
+  sha: string;
+  message: string;
+  treeSha: string;
+  parents: string[];
+  files: Array<{ path: string; sha: string | null; status: string }>;
+}
+
+interface GitHubGitWriteOptions {
+  repository: string;
+  mode: ReleaseMode;
+  sideEffectGate?: string;
+}
+
+export interface GitHubCreateBlobOptions extends GitHubGitWriteOptions {
+  content: string;
+}
+
+export interface GitHubCreateTreeOptions extends GitHubGitWriteOptions {
+  baseTreeSha: string;
+  path: string;
+  blobSha: string;
+}
+
+export interface GitHubCreateCommitOptions extends GitHubGitWriteOptions {
+  message: string;
+  treeSha: string;
+  parentSha: string;
+}
+
+export interface GitHubUpdateBranchRefOptions extends GitHubGitWriteOptions {
+  branch: string;
+  sha: string;
+  expectedSha: string;
 }
 
 export interface GitHubCommitsOptions {
@@ -109,6 +146,9 @@ export interface GitHubPullRequestsOptions {
   repository: string;
   base: string;
   head: string;
+  state?: 'open' | 'closed';
+  perPage?: number;
+  maxPages?: number;
   config?: ReleaseAutomationConfig;
 }
 
@@ -218,6 +258,16 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       if (!(error instanceof GitHubApiException) || error.getStatus() !== 404) throw error;
     }
     const checksum = sha256(options.content);
+    if (
+      options.expectedBlobSha !== undefined &&
+      (existing?.sha ?? null) !== options.expectedBlobSha
+    ) {
+      throw new GitHubApiException('GitHub 文件已变化，拒绝覆盖。', {
+        status: 409,
+        retryable: false,
+        operation: '校验 GitHub 文件',
+      });
+    }
     if (existing?.checksum === checksum) {
       return {
         status: 'unchanged',
@@ -293,6 +343,186 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       if (payload.length < perPage) break;
     }
     return commits;
+  }
+
+  /** 读取提交的父提交和变更文件，供 update-log 恢复前校验。 */
+  async getCommitDetails(
+    repositoryInput: string,
+    commitSha: string,
+    config?: ReleaseAutomationConfig,
+  ): Promise<GitHubCommitDetails> {
+    const repository = this.assertRepository(repositoryInput);
+    const payload = await this.request<unknown>(
+      'GET',
+      `/repos/${this.encodePath(repository.slug)}/commits/${encodeURIComponent(commitSha)}`,
+      '读取 GitHub commit 详情',
+      undefined,
+      config,
+    );
+    if (
+      !isRecord(payload) ||
+      payload.sha !== commitSha ||
+      !isRecord(payload.commit) ||
+      typeof payload.commit.message !== 'string' ||
+      !isRecord(payload.commit.tree) ||
+      typeof payload.commit.tree.sha !== 'string' ||
+      !Array.isArray(payload.parents) ||
+      !Array.isArray(payload.files)
+    ) {
+      throw this.invalidResponse('读取 GitHub commit 详情');
+    }
+    const parents = payload.parents.map((parent: unknown) => {
+      if (!isRecord(parent) || typeof parent.sha !== 'string') {
+        throw this.invalidResponse('读取 GitHub commit 详情');
+      }
+      return parent.sha;
+    });
+    const files = payload.files.map((file: unknown) => {
+      if (!isRecord(file) || typeof file.filename !== 'string' || typeof file.status !== 'string') {
+        throw this.invalidResponse('读取 GitHub commit 详情');
+      }
+      return {
+        path: file.filename,
+        sha: typeof file.sha === 'string' ? file.sha : null,
+        status: file.status,
+      };
+    });
+    return {
+      sha: payload.sha,
+      message: payload.commit.message,
+      treeSha: payload.commit.tree.sha,
+      parents,
+      files,
+    };
+  }
+
+  /** 在 GitHub 中创建发布 Markdown blob，不修改分支引用。 */
+  async createBlob(
+    options: GitHubCreateBlobOptions,
+    config?: ReleaseAutomationConfig,
+  ): Promise<{ sha: string }> {
+    this.assertWriteGate(options.mode, options.sideEffectGate);
+    const repository = this.assertRepository(options.repository);
+    const response = await this.requestWithStatus(
+      'POST',
+      `/repos/${this.encodePath(repository.slug)}/git/blobs`,
+      '创建 GitHub blob',
+      { content: Buffer.from(options.content, 'utf8').toString('base64'), encoding: 'base64' },
+      [201],
+      false,
+      config,
+    );
+    const payload = parseJson(response.text);
+    if (!isRecord(payload) || typeof payload.sha !== 'string') {
+      throw this.invalidResponse('创建 GitHub blob');
+    }
+    return { sha: payload.sha };
+  }
+
+  /** 基于指定父 tree 替换 update-log 的单个文件 entry。 */
+  async createTree(
+    options: GitHubCreateTreeOptions,
+    config?: ReleaseAutomationConfig,
+  ): Promise<{ sha: string }> {
+    this.assertWriteGate(options.mode, options.sideEffectGate);
+    const repository = this.assertRepository(options.repository);
+    const path = this.assertFilePath(options.path);
+    const response = await this.requestWithStatus(
+      'POST',
+      `/repos/${this.encodePath(repository.slug)}/git/trees`,
+      '创建 GitHub tree',
+      {
+        base_tree: options.baseTreeSha,
+        tree: [{ path, mode: '100644', type: 'blob', sha: options.blobSha }],
+      },
+      [201],
+      false,
+      config,
+    );
+    const payload = parseJson(response.text);
+    if (!isRecord(payload) || typeof payload.sha !== 'string' || !Array.isArray(payload.tree)) {
+      throw this.invalidResponse('创建 GitHub tree');
+    }
+    const file = payload.tree.find((item: unknown) => isRecord(item) && item.path === path);
+    if (
+      !isRecord(file) ||
+      file.mode !== '100644' ||
+      file.type !== 'blob' ||
+      file.sha !== options.blobSha
+    ) {
+      throw this.invalidResponse('创建 GitHub tree');
+    }
+    return { sha: payload.sha };
+  }
+
+  /** 创建只包含指定 parent 的 replacement commit。 */
+  async createCommit(
+    options: GitHubCreateCommitOptions,
+    config?: ReleaseAutomationConfig,
+  ): Promise<{ sha: string }> {
+    this.assertWriteGate(options.mode, options.sideEffectGate);
+    const repository = this.assertRepository(options.repository);
+    if (!options.message || options.message.length > 256 || hasControlCharacter(options.message)) {
+      throw new ProjectException('GitHub commit 消息无效。', 400);
+    }
+    const response = await this.requestWithStatus(
+      'POST',
+      `/repos/${this.encodePath(repository.slug)}/git/commits`,
+      '创建 GitHub commit',
+      { message: options.message, tree: options.treeSha, parents: [options.parentSha] },
+      [201],
+      false,
+      config,
+    );
+    const payload = parseJson(response.text);
+    if (
+      !isRecord(payload) ||
+      typeof payload.sha !== 'string' ||
+      !isRecord(payload.tree) ||
+      payload.tree.sha !== options.treeSha ||
+      !Array.isArray(payload.parents) ||
+      payload.parents.length !== 1 ||
+      !isRecord(payload.parents[0]) ||
+      payload.parents[0].sha !== options.parentSha
+    ) {
+      throw this.invalidResponse('创建 GitHub commit');
+    }
+    return { sha: payload.sha };
+  }
+
+  /** 仅在 source ref 未漂移时强制更新到 replacement commit。 */
+  async updateBranchRef(
+    options: GitHubUpdateBranchRefOptions,
+    config?: ReleaseAutomationConfig,
+  ): Promise<GitHubRef> {
+    this.assertWriteGate(options.mode, options.sideEffectGate);
+    const repository = this.assertRepository(options.repository);
+    const branch = this.assertRef(options.branch);
+    const expectedRef = `refs/heads/${branch}`;
+    const current = await this.getRef(repository.slug, `heads/${branch}`, config);
+    if (current.ref !== expectedRef || current.sha !== options.expectedSha) {
+      throw new ProjectException('GitHub source branch 已变化，拒绝替换 commit。', 409);
+    }
+    const response = await this.requestWithStatus(
+      'PATCH',
+      `/repos/${this.encodePath(repository.slug)}/git/refs/${this.encodePath(`heads/${branch}`)}`,
+      '替换 GitHub source branch ref',
+      { sha: options.sha, force: true },
+      [200],
+      false,
+      config,
+    );
+    const payload = parseJson(response.text);
+    if (
+      !isRecord(payload) ||
+      payload.ref !== expectedRef ||
+      !isRecord(payload.object) ||
+      payload.object.sha !== options.sha ||
+      payload.object.type !== 'commit'
+    ) {
+      throw this.invalidResponse('替换 GitHub source branch ref');
+    }
+    return { ref: payload.ref, sha: payload.object.sha, objectType: payload.object.type };
   }
 
   async getRef(
@@ -404,25 +634,32 @@ export class GitHubReleaseClientService extends RemoteClientBase {
     const repository = this.assertRepository(options.repository);
     const base = this.assertRef(options.base);
     const head = this.assertRef(options.head);
-    const query = new URLSearchParams({
-      state: 'open',
-      head: `${repository.owner}:${head}`,
-      base,
-      per_page: '100',
-    });
-    const payload = await this.request<unknown>(
-      'GET',
-      `/repos/${this.encodePath(repository.slug)}/pulls?${query.toString()}`,
-      '查询 GitHub Pull Request',
-      undefined,
-      options.config,
-    );
-    if (!Array.isArray(payload)) throw this.invalidResponse('查询 GitHub Pull Request');
+    const perPage = this.boundInteger(options.perPage ?? 100, 1, 100);
+    const maxPages = this.boundInteger(options.maxPages ?? 1, 1, 100);
+    const state = options.state ?? 'open';
     const pullRequests: ReleasePullRequest[] = [];
-    for (const item of payload) {
-      const pullRequest = this.parsePullRequest(item);
-      if (!pullRequest) throw this.invalidResponse('查询 GitHub Pull Request');
-      pullRequests.push(pullRequest);
+    for (let page = 1; page <= maxPages; page += 1) {
+      const query = new URLSearchParams({
+        state,
+        head: `${repository.owner}:${head}`,
+        base,
+        per_page: String(perPage),
+        page: String(page),
+      });
+      const payload = await this.request<unknown>(
+        'GET',
+        `/repos/${this.encodePath(repository.slug)}/pulls?${query.toString()}`,
+        '查询 GitHub Pull Request',
+        undefined,
+        options.config,
+      );
+      if (!Array.isArray(payload)) throw this.invalidResponse('查询 GitHub Pull Request');
+      for (const item of payload) {
+        const pullRequest = this.parsePullRequest(item);
+        if (!pullRequest) throw this.invalidResponse('查询 GitHub Pull Request');
+        pullRequests.push(pullRequest);
+      }
+      if (payload.length < perPage) break;
     }
     return pullRequests;
   }
@@ -505,7 +742,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
   }
 
   private async requestWithStatus(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH',
     path: string,
     operation: string,
     body: unknown,
@@ -703,6 +940,7 @@ export class GitHubReleaseClientService extends RemoteClientBase {
       url: value.html_url,
       title: value.title,
       state,
+      mergedAt: typeof value.merged_at === 'string' ? value.merged_at : undefined,
       baseBranch: base.ref,
       headBranch: head.ref,
       headSha: head.sha,

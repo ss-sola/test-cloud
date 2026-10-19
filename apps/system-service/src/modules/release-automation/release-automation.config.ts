@@ -94,7 +94,6 @@ function applyPageOverrides(config: ReleaseAutomationConfig, overrides?: Release
   config.githubToken = overrides.githubToken.trim() || undefined;
   config.jenkinsToken = overrides.jenkinsToken.trim() || undefined;
   config.jenkinsProjectName = overrides.projectName?.trim() || undefined;
-  config.jenkinsBranch = overrides.branch.trim() || undefined;
   const jenkinsJob = overrides.jenkinsBaseUrl.trim()
     ? parseJenkinsJobUrl(overrides.jenkinsBaseUrl.trim())
     : undefined;

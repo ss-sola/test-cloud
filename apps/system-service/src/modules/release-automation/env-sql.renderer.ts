@@ -7,24 +7,41 @@ export function renderEnvConfigSql(beforeText: string, afterText: string): strin
   const after = parseEnv(afterText);
 
   return [...after.entries()]
-    .filter(([key, value]) => before.get(key)?.normalized !== value.normalized)
+    .filter(([key, value]) => {
+      const previous = before.get(key);
+      return (
+        !previous ||
+        previous.normalized !== value.normalized ||
+        previous.description !== value.description
+      );
+    })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => {
       if (key.length > 128) throw new Error('环境变量名称超过 sys_config.key 长度限制。');
-      return renderConfigEntry(key, value.normalized, inferType(value.normalized));
+      return renderConfigEntry(
+        key,
+        value.normalized,
+        inferType(value.normalized),
+        value.description ?? '',
+      );
     })
     .join('\n');
 }
 
-function renderConfigEntry(key: string, value: string, type: SysConfigType): string {
+function renderConfigEntry(
+  key: string,
+  value: string,
+  type: SysConfigType,
+  description: string,
+): string {
   return [
     'INSERT INTO `sys_config` (`key`, `value`, `type`, `description`)',
-    `VALUES (${quoteSqlString(key)}, ${quoteSqlString(value)}, ${quoteSqlString(type)}, '')`,
+    `VALUES (${quoteSqlString(key)}, ${quoteSqlString(value)}, ${quoteSqlString(type)}, ${quoteSqlString(description)})`,
     'ON DUPLICATE KEY UPDATE',
     '  `value` = VALUES(`value`),',
     '  `type` = VALUES(`type`),',
     '  `description` = VALUES(`description`);',
-  ].join('\n');
+  ].join(' ');
 }
 
 function inferType(value: string): SysConfigType {

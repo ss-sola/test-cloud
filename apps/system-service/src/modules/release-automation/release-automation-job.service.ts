@@ -72,6 +72,7 @@ export class ReleaseAutomationJobService {
     const mode = input.plan.mode ?? defaultMode;
     const releaseUnit = {
       repository,
+      currentBranch: input.plan.currentBranch,
       targetBranch: input.plan.targetBranch,
       gitTag,
       ...(input.plan.candidateSha ? { candidateSha: input.plan.candidateSha.toLowerCase() } : {}),

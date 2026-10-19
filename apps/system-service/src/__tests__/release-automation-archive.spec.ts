@@ -11,6 +11,7 @@ import type {
 
 const releaseUnit: ReleaseUnit = {
   repository: 'acme/project',
+  currentBranch: 'feature/release',
   targetBranch: 'custom/prod',
   candidateSha: 'a'.repeat(40),
   version: '1.9.0',

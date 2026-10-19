@@ -1,7 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { isJenkinsReady, readReleaseAutomationConfig } from './release-automation.config';
 import { ReleaseDocsService } from './release-docs.service';
-import { RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH } from './release-automation.constants';
 import { payloadHash, redactSensitiveText } from './release-automation.security';
 import { ReleaseAutomationService, type ModifyLogPreparation } from './release-automation.service';
 import type {
@@ -17,10 +16,10 @@ import type {
 
 const ALL_RELEASE_TASKS: ReleaseTaskKey[] = [
   'git-tag',
+  'modify-log',
   'github-merge',
   'jenkins',
   'release-docs',
-  'modify-log',
 ];
 
 type ReleaseAutomationConfig = ReturnType<typeof readReleaseAutomationConfig>;
@@ -40,6 +39,7 @@ type ExecutionContext = {
   expectedTargetSha?: string;
   expectedSourceSha?: string;
   pullRequest?: ReleasePullRequest;
+  mergedPullRequest?: ReleasePullRequest;
 };
 
 interface TaskProgressOptions {
@@ -183,6 +183,24 @@ export class ReleaseAutomationExecutionService {
     );
     await this.runLoggedStep(
       context,
+      '读取 modify-log SQL',
+      () => this.executeModifyLogStep(context),
+      'modify-log',
+    );
+    await this.runLoggedStep(
+      context,
+      '检查已合并 Pull Request',
+      () => this.detectMergedPullRequestStep(context),
+      'github-merge',
+    );
+    await this.runLoggedStep(
+      context,
+      '生成并发布更新日志',
+      () => this.executeReleaseDocsStep(context),
+      'release-docs',
+    );
+    await this.runLoggedStep(
+      context,
       '读取 PR 前分支',
       () => this.preparePullRequestStep(context),
       'github-merge',
@@ -199,7 +217,11 @@ export class ReleaseAutomationExecutionService {
       () => this.finalizePullRequestStep(context),
       'github-merge',
     );
-    if (context.record.mode === 'apply' && context.selected.has('github-merge')) {
+    if (
+      context.record.mode === 'apply' &&
+      context.selected.has('github-merge') &&
+      !context.mergedPullRequest
+    ) {
       await this.runLoggedStep(
         context,
         '等待 GitHub PR 合并',
@@ -213,18 +235,6 @@ export class ReleaseAutomationExecutionService {
       '执行 Jenkins 打包',
       () => this.executeJenkinsStep(context),
       'jenkins',
-    );
-    await this.runLoggedStep(
-      context,
-      '读取 modify-log SQL',
-      () => this.executeModifyLogStep(context),
-      'modify-log',
-    );
-    await this.runLoggedStep(
-      context,
-      '生成并发布更新日志',
-      () => this.executeReleaseDocsStep(context),
-      'release-docs',
     );
     await this.runLoggedStep(
       context,
@@ -298,7 +308,7 @@ export class ReleaseAutomationExecutionService {
       const result = await this.releaseService.ensureTag({
         repository: context.record.releaseUnit.repository,
         tag: context.tag!,
-        sourceBranch: RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+        sourceBranch: context.record.releaseUnit.currentBranch,
         mode: context.record.mode,
         sideEffectGate: context.sideEffectGate,
         config: context.config,
@@ -321,9 +331,34 @@ export class ReleaseAutomationExecutionService {
     }
   }
 
-  /** 读取 PR 目标和固定来源分支的初始 SHA，并检查发布快照是否漂移。 */
+  /** 合并后重跑时识别当前版本已合并的 Pull Request。 */
+  private async detectMergedPullRequestStep(context: ExecutionContext): Promise<void> {
+    if (context.record.mode !== 'apply') return;
+    try {
+      const pullRequest = await this.releaseService.findMergedPullRequest({
+        repository: context.record.releaseUnit.repository,
+        sourceBranch: context.record.releaseUnit.currentBranch,
+        targetBranch: context.record.releaseUnit.targetBranch,
+        releaseTag: context.tag!,
+        config: context.config,
+      });
+      if (!pullRequest) return;
+      context.mergedPullRequest = pullRequest;
+      context.pullRequest = pullRequest;
+      context.record.progress.pullRequest = pullRequest;
+      await appendExecutionLog(
+        context,
+        `GitHub PR：#${pullRequest.number} ${pullRequest.url} 已合并，将继续执行后续任务。`,
+      );
+    } catch (error) {
+      context.taskStatuses['github-merge'] = 'blocked';
+      this.throwPullRequestError(error);
+    }
+  }
+
+  /** 读取 PR 目标和当前分支的初始 SHA，并检查发布快照是否漂移。 */
   private async preparePullRequestStep(context: ExecutionContext): Promise<void> {
-    if (!context.selected.has('github-merge')) return;
+    if (!context.selected.has('github-merge') || context.mergedPullRequest) return;
     try {
       const [target, source] = await Promise.all([
         this.releaseService.getBranchRef({
@@ -333,7 +368,7 @@ export class ReleaseAutomationExecutionService {
         }),
         this.releaseService.getBranchRef({
           repository: context.record.releaseUnit.repository,
-          branch: RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+          branch: context.record.releaseUnit.currentBranch,
           config: context.config,
         }),
       ]);
@@ -341,7 +376,7 @@ export class ReleaseAutomationExecutionService {
       context.expectedSourceSha = source.sha;
       await appendExecutionLog(
         context,
-        `GitHub ref 已读取：${context.record.releaseUnit.targetBranch}=${target.sha}，${RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH}=${source.sha}。`,
+        `GitHub ref 已读取：${context.record.releaseUnit.currentBranch}=${source.sha}，${context.record.releaseUnit.targetBranch}=${target.sha}。`,
       );
     } catch (error) {
       context.taskStatuses['github-merge'] = 'blocked';
@@ -351,12 +386,12 @@ export class ReleaseAutomationExecutionService {
 
   /** 创建或复用唯一的 open PR，不执行本地 Git 或远程合并。 */
   private async submitPullRequestStep(context: ExecutionContext): Promise<void> {
-    if (!context.selected.has('github-merge')) return;
+    if (!context.selected.has('github-merge') || context.mergedPullRequest) return;
     try {
       const result = await this.releaseService.createOrReusePullRequest({
         repository: context.record.releaseUnit.repository,
         targetBranch: context.record.releaseUnit.targetBranch,
-        sourceBranch: RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+        sourceBranch: context.record.releaseUnit.currentBranch,
         releaseTag: context.tag,
         mode: context.record.mode,
         sideEffectGate: context.sideEffectGate,
@@ -388,12 +423,17 @@ export class ReleaseAutomationExecutionService {
   })
   private async finalizePullRequestStep(context: ExecutionContext): Promise<void> {
     if (!context.selected.has('github-merge')) return;
+    if (context.mergedPullRequest) {
+      context.taskStatuses['github-merge'] = 'succeeded';
+      context.progressMessage = `GitHub PR #${context.mergedPullRequest.number} 已合并，将继续执行后续任务。`;
+      return;
+    }
     const conflicted = isPullRequestConflicted(context.pullRequest);
     context.taskStatuses['github-merge'] =
       context.record.mode === 'dry-run' ? 'planned' : conflicted ? 'blocked' : 'succeeded';
     context.progressMessage =
       context.record.mode === 'dry-run'
-        ? `${RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH} → ${context.record.releaseUnit.targetBranch} 的 PR 计划已生成，dry-run 未创建 PR。`
+        ? `${context.record.releaseUnit.currentBranch} → ${context.record.releaseUnit.targetBranch} 的 PR 计划已生成，dry-run 未创建 PR。`
         : conflicted
           ? `GitHub PR #${context.pullRequest?.number ?? 'unknown'} 检测到不可合并状态，已拒绝继续执行。`
           : `GitHub PR #${context.pullRequest?.number ?? 'unknown'} 已${context.pullRequest ? '提交/复用' : '准备'}，等待人工审核并合并。`;
@@ -409,8 +449,8 @@ export class ReleaseAutomationExecutionService {
   private async pauseForPullRequestStep(context: ExecutionContext): Promise<void> {
     context.progressMessage = context.pullRequest
       ? isPullRequestConflicted(context.pullRequest)
-        ? `GitHub PR #${context.pullRequest.number} 存在合并冲突或不可合并状态，已拒绝继续执行。请在 GitHub 解决冲突并重新提交发布任务；不会触发 Jenkins、modify-log 或 Feishu。`
-        : `请在 GitHub 审核并合并 PR #${context.pullRequest.number}（${context.pullRequest.url}）。PR 合并前不会触发 Jenkins、modify-log 或 Feishu；合并后需重新提交发布任务。`
+        ? `GitHub PR #${context.pullRequest.number} 存在合并冲突或不可合并状态，已拒绝继续执行。请在 GitHub 解决冲突并重新提交发布任务；modify-log 已读取，Jenkins 和 Feishu 不会执行。`
+        : `请在 GitHub 审核并合并 PR #${context.pullRequest.number}（${context.pullRequest.url}）。modify-log 已读取并随 update-log 提交到当前分支；PR 合并前不会触发 Jenkins 或 Feishu；合并后请重提相同 release unit，新 Job 会识别已合并 PR 并继续执行。`
       : '请在 GitHub 完成 Pull Request 人工处理；当前任务不会继续后续发布步骤。';
   }
   /** 执行 Jenkins 打包，并校验最终 Pipeline 结果。 */
@@ -429,7 +469,10 @@ export class ReleaseAutomationExecutionService {
         'Jenkins 凭据或完整 Pipeline endpoint 待配置，保持 blocked。',
       );
     }
-    const result = await this.releaseService.packageWithJenkins(context.config!);
+    const result = await this.releaseService.packageWithJenkins({
+      ...context.config!,
+      jenkinsBranch: context.record.releaseUnit.targetBranch,
+    });
     if (result.status !== 'verified') {
       context.taskStatuses.jenkins = 'blocked';
       this.throwStepError('JENKINS_FAILED', result.reason ?? 'Jenkins 打包失败.');
@@ -451,6 +494,11 @@ export class ReleaseAutomationExecutionService {
   })
   private async executeReleaseDocsStep(context: ExecutionContext): Promise<void> {
     if (!context.selected.has('release-docs')) return;
+    if (context.mergedPullRequest) {
+      context.taskStatuses['release-docs'] = 'succeeded';
+      context.progressMessage = `update-log 已随已合并 PR #${context.mergedPullRequest.number} 发布，跳过重复写入。`;
+      return;
+    }
     if (!this.releaseDocsService || !context.record.releaseDocs) {
       context.taskStatuses['release-docs'] = 'blocked';
       this.throwStepError('RELEASE_DOCS_INPUT_MISSING', '发布文档配置未完整提供。');
@@ -462,6 +510,7 @@ export class ReleaseAutomationExecutionService {
         config: context.config!,
         runtime: context.record.runtime,
         input: context.record.releaseDocs,
+        modifyLog: context.modifyLog,
         publish: {
           mode: context.record.mode,
           sideEffectGate: context.sideEffectGate,
@@ -507,10 +556,10 @@ export class ReleaseAutomationExecutionService {
     }
   }
 
-  /** 读取并渲染 modify-log，apply 时归档 SQL，dry-run 只生成预览。 */
+  /** 读取 modify-log SQL，供发布 Markdown 复用。 */
   @TaskProgress({
-    stage: 'modify_log_clear_pending',
-    percent: 75,
+    stage: 'modify_log_read',
+    percent: 25,
     task: 'modify-log',
     message: (context) => context.progressMessage ?? 'modify-log SQL 已准备。',
   })
@@ -579,7 +628,7 @@ export class ReleaseAutomationExecutionService {
   }
 
   /** 将已知 step 异常转换为结构化 Job 错误并推进失败进度。 */
-  private handleExecutionError(
+  private async handleExecutionError(
     record: ReleaseJobRecord,
     update: (progress: ReleaseProgress) => Promise<void>,
     error: unknown,
@@ -588,13 +637,12 @@ export class ReleaseAutomationExecutionService {
     const taskStatuses = (record.progress.taskStatuses ??
       buildTaskStatuses(new Set(record.selectedTasks ?? ALL_RELEASE_TASKS))) as TaskStatuses;
     record.progress.taskStatuses = taskStatuses;
-    return publishProgress(update, record, error.stage, 0, error.message, taskStatuses).then(
-      () => ({
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable,
-      }),
-    );
+    await publishProgress(update, record, error.stage, 0, error.message, taskStatuses);
+    return {
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+    };
   }
 
   /** 将 ref 漂移、PR 冲突或远程 PR 异常转换为统一错误。 */

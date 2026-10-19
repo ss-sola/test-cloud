@@ -320,16 +320,20 @@ describe('release automation menu contract', () => {
     expect(script).toContain('environmentToSql: environmentToSql.checked');
     expect(script).toContain("environmentToSql.addEventListener('change', persistConfig)");
     expect(fragment).toContain(
-      'id="release-jenkins-branch" name="branch" required maxlength="256"',
+      'id="release-current-branch" name="branch" required maxlength="256"',
     );
+    expect(fragment).toContain('当前分支');
+    expect(fragment).toContain('tag、发布 Markdown 和 GitHub PR 的来源分支');
     expect(fragment).toContain(
       'id="release-target-branch" name="targetBranch" required maxlength="256"',
     );
     expect(fragment).not.toMatch(/id="release-target-branch"[^>]*\spattern=/);
     expect(fragment).not.toMatch(/id="release-git-tag"[^>]*\spattern=/);
     expect(fragment).not.toContain('仅支持 custom/*');
-    expect(fragment).toContain('仅用于 Jenkins 构建参数。');
-    expect(fragment).toContain('固定来源 dev/master 将提交 PR 到此分支');
+    expect(fragment).toContain('PR base 分支，也是 PR 合并后 Jenkins 构建的分支');
+    expect(script).toContain('schemaVersion: 3');
+    expect(script).toContain('targetBranch: savedTargetBranch');
+    expect(script).not.toContain('targetBranch: resolvedTargetBranch');
     expect(fragment).not.toContain('id="release-project-name"');
     expect(fragment).not.toContain('id="release-candidate-sha"');
     expect(fragment).toContain('href="#token-config"');
@@ -339,7 +343,7 @@ describe('release automation menu contract', () => {
     expect(script).toContain('releaseDocs');
     expect(script).toContain("storedModifyLogPath === 'modify-log.sql'");
     expect(fragment).toContain('当前 tag 与 GitHub 返回的上一个 tag');
-    expect(fragment).toContain('写入 GitHub update-log');
+    expect(fragment).toContain('update-log 写入当前分支');
     expect(script).toContain('jenkinsToken');
     expect(script).toContain('feishuAppId');
     expect(script).toContain('feishuAppSecret');
@@ -349,6 +353,12 @@ describe('release automation menu contract', () => {
     expect(fragment).toContain('执行任务列表');
     expect(fragment).toContain('执行发布');
     expect(script).toContain('EXECUTION_TASKS');
+    expect(script).toContain("['modify-log', '读取并纳入发布 Markdown']");
+    expect(script.indexOf("['modify-log'")).toBeLessThan(script.indexOf("['github-merge'"));
+    expect(script).toContain("modify_log_read: '读取 modify-log SQL'");
+    expect(script).not.toContain('modify_log_clear_pending');
+    expect(script).toContain('提交/复用 GitHub PR（当前分支 → 目标分支）');
+    expect(script).not.toContain('dev/master');
     expect(script).toContain("checkbox.type = 'checkbox'");
     expect(script).toContain('selectedTasks');
     expect(app).toContain("'release-automation': { title: '发布版本'");

@@ -72,6 +72,7 @@ export interface ReleasePullRequest {
   url: string;
   title: string;
   state: 'open' | 'closed';
+  mergedAt?: string;
   baseBranch: string;
   headBranch: string;
   headSha: string;
@@ -90,6 +91,7 @@ export interface ReleasePullRequest {
 
 export interface ReleaseUnit {
   repository: string;
+  currentBranch: string;
   targetBranch: string;
   gitTag?: string;
   candidateSha?: string;
@@ -114,7 +116,6 @@ export type ReleaseTaskStatus =
 
 export interface ReleasePageConfig {
   gitAddress: string;
-  branch: string;
   projectName?: string;
   githubToken: string;
   githubBaseUrl?: string;
@@ -144,6 +145,7 @@ export interface ReleasePageConfig {
 
 export interface ReleasePlanInput {
   repository?: string;
+  currentBranch: string;
   targetBranch: string;
   gitTag: string;
   candidateSha?: string;
@@ -173,7 +175,7 @@ export type ReleaseStage =
   | 'docs_ready'
   | 'feishu_failed'
   | 'release_tag_created'
-  | 'modify_log_clear_pending'
+  | 'modify_log_read'
   | 'cleanup_pending'
   | 'manual_intervention'
   | 'completed'

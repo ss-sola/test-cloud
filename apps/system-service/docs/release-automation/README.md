@@ -3,7 +3,7 @@
 本模块为输入 `gitTag` 的第三方项目发布单元提供受控的远程执行流程。发布单元由以下字段组成：
 
 ```text
-repository + targetBranch + gitTag
+repository + currentBranch + targetBranch + gitTag
 ```
 
 ## 文档导航
@@ -16,10 +16,10 @@ repository + targetBranch + gitTag
 
 ## 当前交付范围
 
-- 页面分别收集 Jenkins 构建分支 `branch` 和 GitHub PR 目标分支 `targetBranch`；PR 来源固定为 `dev/master`。
+- 页面分别收集当前/source 分支 `branch` 和目标分支 `targetBranch`；tag、update-log 和 PR head 使用当前分支，targetBranch 用作 PR base 与 Jenkins 构建分支。
 - GitHub tag 创建、PR 查询/提交/复用、SHA 快照和 422 并发对账；不调用 Merge API，不执行本地 Git。
-- apply 在 PR 提交/复用后进入 `manual_intervention`，返回 PR URL 并停止 Jenkins、modify-log、Feishu 和 completed；PR 合并后需重新发起完整 Job。
-- 发布 docs、modify-log 远程读取、Jenkins queue/build/text 轮询和 Feishu 未接通阻断等既有能力继续受流程门禁保护。
+- 首次 apply 在 tag 后读取 modify-log、生成 Markdown，再提交/复用 PR 并进入 `manual_intervention`；PR 合并后新 Job 自动识别已合并 PR 并继续 Jenkins、modify-log 和 Feishu。
+- modify-log 在 PR 前从 GitHub 读取并由发布 docs 复用；Jenkins queue/build/text 轮询和 Feishu 未接通阻断等能力仍受流程门禁保护。
 - 提供测试同步执行入口 `POST /api/release-automation/test/execute`；默认 dry-run，不创建 BullMQ Job。
 
 ## 冲突处理原则

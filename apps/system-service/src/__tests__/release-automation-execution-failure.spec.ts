@@ -10,6 +10,7 @@ function record(selectedTasks: ReleaseTaskKey[] = ['release-docs']): ReleaseJobR
   const now = new Date(0).toISOString();
   const releaseUnit = {
     repository: 'acme/project',
+    currentBranch: 'feature/release',
     targetBranch: 'main',
     gitTag: 'release/1.0',
     version: 'release/1.0',
@@ -22,7 +23,6 @@ function record(selectedTasks: ReleaseTaskKey[] = ['release-docs']): ReleaseJobR
     mode: 'dry-run',
     pageConfig: {
       gitAddress: 'https://github.com/acme/project.git',
-      branch: 'main',
       githubToken: '',
       jenkinsToken: '',
       jenkinsBaseUrl: '',

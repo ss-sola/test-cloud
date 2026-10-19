@@ -56,6 +56,7 @@ export class ReleaseAutomationController {
   private toPlan(body: CreateReleaseAutomationJobDto, defaultMode: ReleaseMode): ReleasePlanInput {
     return {
       repository: body.repository,
+      currentBranch: body.branch,
       targetBranch: body.targetBranch,
       gitTag: body.gitTag,
       mode: body.mode ?? defaultMode,
@@ -79,7 +80,6 @@ export class ReleaseAutomationController {
       releaseDocs: body.releaseDocs ? {} : undefined,
       pageConfig: {
         gitAddress: body.gitAddress,
-        branch: body.branch,
         githubToken: body.githubToken ?? '',
         githubBaseUrl: body.githubBaseUrl,
         githubAllowedHosts: body.githubAllowedHosts,

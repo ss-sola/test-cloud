@@ -25,12 +25,12 @@ class NoQueue implements ReleaseQueueGateway {
 function plan(mode?: 'dry-run' | 'apply'): ReleasePlanInput {
   return {
     repository: 'acme/project',
+    currentBranch: 'feature/release',
     targetBranch: 'custom/prod',
     gitTag: 'release/版本 tag',
     mode,
     pageConfig: {
       gitAddress: 'https://github.com/acme/project.git',
-      branch: 'custom/prod',
       githubToken: 'github-secret',
       jenkinsToken: 'jenkins-secret',
       jenkinsBaseUrl: '',

@@ -5,7 +5,7 @@ import { JenkinsClientService } from './jenkins-client.service';
 import { ModifyLogArchiveService } from './modify-log-archive.service';
 import { ModifyLogGatewayService } from './modify-log-gateway.service';
 import {
-  RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+  RELEASE_AUTOMATION_CLOSED_PULL_REQUEST_MAX_PAGES,
   RELEASE_AUTOMATION_VERSION,
 } from './release-automation.constants';
 import type { ReleaseAutomationConfig } from './release-automation.config';
@@ -57,6 +57,7 @@ export class ReleaseAutomationService {
     private readonly archive: ModifyLogArchiveService,
   ) {}
 
+  /** 从当前分支创建 tag，并确保已有 tag 仍在该分支历史中。 */
   async ensureTag(options: {
     repository: string;
     tag: string;
@@ -76,7 +77,43 @@ export class ReleaseAutomationService {
     } catch (error) {
       if (!(error instanceof GitHubApiException) || error.getStatus() !== 404) throw error;
     }
-    if (existing) return { status: 'skipped', sha: existing.sha };
+    if (existing) {
+      let source: GitHubRef;
+      try {
+        source = await this.github.getRef(
+          options.repository,
+          `heads/${options.sourceBranch}`,
+          options.config,
+        );
+      } catch (error) {
+        if (
+          !options.expectedSha &&
+          error instanceof GitHubApiException &&
+          error.getStatus() === 404
+        ) {
+          return { status: 'skipped', sha: existing.sha };
+        }
+        throw error;
+      }
+      if (options.expectedSha && source.sha !== options.expectedSha) {
+        throw new ProjectException('Git tag 来源 SHA 已变化，必须重新 plan。', 409);
+      }
+      const comparison = parseCompare(
+        await this.github.compare({
+          repository: options.repository,
+          base: `tags/${options.tag}`,
+          head: `heads/${options.sourceBranch}`,
+          config: options.config,
+        }),
+      );
+      if (
+        comparison.status !== 'identical' &&
+        (comparison.status !== 'ahead' || comparison.behind !== 0)
+      ) {
+        throw new ProjectException('已存在的 Git tag 不属于当前分支。', 409);
+      }
+      return { status: 'skipped', sha: existing.sha };
+    }
 
     const source = await this.github.getRef(
       options.repository,
@@ -226,6 +263,37 @@ export class ReleaseAutomationService {
     }
   }
 
+  /** 查找与当前发布版本匹配且已合并的 Pull Request。 */
+  async findMergedPullRequest(options: {
+    repository: string;
+    sourceBranch: string;
+    targetBranch: string;
+    releaseTag: string;
+    config?: ReleaseAutomationConfig;
+  }): Promise<ReleasePullRequest | undefined> {
+    const pullRequests = await this.github.listPullRequests({
+      repository: options.repository,
+      base: options.targetBranch,
+      head: options.sourceBranch,
+      state: 'closed',
+      maxPages: RELEASE_AUTOMATION_CLOSED_PULL_REQUEST_MAX_PAGES,
+      config: options.config,
+    });
+    const expectedTitle = `Release ${options.releaseTag}: ${options.sourceBranch} -> ${options.targetBranch}`;
+    const matches = pullRequests.filter(
+      (pullRequest) =>
+        pullRequest.state === 'closed' &&
+        pullRequest.mergedAt !== undefined &&
+        pullRequest.baseBranch === options.targetBranch &&
+        pullRequest.headBranch === options.sourceBranch &&
+        pullRequest.title === expectedTitle,
+    );
+    if (matches.length > 1) {
+      throw new ProjectException('当前发布版本存在多个已合并 PR，请先人工核对。', 409);
+    }
+    return matches[0];
+  }
+
   private async findMatchingPullRequest(
     options: {
       repository: string;
@@ -263,7 +331,7 @@ export class ReleaseAutomationService {
   }): Promise<ModifyLogPreparation> {
     const source = await this.modifyLogGateway.readSource({
       repository: options.releaseUnit.repository,
-      ref: options.releaseUnit.candidateSha ?? RELEASE_AUTOMATION_MERGE_SOURCE_BRANCH,
+      ref: options.releaseUnit.candidateSha ?? options.releaseUnit.currentBranch,
       config: options.config,
     });
     const sql = source.content;
