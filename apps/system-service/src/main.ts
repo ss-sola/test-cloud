@@ -1,6 +1,7 @@
 import { bootstrap } from '@nest-cloud/common';
 import { AppModule } from './app.module';
 import { BullmqDashboardService } from './modules/bullmq-dashboard/bullmq-dashboard.service';
+import { ContentCompareHttpService } from './modules/content-compare/content-compare-http.service';
 import { SystemServiceConfig } from './validate.config';
 
 void bootstrap({
@@ -8,5 +9,6 @@ void bootstrap({
   validateConfig: SystemServiceConfig,
   configureApp: async (app) => {
     await app.get(BullmqDashboardService).mount(app);
+    app.get(ContentCompareHttpService).mount(app);
   },
 });

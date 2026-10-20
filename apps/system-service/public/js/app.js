@@ -25,15 +25,11 @@
     plagiarism: '/public/html/plagiarism.html',
   })
   const STATUS_LABELS = { empty: '等待', loading: '处理中', ready: '就绪', error: '错误' }
-  const DIFF_LABELS = { added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' }
   const STORAGE_KEYS = Object.freeze({
-    json: 'nestcloud:compare:json:v1',
-    env: 'nestcloud:compare:env:v1',
     weekly: 'nestcloud:weekly-report:v1',
   })
   const TOKEN_STORAGE_KEY = 'nestcloud:release-tokens:v1'
   const STORAGE_VERSION = 1
-  const MAX_COMPARE_DRAFT_LENGTH = 500_000
 
   const appShell = document.querySelector('.app-shell')
   const sidebar = document.querySelector('#sidebar')
@@ -133,8 +129,12 @@
       if (generation !== fragmentGeneration) return
       viewHost.replaceChildren(...fragments)
       views = [...viewHost.querySelectorAll('[data-view]')]
-      mountCompare('json-compare')
-      mountCompare('env-compare')
+      if (typeof window.NestCloudContentCompare?.mount === 'function') {
+        for (const route of ['json-compare', 'env-compare']) {
+          const compareView = viewHost.querySelector(`[data-view="${route}"]`)
+          if (compareView instanceof HTMLElement) window.NestCloudContentCompare.mount(compareView)
+        }
+      }
       mountParticleLab()
       mountWeeklyReport()
       if (typeof window.NestCloudPlagiarism?.mount === 'function') {
@@ -204,24 +204,6 @@
   function createClientId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID()
     return `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-  }
-
-  function readCompareDraft(mode) {
-    const draft = readStoredValue(STORAGE_KEYS[mode])
-    if (draft?.version !== STORAGE_VERSION
-      || typeof draft.left !== 'string' || typeof draft.right !== 'string'
-      || draft.left.length > MAX_COMPARE_DRAFT_LENGTH || draft.right.length > MAX_COMPARE_DRAFT_LENGTH) return null
-    return { left: draft.left, right: draft.right }
-  }
-
-  function saveCompareDraft(mode, left, right) {
-    if (left.length > MAX_COMPARE_DRAFT_LENGTH || right.length > MAX_COMPARE_DRAFT_LENGTH) return
-    writeStoredValue(STORAGE_KEYS[mode], {
-      version: STORAGE_VERSION,
-      left,
-      right,
-      updatedAt: Date.now(),
-    })
   }
 
   function createDefaultFeishuSettings() {
@@ -315,325 +297,6 @@
       })),
       updatedAt: Date.now(),
     })
-  }
-
-  function formatJsonValue(value, type) {
-    if (type === 'object') return `{ ${Object.keys(value || {}).length} 个键 }`
-    if (type === 'array') return `[ ${Array.isArray(value) ? value.length : 0} 项 ]`
-    const result = JSON.stringify(value)
-    return result === undefined ? String(value) : result
-  }
-
-  function formatCompareErrors(label, side, errors) {
-    return errors.map((error) => {
-      const location = error.line ? `第 ${error.line} 行${error.column ? `第 ${error.column} 列` : ''}：` : ''
-      return `${label} ${side} ${location}${error.message}`
-    }).join('\n')
-  }
-
-  function collectExpandedPaths(node, paths = new Set()) {
-    if (node.children.length) {
-      paths.add(node.path)
-      node.children.forEach((child) => collectExpandedPaths(child, paths))
-    }
-    return paths
-  }
-
-  function buildDiffMarkers(segments) {
-    if (!segments) return []
-    const statusByLine = new Map()
-    let line = 0
-    segments.forEach((segment) => {
-      const lines = segment.text.split('\n')
-      lines.forEach((lineText, index) => {
-        if (segment.status && lineText.length) statusByLine.set(line, segment.status)
-        if (index < lines.length - 1) line += 1
-      })
-    })
-    const totalLines = Math.max(line + 1, 1)
-    return Array.from(statusByLine, ([lineIndex, status]) => ({
-      status,
-      top: `${(lineIndex / totalLines) * 100}%`,
-      height: `${Math.max(1.4, 100 / totalLines)}%`,
-    }))
-  }
-
-  function parseJsonInput(value) {
-    if (!value.trim()) return { ok: false, value: null, errors: [{ code: 'EMPTY', message: '不能为空。' }] }
-    try {
-      return { ok: true, value: JSON.parse(value), errors: [] }
-    } catch {
-      return { ok: false, value: null, errors: [{ code: 'INVALID_JSON', message: 'JSON 格式无效，请检查逗号、引号和括号。' }] }
-    }
-  }
-
-  function parseEnvInput(value) {
-    if (value.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(value)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { ok: true, value: parsed, errors: [] }
-      } catch {
-        return { ok: false, value: null, errors: [{ code: 'INVALID_JSON', message: '规范化 JSON 格式无效，请检查括号、逗号和引号。' }] }
-      }
-    }
-    return window.NestCloudEnvParser.parseEnv(value)
-  }
-
-  function renderSegments(codeElement, textarea, segments) {
-    codeElement.replaceChildren()
-    if (!segments) {
-      textarea.classList.remove('compare-editor__textarea--highlighted')
-      return
-    }
-    textarea.classList.add('compare-editor__textarea--highlighted')
-    segments.forEach((segment, index) => {
-      const span = createElement('span', segment.status ? `compare-highlight--${segment.status}` : '')
-      span.textContent = segment.text
-      span.dataset.segment = String(index)
-      codeElement.append(span)
-    })
-  }
-
-  function renderMarkers(markerElement, segments) {
-    markerElement.replaceChildren()
-    buildDiffMarkers(segments).forEach((marker, index) => {
-      const element = createElement('span', `compare-marker compare-marker--${marker.status}`)
-      element.style.top = marker.top
-      element.style.height = marker.height
-      element.dataset.marker = String(index)
-      markerElement.append(element)
-    })
-  }
-
-  function buildEnvSegments(text, result, side) {
-    const statuses = new Map(result.tree.children.map((node) => [String(node.key), node.status]))
-    const lines = text.split('\n')
-    const segments = []
-    lines.forEach((line, index) => {
-      const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/)
-      const status = match ? statuses.get(match[1]) || null : null
-      segments.push({ text: line, status: side === 'left' && status === 'added' ? null : side === 'right' && status === 'removed' ? null : status })
-      if (index < lines.length - 1) segments.push({ text: '\n', status: null })
-    })
-    return segments
-  }
-
-  function renderDiffRow(node, depth, expandedPaths, onToggle, label) {
-    const row = createElement('div', `compare-tree-row compare-tree-row--${node.status}`)
-    row.setAttribute('role', 'treeitem')
-    row.setAttribute('aria-level', String(depth + 1))
-    const isContainer = node.children.length > 0
-    const isExpanded = expandedPaths.has(node.path)
-    if (isContainer) row.setAttribute('aria-expanded', String(isExpanded))
-
-    const key = createElement('div', 'compare-tree-key')
-    key.style.paddingLeft = `${depth * 16 + 8}px`
-    if (isContainer) {
-      const toggle = createElement('button', 'compare-tree-toggle', isExpanded ? '−' : '+')
-      toggle.type = 'button'
-      toggle.setAttribute('aria-label', `${isExpanded ? '收起' : '展开'} ${node.path}`)
-      toggle.addEventListener('click', () => onToggle(node.path))
-      key.append(toggle)
-    } else {
-      key.append(createElement('span', 'compare-tree-spacer'))
-    }
-    key.append(createElement('span', 'compare-tree-label', node.key === '$' ? '$' : String(node.key)))
-    key.append(createElement('span', `compare-status compare-status--${node.status}`, DIFF_LABELS[node.status]))
-
-    const leftCell = createElement('div', `compare-cell compare-cell--${node.status === 'added' ? 'missing' : node.status}`)
-    leftCell.dataset.label = `${label} A`
-    leftCell.textContent = node.hasLeft ? formatJsonValue(node.left, node.type) : '—'
-    const rightCell = createElement('div', `compare-cell compare-cell--${node.status === 'removed' ? 'missing' : node.status}`)
-    rightCell.dataset.label = `${label} B`
-    rightCell.textContent = node.hasRight ? formatJsonValue(node.right, node.type) : '—'
-    row.append(key, leftCell, rightCell)
-
-    const fragment = document.createDocumentFragment()
-    fragment.append(row)
-    if (isContainer && isExpanded) {
-      node.children.forEach((child) => fragment.append(renderDiffRow(child, depth + 1, expandedPaths, onToggle, label)))
-    }
-    return fragment
-  }
-
-  function mountCompare(mode) {
-    const root = document.querySelector(`[data-view="${mode}"]`)
-    if (!(root instanceof HTMLElement)) return
-    const label = mode === 'json-compare' ? 'JSON' : 'ENV'
-    const parser = mode === 'json-compare' ? parseJsonInput : parseEnvInput
-    const prefix = mode === 'json-compare' ? 'json' : 'env'
-    const copy = mode === 'json-compare'
-      ? { changed: '发现变化。', unchanged: '无变化。' }
-      : { changed: '发现变化。', unchanged: '无变化。' }
-    const left = root.querySelector(`#${prefix}-a`)
-    const right = root.querySelector(`#${prefix}-b`)
-    const leftHighlight = root.querySelector(`#${prefix}-a-highlight code`)
-    const rightHighlight = root.querySelector(`#${prefix}-b-highlight code`)
-    const leftMarkers = root.querySelector(`#${prefix}-a-markers`)
-    const rightMarkers = root.querySelector(`#${prefix}-b-markers`)
-    const leftCount = root.querySelector(`#${prefix}-a-count`)
-    const rightCount = root.querySelector(`#${prefix}-b-count`)
-    const leftError = root.querySelector(`#${prefix}-a-error`)
-    const rightError = root.querySelector(`#${prefix}-b-error`)
-    const resultRoot = root.querySelector(`#${prefix}-result`)
-    const resultTitle = root.querySelector(`#${prefix}-result-title`)
-    const tree = root.querySelector(`#${prefix}-tree`)
-    const compareButton = root.querySelector(`[data-compare-action="${prefix}"]`)
-    const swapButton = root.querySelector(`[data-compare-swap="${prefix}"]`)
-    if (!(left instanceof HTMLTextAreaElement) || !(right instanceof HTMLTextAreaElement)
-      || !(leftHighlight instanceof HTMLElement) || !(rightHighlight instanceof HTMLElement)
-      || !(leftMarkers instanceof HTMLElement) || !(rightMarkers instanceof HTMLElement)
-      || !(resultRoot instanceof HTMLElement) || !(resultTitle instanceof HTMLElement)
-      || !(tree instanceof HTMLElement) || !(compareButton instanceof HTMLButtonElement)
-      || !(swapButton instanceof HTMLButtonElement)) return
-
-    const placeholder = mode === 'json-compare'
-      ? '{\n  "name": "particle",\n  "items": [1, 2, 3]\n}'
-      : '# 示例\nexport APP_NAME="particle"\nPORT=3000\nDEBUG=true\nEMPTY='
-    left.placeholder = placeholder
-    right.placeholder = placeholder
-    const draft = readCompareDraft(prefix)
-    if (draft) {
-      left.value = draft.left
-      right.value = draft.right
-    }
-
-    let result = null
-    let expandedPaths = new Set(['$'])
-    const editorRefs = { A: left, B: right }
-    let syncingScroll = false
-
-    function saveDraft() {
-      saveCompareDraft(prefix, left.value, right.value)
-    }
-
-    function updateCounts() {
-      if (leftCount) leftCount.textContent = `${left.value.length.toLocaleString()} 字符`
-      if (rightCount) rightCount.textContent = `${right.value.length.toLocaleString()} 字符`
-    }
-
-    function setError(element, message) {
-      element.textContent = message
-      element.hidden = !message
-      const panel = element.closest('.compare-input-panel')
-      panel?.classList.toggle('compare-input-panel--error', Boolean(message))
-    }
-
-    function clearResult() {
-      result = null
-      resultRoot.hidden = true
-      renderSegments(leftHighlight, left, null)
-      renderSegments(rightHighlight, right, null)
-      renderMarkers(leftMarkers, null)
-      renderMarkers(rightMarkers, null)
-    }
-
-    function renderResult() {
-      const diff = window.NestCloudJsonDiff
-      const leftSegments = mode === 'env-compare'
-        ? buildEnvSegments(left.value, result, 'left')
-        : diff.serializeDiffSegments(result.tree, 'left')
-      const rightSegments = mode === 'env-compare'
-        ? buildEnvSegments(right.value, result, 'right')
-        : diff.serializeDiffSegments(result.tree, 'right')
-      renderSegments(leftHighlight, left, leftSegments)
-      renderSegments(rightHighlight, right, rightSegments)
-      renderMarkers(leftMarkers, leftSegments)
-      renderMarkers(rightMarkers, rightSegments)
-      resultTitle.textContent = result.stats.added + result.stats.removed + result.stats.modified === 0 ? copy.unchanged : copy.changed
-      root.querySelector(`#${prefix}-added-count`).textContent = String(result.stats.added)
-      root.querySelector(`#${prefix}-removed-count`).textContent = String(result.stats.removed)
-      root.querySelector(`#${prefix}-modified-count`).textContent = String(result.stats.modified)
-      tree.replaceChildren()
-      const header = createElement('div', 'compare-tree-head')
-      header.append(createElement('span', 'compare-tree-head__path', '路径'), createElement('span', '', `${label} A`), createElement('span', '', `${label} B`))
-      tree.append(header, renderDiffRow(result.tree, 0, expandedPaths, togglePath, label))
-      resultRoot.hidden = false
-    }
-
-    function togglePath(path) {
-      const next = new Set(expandedPaths)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      expandedPaths = next
-      if (result) renderResult()
-    }
-
-    function handleTextChange(side, value) {
-      if (side === 'left') left.value = value
-      else right.value = value
-      if (side === 'left') setError(leftError, '')
-      else setError(rightError, '')
-      updateCounts()
-      saveDraft()
-      expandedPaths = new Set(['$'])
-      clearResult()
-    }
-
-    function compare() {
-      const leftResult = parser(left.value)
-      const rightResult = parser(right.value)
-      setError(leftError, leftResult.ok ? '' : formatCompareErrors(label, 'A', leftResult.errors))
-      setError(rightError, rightResult.ok ? '' : formatCompareErrors(label, 'B', rightResult.errors))
-      if (!leftResult.ok || !rightResult.ok) {
-        clearResult()
-        return
-      }
-      let nextResult
-      try {
-        nextResult = window.NestCloudJsonDiff.compareJson(leftResult.value, rightResult.value)
-      } catch {
-        const message = `${label} 内容层级过深，无法完成比较。`
-        setError(leftError, message)
-        setError(rightError, message)
-        clearResult()
-        return
-      }
-      result = nextResult
-      if (mode === 'json-compare') {
-        left.value = JSON.stringify(result.left, null, 2)
-        right.value = JSON.stringify(result.right, null, 2)
-      }
-      saveDraft()
-      updateCounts()
-      expandedPaths = collectExpandedPaths(result.tree)
-      renderResult()
-    }
-
-    function swap() {
-      const leftValue = left.value
-      left.value = right.value
-      right.value = leftValue
-      saveDraft()
-      updateCounts()
-      expandedPaths = new Set(['$'])
-      compare()
-    }
-
-    function syncScroll(side) {
-      if (syncingScroll) return
-      const target = editorRefs[side === 'A' ? 'B' : 'A']
-      syncingScroll = true
-      target.scrollTop = editorRefs[side].scrollTop
-      target.scrollLeft = editorRefs[side].scrollLeft
-      requestAnimationFrame(() => { syncingScroll = false })
-    }
-
-    left.addEventListener('input', () => handleTextChange('left', left.value))
-    right.addEventListener('input', () => handleTextChange('right', right.value))
-    left.addEventListener('scroll', () => {
-      const highlight = root.querySelector(`#${prefix}-a-highlight`)
-      if (highlight) { highlight.scrollTop = left.scrollTop; highlight.scrollLeft = left.scrollLeft }
-      syncScroll('A')
-    })
-    right.addEventListener('scroll', () => {
-      const highlight = root.querySelector(`#${prefix}-b-highlight`)
-      if (highlight) { highlight.scrollTop = right.scrollTop; highlight.scrollLeft = right.scrollLeft }
-      syncScroll('B')
-    })
-    compareButton.addEventListener('click', compare)
-    swapButton.addEventListener('click', swap)
-    updateCounts()
   }
 
   function formatFileSize(bytes) {
