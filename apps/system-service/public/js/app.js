@@ -10,7 +10,6 @@
     'weekly-report': { title: '周报生成', documentTitle: '周报生成 · NestCloud' },
     bullmq: { title: 'BullMQ 面板', documentTitle: 'BullMQ 面板 · NestCloud' },
     'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
-    'release-automation': { title: '发布版本', documentTitle: '发布版本 · NestCloud' },
     'token-config': { title: 'Token 配置', documentTitle: 'Token 配置 · NestCloud' },
     plagiarism: { title: '论文查重', documentTitle: '论文查重 · NestCloud' },
   }
@@ -22,7 +21,6 @@
     'weekly-report': '/public/html/weekly-report.html',
     bullmq: '/public/html/bullmq.html',
     'config-file-preview': '/public/html/config-file-preview.html',
-    'release-automation': '/public/html/release-automation.html',
     'token-config': '/public/html/token-config.html',
     plagiarism: '/public/html/plagiarism.html',
   })
@@ -147,10 +145,6 @@
         const configView = viewHost.querySelector('[data-view="config-file-preview"]')
         if (configView instanceof HTMLElement) window.NestCloudConfigFilePreview.mount(configView)
       }
-      if (typeof window.NestCloudReleaseAutomation?.mount === 'function') {
-        const releaseView = viewHost.querySelector('[data-view="release-automation"]')
-        if (releaseView instanceof HTMLElement) window.NestCloudReleaseAutomation.mount(releaseView)
-      }
       if (typeof window.NestCloudTokenConfig?.mount === 'function') {
         const tokenView = viewHost.querySelector('[data-view="token-config"]')
         if (tokenView instanceof HTMLElement) window.NestCloudTokenConfig.mount(tokenView)
@@ -178,12 +172,10 @@
     }
   }
 
-  function readReleaseTokenConfig() {
+  function readTokenConfig() {
     const value = readStoredValue(TOKEN_STORAGE_KEY)
     if (!value || typeof value !== 'object') return {
       githubToken: '',
-      jenkinsToken: '',
-      jenkinsBaseUrl: '',
       feishuAppId: '',
       feishuAppSecret: '',
       ai: { baseUrl: '', apiKey: '', model: '' },
@@ -191,8 +183,6 @@
     const ai = value.ai && typeof value.ai === 'object' ? value.ai : {}
     return {
       githubToken: typeof value.githubToken === 'string' ? value.githubToken : '',
-      jenkinsToken: typeof value.jenkinsToken === 'string' ? value.jenkinsToken : '',
-      jenkinsBaseUrl: typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : '',
       feishuAppId: typeof value.feishuAppId === 'string' ? value.feishuAppId : '',
       feishuAppSecret: typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : '',
       ai: {
@@ -235,7 +225,7 @@
   }
 
   function createDefaultFeishuSettings() {
-    const tokens = readReleaseTokenConfig()
+    const tokens = readTokenConfig()
     return {
       appId: tokens.feishuAppId,
       appSecret: tokens.feishuAppSecret,
@@ -267,7 +257,7 @@
         // The server will report malformed Wiki addresses when publishing.
       }
     }
-    const tokens = readReleaseTokenConfig()
+    const tokens = readTokenConfig()
     return {
       appId: tokens.feishuAppId,
       appSecret: tokens.feishuAppSecret,
@@ -1104,7 +1094,7 @@
     }
 
     function renderFeishuSettings(settings) {
-      const tokens = readReleaseTokenConfig()
+      const tokens = readTokenConfig()
       feishuAppId.value = tokens.feishuAppId
       feishuAppSecret.value = tokens.feishuAppSecret
       feishuAppId.readOnly = true
@@ -1116,7 +1106,7 @@
     }
 
     function readFeishuSettingsFromDom() {
-      const tokens = readReleaseTokenConfig()
+      const tokens = readTokenConfig()
       return normalizeFeishuSettings({
         appId: tokens.feishuAppId,
         appSecret: tokens.feishuAppSecret,
@@ -1196,15 +1186,15 @@
         const publish = { enabled: publishEnabled }
         if (publishEnabled) publish.settings = collectPublishSettings()
         const configs = collectConfigs()
-        const releaseTokens = readReleaseTokenConfig()
-        const aiValues = [releaseTokens.ai.baseUrl, releaseTokens.ai.apiKey, releaseTokens.ai.model]
+        const tokenConfig = readTokenConfig()
+        const aiValues = [tokenConfig.ai.baseUrl, tokenConfig.ai.apiKey, tokenConfig.ai.model]
         if (aiValues.some(Boolean) && !aiValues.every(Boolean)) {
           throw new Error('AI 配置不完整，请在 Token 配置页填写 Base URL、API Key 和 Model，或全部留空。')
         }
         const runtime = {
-          githubToken: releaseTokens.githubToken,
+          githubToken: tokenConfig.githubToken,
           allowedRepositories: configs.map((config) => config.repo),
-          ...(aiValues.every(Boolean) ? { ai: releaseTokens.ai } : {}),
+          ...(aiValues.every(Boolean) ? { ai: tokenConfig.ai } : {}),
         }
         const response = await fetch('/api/weekly-commit-reports/jobs', {
           method: 'POST',

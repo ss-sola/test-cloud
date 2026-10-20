@@ -7,8 +7,6 @@
     if (!(root instanceof HTMLElement)) return
     const form = root.querySelector('#token-config-form')
     const github = root.querySelector('#token-github')
-    const jenkinsUrl = root.querySelector('#token-jenkins-url')
-    const jenkins = root.querySelector('#token-jenkins')
     const feishuAppId = root.querySelector('#token-feishu-app-id')
     const feishuAppSecret = root.querySelector('#token-feishu-app-secret')
     const aiBaseUrl = root.querySelector('#token-ai-base-url')
@@ -17,7 +15,6 @@
     const clear = root.querySelector('#token-config-clear')
     const status = root.querySelector('#token-config-status')
     if (!(form instanceof HTMLFormElement) || !(github instanceof HTMLInputElement)
-      || !(jenkinsUrl instanceof HTMLInputElement) || !(jenkins instanceof HTMLInputElement)
       || !(feishuAppId instanceof HTMLInputElement) || !(feishuAppSecret instanceof HTMLInputElement)
       || !(aiBaseUrl instanceof HTMLInputElement) || !(aiApiKey instanceof HTMLInputElement)
       || !(aiModel instanceof HTMLInputElement) || !(clear instanceof HTMLButtonElement)
@@ -36,8 +33,6 @@
       const value = read()
       const ai = value.ai && typeof value.ai === 'object' ? value.ai : {}
       github.value = typeof value.githubToken === 'string' ? value.githubToken : ''
-      jenkinsUrl.value = typeof value.jenkinsBaseUrl === 'string' ? value.jenkinsBaseUrl : ''
-      jenkins.value = typeof value.jenkinsToken === 'string' ? value.jenkinsToken : ''
       feishuAppId.value = typeof value.feishuAppId === 'string' ? value.feishuAppId : ''
       feishuAppSecret.value = typeof value.feishuAppSecret === 'string' ? value.feishuAppSecret : ''
       aiBaseUrl.value = typeof ai.baseUrl === 'string' ? ai.baseUrl : ''
@@ -56,8 +51,6 @@
       const aiValues = Object.values(ai)
       const value = {
         githubToken: github.value,
-        jenkinsBaseUrl: jenkinsUrl.value.trim(),
-        jenkinsToken: jenkins.value,
         feishuAppId: feishuAppId.value.trim(),
         feishuAppSecret: feishuAppSecret.value,
       }
@@ -74,8 +67,6 @@
     function clearCredentials() {
       window.localStorage.removeItem(STORAGE_KEY)
       github.value = ''
-      jenkinsUrl.value = ''
-      jenkins.value = ''
       feishuAppId.value = ''
       feishuAppSecret.value = ''
       aiBaseUrl.value = ''

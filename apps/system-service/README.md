@@ -32,7 +32,6 @@ pnpm start:system
 
 - [前端管理台文档](./docs/frontend/README.md)
 - [BullMQ 面板与配置](./docs/frontend/bullmq-dashboard.md)
-- [发布自动化文档](./docs/release-automation/README.md)
 - [周报飞书发布计划](./docs/plan/weekly-report-feishu-publish.md)
 - [周报飞书单目标配置调整记录](./docs/plan/weekly-report-feishu-single-target.md)
 - [静态管理台初始化计划](../../docs/plan/system-service-静态管理台初始化.md)
@@ -42,8 +41,9 @@ pnpm start:system
 - 页面入口：`/public/index.html`
 - 静态资源源目录：`public/`，由 `@nestjs/serve-static` 提供访问
 - 页面结构：左侧主导航、右侧主体内容区；入口 `index.html` 只保留壳层，业务 section 位于 `public/html/` 并由 `app.js` 动态加载
-- 页面提供工作台总览、图片转粒子、JSON 对比、ENV 对比、周报生成、BullMQ 面板、配置版本预览、发布自动化和 Token 配置九个 hash 入口
-- 发布自动化和周报的业务变量均由 HTTP 请求传入；发布配置不再从 `ReleaseAutomation*` 键回退，周报不再读取 `WeeklyReport*`、CLI 凭据或 `GITHUB_TAG_FILE_TOKEN`
+- 页面提供工作台总览、图片转粒子、JSON 对比、ENV 对比、周报生成、BullMQ 面板、配置版本预览、论文查重和 Token 配置九个 hash 入口
+- 周报的业务变量由本次 HTTP 请求传入，不读取 `WeeklyReport*`、CLI 凭据或 `GITHUB_TAG_FILE_TOKEN`；周报仓库来源配置仍由浏览器草稿保存并随请求提交。配置版本预览和论文查重保留原有入口
+- Token 页只配置 GitHub、飞书 App ID/Secret 和 AI；浏览器凭据存储键 `nestcloud:release-tokens:v1` 为兼容保留，下次显式保存不再写入 Jenkins 字段
 - 三个本地工具均在浏览器本地处理，不上传图片、JSON 或 ENV 内容
 - BullMQ 面板通过 `/ops/queues/` 提供只读 Bull Board，固定展示 `weekly-report` 队列，使用 `bull` prefix；Redis 连接沿用 `SessionRedisUrl`，详细配置与生产限制见 [BullMQ 面板与配置](./docs/frontend/bullmq-dashboard.md)
 - 周报生成通过 GitHub Commits API 读取本次请求中的项目和 runtime 配置；GitHub Token 随请求提交，页面通过 Job 状态轮询显示后端真实进度，单个项目失败时跳过并返回 `projectErrors`，其余项目继续生成可复制/下载的 Markdown。启用飞书发布后，`last-week` 周报使用请求中的单个 Wiki 配置，固定在 `A1:B200` 匹配 A 列日期范围和 B 列姓名，并只更新该行 C-G 五个工作日单元格；相同内容跳过，发布失败仍保留 Markdown。

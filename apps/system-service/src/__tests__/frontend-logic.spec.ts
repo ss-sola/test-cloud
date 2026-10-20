@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -151,18 +151,24 @@ describe('static shell and fragment contract', () => {
       'weekly-report',
       'bullmq',
       'config-file-preview',
-      'release-automation',
       'token-config',
+      'plagiarism',
     ];
 
+    const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
     expect(html).toContain('id="main-content"');
     expect(html).toContain('id="view-host"');
     expect(html).not.toContain('data-view="overview"');
+    expect([...html.matchAll(/data-route="([^"]+)"/g)].map((match) => match[1])).toEqual(routes);
     routes.forEach((route) => {
       const fragment = readFileSync(resolve(process.cwd(), `public/html/${route}.html`), 'utf8');
       expect(fragment).toContain(`data-view="${route}"`);
       expect((fragment.match(/<section\b/g) ?? []).length).toBeGreaterThan(0);
+      expect(app).toContain(`/public/html/${route}.html`);
     });
+    for (const [, script] of html.matchAll(/<script src="\/public\/([^"]+)"/g)) {
+      expect(existsSync(resolve(process.cwd(), 'public', script))).toBe(true);
+    }
   });
 });
 
@@ -297,81 +303,28 @@ describe('config file preview menu contract', () => {
   });
 });
 
-describe('release automation menu contract', () => {
-  it('connects the 1.9.0 page and keeps the dry-run/idempotency contract', () => {
+describe('retired release feature', () => {
+  it('does not expose release routes, scripts, fragments or backend modules', () => {
     const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
-    const fragment = readFileSync(
-      resolve(process.cwd(), 'public/html/release-automation.html'),
-      'utf8',
-    );
     const app = readFileSync(resolve(process.cwd(), 'public/js/app.js'), 'utf8');
-    const script = readFileSync(resolve(process.cwd(), 'public/js/release-automation.js'), 'utf8');
+    const css = readFileSync(resolve(process.cwd(), 'public/css/app.css'), 'utf8');
 
-    expect(html).toContain('href="#release-automation" data-route="release-automation"');
-    expect(fragment).toContain('data-view="release-automation"');
-    expect(fragment).toContain('发布版本');
-    expect(fragment).toContain('id="release-git-address"');
-    expect(fragment).toContain('id="release-git-tag"');
-    expect(fragment).toContain(
-      'id="release-environment-to-sql" name="environmentToSql" type="checkbox"',
-    );
-    expect(fragment).toContain('敏感值）会以明文写入 update-log 并提交到 GitHub');
-    expect(script).toContain('environmentToSql.checked = value.environmentToSql === true');
-    expect(script).toContain('environmentToSql: environmentToSql.checked');
-    expect(script).toContain("environmentToSql.addEventListener('change', persistConfig)");
-    expect(fragment).toContain(
-      'id="release-current-branch" name="branch" required maxlength="256"',
-    );
-    expect(fragment).toContain('当前分支');
-    expect(fragment).toContain('tag、发布 Markdown 和 GitHub PR 的来源分支');
-    expect(fragment).toContain(
-      'id="release-target-branch" name="targetBranch" required maxlength="256"',
-    );
-    expect(fragment).not.toMatch(/id="release-target-branch"[^>]*\spattern=/);
-    expect(fragment).not.toMatch(/id="release-git-tag"[^>]*\spattern=/);
-    expect(fragment).not.toContain('仅支持 custom/*');
-    expect(fragment).toContain('PR base 分支，也是 PR 合并后 Jenkins 构建的分支');
-    expect(script).toContain('schemaVersion: 3');
-    expect(script).toContain('targetBranch: savedTargetBranch');
-    expect(script).not.toContain('targetBranch: resolvedTargetBranch');
-    expect(fragment).not.toContain('id="release-project-name"');
-    expect(fragment).not.toContain('id="release-candidate-sha"');
-    expect(fragment).toContain('href="#token-config"');
-    expect(script).toContain('githubToken');
-    expect(script).toContain('value.ai');
-    expect(script).toContain('runtime: { ai: tokens.ai }');
-    expect(script).toContain('releaseDocs');
-    expect(script).toContain("storedModifyLogPath === 'modify-log.sql'");
-    expect(fragment).toContain('当前 tag 与 GitHub 返回的上一个 tag');
-    expect(fragment).toContain('update-log 写入当前分支');
-    expect(script).toContain('jenkinsToken');
-    expect(script).toContain('feishuAppId');
-    expect(script).toContain('feishuAppSecret');
-    expect(script).toContain('localStorage');
-    expect(fragment).toContain('id="release-automation-log"');
-    expect(fragment).toContain('value=".version/modify-log.sql"');
-    expect(fragment).toContain('执行任务列表');
-    expect(fragment).toContain('执行发布');
-    expect(script).toContain('EXECUTION_TASKS');
-    expect(script).toContain("['modify-log', '读取并纳入发布 Markdown']");
-    expect(script.indexOf("['modify-log'")).toBeLessThan(script.indexOf("['github-merge'"));
-    expect(script).toContain("modify_log_read: '读取 modify-log SQL'");
-    expect(script).not.toContain('modify_log_clear_pending');
-    expect(script).toContain('提交/复用 GitHub PR（当前分支 → 目标分支）');
-    expect(script).not.toContain('dev/master');
-    expect(script).toContain("checkbox.type = 'checkbox'");
-    expect(script).toContain('selectedTasks');
-    expect(app).toContain("'release-automation': { title: '发布版本'");
-    expect(app).toContain("'release-automation': '/public/html/release-automation.html'");
-    expect(html).toContain('<script src="/public/js/release-automation.js" defer></script>');
-    expect(script).toContain("'Idempotency-Key'");
-    expect(script).not.toContain("mode: 'dry-run'");
-    expect(script).not.toContain('innerHTML');
+    expect(html).not.toContain('release-automation');
+    expect(app).not.toContain('release-automation');
+    expect(app).not.toContain('NestCloudReleaseAutomation');
+    expect(css).not.toContain('.release-');
+    for (const path of [
+      'public/html/release-automation.html',
+      'public/js/release-automation.js',
+      'src/modules/release-automation',
+    ]) {
+      expect(existsSync(resolve(process.cwd(), path))).toBe(false);
+    }
   });
 });
 
 describe('token config menu contract', () => {
-  it('provides localStorage configuration for release credentials and AI summaries', () => {
+  it('provides localStorage configuration for shared credentials and AI summaries', () => {
     const html = readFileSync(resolve(process.cwd(), 'public/index.html'), 'utf8');
     const fragment = readFileSync(resolve(process.cwd(), 'public/html/token-config.html'), 'utf8');
     const script = readFileSync(resolve(process.cwd(), 'public/js/token-config.js'), 'utf8');
@@ -380,7 +333,9 @@ describe('token config menu contract', () => {
     expect(html).toContain('href="#token-config" data-route="token-config"');
     expect(fragment).toContain('data-view="token-config"');
     expect(fragment).toContain('id="token-github"');
-    expect(fragment).toContain('id="token-jenkins"');
+    expect(fragment).not.toContain('token-jenkins');
+    expect(fragment).toContain('class="token-credential-warning"');
+    expect(script).not.toContain('jenkins');
     expect(fragment).toContain('id="token-feishu-app-id"');
     expect(fragment).toContain('id="token-feishu-app-secret"');
     expect(fragment).toContain('id="token-ai-base-url"');
@@ -396,7 +351,7 @@ describe('token config menu contract', () => {
     expect(script).toContain("aiBaseUrl.value = ''");
     expect(script).toContain('localStorage');
     expect(app).toContain("'token-config': { title: 'Token 配置'");
-    expect(app).toContain('releaseTokens.ai');
+    expect(app).toContain('tokenConfig.ai');
     expect(app).toContain('AI 配置不完整');
     expect(script).not.toContain('aiBaseUrl:');
     expect(script).not.toContain('aiApiKey:');
