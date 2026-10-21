@@ -15,6 +15,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/public/css/app.css" />
+    <link rel="stylesheet" href="/public/css/workflow.css" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -72,6 +73,12 @@
               <path d="M6 5h12M6 12h12M6 19h12M9 3v4M15 10v4M10 17v4" />
             </svg>
             <span>ENV 对比</span>
+          </a>
+          <a class="nav-link" href="#workflow" data-route="workflow">
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M3 4h6v6H3zM15 14h6v6h-6zM6 10v7h9M9 7h9v7" />
+            </svg>
+            <span>工作流</span>
           </a>
           <a class="nav-link" href="#weekly-report" data-route="weekly-report">
             <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
@@ -162,6 +169,11 @@
     <script src="/public/js/config-file-preview.js" defer></script>
     <script src="/public/js/token-config.js" defer></script>
     <script src="/public/js/plagiarism.js" defer></script>
+    <script src="/public/vendor/workflow-graph.js" defer></script>
+    <script src="/public/js/workflow-core.js" defer></script>
+    <script src="/public/js/workflow-nodes.js" defer></script>
+    <script src="/public/js/workflow-palette.js" defer></script>
+    <script src="/public/js/workflow-view.js" defer></script>
     <script src="/public/js/app.js" defer></script>
   </body>
 </html>

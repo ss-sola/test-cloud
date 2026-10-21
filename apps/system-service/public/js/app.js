@@ -7,6 +7,7 @@
     particle: { title: '粒子动画', documentTitle: '粒子动画 · NestCloud' },
     'json-compare': { title: 'JSON 对比', documentTitle: 'JSON 对比 · NestCloud' },
     'env-compare': { title: 'ENV 对比', documentTitle: 'ENV 对比 · NestCloud' },
+    workflow: { title: '工作流', documentTitle: '工作流 · NestCloud' },
     'weekly-report': { title: '周报生成', documentTitle: '周报生成 · NestCloud' },
     bullmq: { title: 'BullMQ 面板', documentTitle: 'BullMQ 面板 · NestCloud' },
     'config-file-preview': { title: '配置版本预览', documentTitle: '配置版本预览 · NestCloud' },
@@ -18,6 +19,7 @@
     particle: '/public/html/particle.html',
     'json-compare': '/public/html/json-compare.html',
     'env-compare': '/public/html/env-compare.html',
+    workflow: '/public/html/workflow.html',
     'weekly-report': '/public/html/weekly-report.html',
     bullmq: '/public/html/bullmq.html',
     'config-file-preview': '/public/html/config-file-preview.html',
@@ -148,6 +150,10 @@
       if (typeof window.NestCloudTokenConfig?.mount === 'function') {
         const tokenView = viewHost.querySelector('[data-view="token-config"]')
         if (tokenView instanceof HTMLElement) window.NestCloudTokenConfig.mount(tokenView)
+      }
+      if (typeof window.NestCloudWorkflow?.mount === 'function') {
+        const workflowView = viewHost.querySelector('[data-view="workflow"]')
+        if (workflowView instanceof HTMLElement) window.NestCloudWorkflow.mount(workflowView)
       }
       renderRoute(normalizeRoute())
     } catch (error) {

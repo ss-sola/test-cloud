@@ -1,0 +1,1654 @@
+/* 工作流暗色工作区；全站壳层仅随当前工作流路由切换。 */
+
+/* ---------- 主题令牌 ---------- */
+
+/*
+ * :is() 对不支持 :has 的浏览器容错，保证 .workflow-view 自身的令牌始终可读；
+ * 图元令牌（--wf-graph-*）供 X6 在首次挂载时读取，即使视图在其他路由下被隐藏也有定义。
+ */
+:is(.workflow-view, html:has(.main-content[data-route='workflow'])) {
+  --wf-bg: #10151d;
+  --wf-bg-sunken: #0d1219;
+  --wf-surface: #19212d;
+  --wf-surface-raised: #202a38;
+  --wf-field: #121821;
+  --wf-hover: #243247;
+  --wf-border: #344258;
+  --wf-border-soft: #263143;
+  --wf-border-strong: #5b6d8a;
+  --wf-text: #e4eaf3;
+  --wf-text-secondary: #abb8ca;
+  --wf-text-faint: #8493a8;
+  --wf-text-disabled: #7a889c;
+  --wf-disabled-bg: #151b25;
+  --wf-accent: #85afe8;
+  --wf-accent-border: #4f78b5;
+  --wf-accent-soft: #1d3a66;
+  --wf-accent-soft-text: #cfe0fa;
+  --wf-accent-solid: #2f6bd0;
+  --wf-accent-solid-hover: #2559b3;
+  --wf-on-accent: #ffffff;
+  --wf-success-text: #b2ebc3;
+  --wf-success-bg: #14301f;
+  --wf-success-line: #2d6a43;
+  --wf-success-strong: #1f5237;
+  --wf-success-mark: #4cb87a;
+  --wf-danger-text: #f8c1c8;
+  --wf-danger-bg: #3a1d24;
+  --wf-danger-line: #7a3340;
+  --wf-danger-strong: #632934;
+  --wf-danger-mark: #ef7b86;
+  --wf-warning-text: #f3d98e;
+  --wf-warning-bg: #3a2f12;
+  --wf-warning-line: #7a6422;
+  --wf-warning-mark: #d9a82f;
+  --wf-info-text: #a6e3ef;
+  --wf-info-bg: #11323a;
+  --wf-info-strong: #17505f;
+  --wf-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  --wf-focus-ring: 0 0 0 2px rgb(133 175 232 / 35%);
+  --wf-mono: 'JetBrains Mono', Consolas, monospace;
+
+  /* X6 图元令牌：JS 读取这些变量绘制网格、连线、端口与连线标签。 */
+  --wf-graph-accent: var(--wf-accent);
+  --wf-graph-grid: #2a3546;
+  --wf-graph-port-fill: var(--wf-surface-raised);
+  --wf-graph-edge: #7f93b2;
+  --wf-edge-flow-core: #e0f3ff;
+
+  color-scheme: dark;
+  scrollbar-color: var(--wf-border-strong) var(--wf-field);
+  scrollbar-width: thin;
+}
+
+/* ---------- 管理台壳层（仅工作流路由） ---------- */
+
+html:has(.main-content[data-route='workflow']),
+body:has(.main-content[data-route='workflow']) {
+  background: var(--wf-bg);
+  color: var(--wf-text);
+}
+
+.app-shell:has(.main-content[data-route='workflow']) {
+  background: var(--wf-bg);
+  color: var(--wf-text);
+
+  & :is(.sidebar, .topbar) :is(a, button):focus-visible {
+    outline: 2px solid var(--wf-accent);
+    outline-offset: 2px;
+  }
+
+  & .sidebar {
+    border-right: 1px solid var(--wf-border-soft);
+    background: var(--wf-bg-sunken);
+    box-shadow: none;
+    color: var(--wf-text-secondary);
+  }
+
+  & .brand-mark {
+    background: var(--wf-accent-solid);
+    color: var(--wf-on-accent);
+  }
+
+  & .brand-name {
+    color: var(--wf-text);
+  }
+
+  & .brand-caption,
+  & .nav-label,
+  & .nav-status,
+  & .service-status small {
+    color: var(--wf-text-faint);
+  }
+
+  & .version-label {
+    color: var(--wf-text-disabled);
+  }
+
+  & .sidebar-collapse-button {
+    border-color: var(--wf-border);
+    color: var(--wf-text-secondary);
+  }
+
+  & .nav-link,
+  & .nav-group-toggle {
+    color: var(--wf-text-secondary);
+  }
+
+  & :is(.nav-link, .nav-group-toggle, .sidebar-collapse-button):focus-visible {
+    outline-offset: -2px;
+  }
+
+  & .nav-link:hover,
+  & .nav-group-toggle:hover,
+  & .sidebar-collapse-button:hover {
+    background: var(--wf-surface);
+    color: var(--wf-text);
+  }
+
+  & .nav-link[data-active='true'] {
+    background: var(--wf-accent-solid);
+    color: var(--wf-on-accent);
+  }
+
+  & .nav-link[data-active='true']::before {
+    background: var(--wf-accent);
+  }
+
+  & .nav-link[data-active='true'] .nav-status {
+    color: var(--wf-on-accent);
+  }
+
+  & .submenu::before {
+    background: var(--wf-border);
+  }
+
+  & .service-status {
+    border-color: var(--wf-border-soft);
+    background: var(--wf-surface);
+  }
+
+  & .service-status strong {
+    color: var(--wf-text);
+  }
+
+  & .sidebar-scrim {
+    background: rgb(0 0 0 / 55%);
+  }
+
+  & .topbar {
+    border-bottom-color: var(--wf-border-soft);
+    background: color-mix(in srgb, var(--wf-bg) 94%, transparent);
+  }
+
+  & .breadcrumbs,
+  & .topbar-meta {
+    color: var(--wf-text-secondary);
+  }
+
+  & .breadcrumbs strong {
+    color: var(--wf-text);
+  }
+
+  & .breadcrumbs svg {
+    color: var(--wf-text-faint);
+  }
+
+  & .environment-chip {
+    border-color: var(--wf-success-line);
+    background: var(--wf-success-bg);
+    color: var(--wf-success-text);
+  }
+
+  & .topbar-divider {
+    background: var(--wf-border);
+  }
+
+  & .topbar-date {
+    color: var(--wf-text-faint);
+  }
+
+  & .mobile-menu-button {
+    border: 1px solid var(--wf-border);
+    background: var(--wf-surface);
+    color: var(--wf-text);
+  }
+
+  & .view-loader {
+    color: var(--wf-text-secondary);
+  }
+
+  & .view-loader--error {
+    border-color: var(--wf-danger-line);
+    background: var(--wf-danger-bg);
+    color: var(--wf-danger-text);
+  }
+}
+
+/* ---------- 页面容器 ---------- */
+
+.main-content[data-route='workflow'] {
+  width: min(100%, 1680px);
+  padding-top: var(--space-4);
+}
+
+.workflow-view {
+  --wf-stage-h: clamp(30rem, calc(100dvh - 17rem), 56rem);
+
+  min-width: 0;
+  max-width: 100%;
+  color: var(--wf-text);
+}
+
+.workflow-view ::selection {
+  background: rgb(133 175 232 / 38%);
+  color: var(--wf-text);
+}
+
+.workflow-view .wf-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- 提示 ---------- */
+
+.workflow-view .wf-alert {
+  margin: 0 0 var(--space-1);
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--wf-danger-line);
+  border-radius: var(--radius-sm);
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.workflow-view .wf-alert--warning {
+  border-color: var(--wf-warning-line);
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
+}
+
+.workflow-view .wf-hint {
+  min-height: 1.5rem;
+  margin: 0.25rem 0 0.5rem;
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+}
+
+/* ---------- 工具栏 ---------- */
+
+.workflow-view .wf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-1) var(--space-2);
+  padding: 0.75rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-md);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+}
+
+.workflow-view .wf-group {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.workflow-view .wf-group + .wf-group {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.workflow-view .wf-control {
+  min-width: 0;
+  height: 2.25rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+  color: var(--wf-text);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.workflow-view .wf-control option {
+  background: var(--wf-field);
+  color: var(--wf-text);
+}
+
+.workflow-view .wf-control::placeholder,
+.workflow-view .wf-text::placeholder {
+  color: var(--wf-text-faint);
+  opacity: 1;
+}
+
+.workflow-view .wf-control--select {
+  width: 11rem;
+}
+
+.workflow-view .wf-control--name {
+  width: 11rem;
+}
+
+.workflow-view .wf-control:hover:not(:focus-visible, [readonly], :disabled) {
+  border-color: var(--wf-border-strong);
+}
+
+.workflow-view .wf-control:focus-visible,
+.workflow-view .wf-text:focus-visible,
+.workflow-view .wf-node__name:focus-visible {
+  border-color: var(--wf-accent);
+  outline: 0;
+  box-shadow: var(--wf-focus-ring);
+}
+
+.workflow-view .wf-control[readonly],
+.workflow-view .wf-control:disabled {
+  background: var(--wf-disabled-bg);
+  color: var(--wf-text-disabled);
+}
+
+.workflow-view .wf-control:disabled {
+  cursor: not-allowed;
+}
+
+.workflow-view .wf-button,
+.workflow-view .wf-mini-button {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-surface-raised);
+  color: var(--wf-text);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    color 200ms ease-out;
+}
+
+.workflow-view .wf-button:hover:not(:disabled),
+.workflow-view .wf-mini-button:hover:not(:disabled) {
+  border-color: var(--wf-accent-border);
+  background: var(--wf-hover);
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-button:active:not(:disabled),
+.workflow-view .wf-mini-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.workflow-view .wf-button--primary {
+  border-color: var(--wf-accent-solid);
+  background: var(--wf-accent-solid);
+  color: var(--wf-on-accent);
+  font-weight: 700;
+}
+
+.workflow-view .wf-button--primary:hover:not(:disabled) {
+  border-color: var(--wf-accent);
+  background: var(--wf-accent-solid-hover);
+  color: var(--wf-on-accent);
+}
+
+.workflow-view .wf-button--danger:hover:not(:disabled) {
+  border-color: var(--wf-danger-line);
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-button--icon {
+  min-width: 2.25rem;
+  padding: 0;
+  font-size: 1.125rem;
+}
+
+.workflow-view .wf-button:disabled,
+.workflow-view .wf-mini-button:disabled {
+  border-color: var(--wf-border-soft);
+  background: var(--wf-disabled-bg);
+  color: var(--wf-text-disabled);
+  cursor: not-allowed;
+}
+
+.workflow-view .wf-button:focus-visible,
+.workflow-view .wf-mini-button:focus-visible,
+.workflow-view .wf-result__tab:focus-visible,
+.workflow-view .wf-tree__toggle:focus-visible,
+.workflow-view .wf-node__remove:focus-visible,
+.workflow-view .wf-stage:focus-visible,
+.workflow-view .wf-pane__code:focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: 2px;
+}
+
+.workflow-view .wf-run-status {
+  display: inline-flex;
+  min-height: 2.25rem;
+  max-width: 24rem;
+  align-items: center;
+  padding: 0 0.625rem;
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.workflow-view .wf-run-status[data-status='running'] {
+  background: var(--wf-accent-soft);
+  color: var(--wf-accent-soft-text);
+}
+
+.workflow-view .wf-run-status[data-status='succeeded'] {
+  background: var(--wf-success-bg);
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-run-status[data-status='partial'] {
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
+}
+
+.workflow-view .wf-run-status[data-status='failed'] {
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-zoom {
+  min-width: 3rem;
+  color: var(--wf-text-secondary);
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  line-height: 2.25rem;
+  text-align: center;
+}
+
+/* ---------- 节点库与画布布局 ---------- */
+
+.workflow-view .wf-workbench {
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+
+.workflow-view .wf-palette {
+  display: flex;
+  min-width: 0;
+  max-height: var(--wf-stage-h);
+  flex-direction: column;
+  padding: 0.875rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-md);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+}
+
+.workflow-view .wf-palette__title {
+  margin: 0;
+  color: var(--wf-text);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.workflow-view .wf-palette__help,
+.workflow-view .wf-palette__note,
+.workflow-view .wf-stage-help {
+  margin: 0.25rem 0 0;
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.workflow-view .wf-palette__note {
+  flex: 0 0 auto;
+  margin-top: var(--space-1);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-palette__search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.workflow-view .wf-palette__search-input {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  appearance: none;
+}
+
+.workflow-view .wf-palette__search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.workflow-view .wf-palette__clear {
+  flex: 0 0 auto;
+}
+
+.workflow-view .wf-palette__count {
+  min-height: 1.25rem;
+  margin: 0.5rem 0 0;
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.workflow-view .wf-palette__empty {
+  margin: 0.25rem 0 0;
+  padding: 0.5rem 0.625rem;
+  border: 1px dashed var(--wf-border);
+  border-radius: var(--radius-sm);
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* 节点库目录树：递归 details，缩进与引导线由 .wf-folder__content 逐级叠加。 */
+
+.workflow-view .wf-palette__list {
+  display: flex;
+  min-height: 8rem;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-top: 0.25rem;
+  padding-right: 0.25rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.workflow-view .wf-palette__list:empty {
+  display: none;
+}
+
+.workflow-view .wf-folder {
+  min-width: 0;
+}
+
+.workflow-view .wf-folder__summary {
+  display: flex;
+  min-width: 0;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-sm);
+  color: var(--wf-text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background-color 200ms ease-out;
+}
+
+.workflow-view .wf-folder__summary::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-view .wf-folder__summary::marker {
+  content: '';
+}
+
+.workflow-view .wf-folder__summary:hover {
+  background: var(--wf-hover);
+}
+
+.workflow-view .wf-folder__summary:focus-visible,
+.workflow-view .wf-palette__item:focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: -2px;
+}
+
+.workflow-view .wf-folder__chevron {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: var(--wf-text-secondary);
+  transition: transform 200ms ease-out;
+}
+
+.workflow-view .wf-folder:not([open]) > .wf-folder__summary .wf-folder__chevron {
+  transform: rotate(-90deg);
+}
+
+.workflow-view .wf-folder__icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-folder__name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-view .wf-folder__count {
+  flex: 0 0 auto;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-sm);
+  background: var(--wf-surface-raised);
+  color: var(--wf-text-secondary);
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.workflow-view .wf-folder__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-left: 0.875rem;
+  padding: 0.25rem 0 0.25rem 0.5rem;
+  border-left: 1px solid var(--wf-border);
+}
+
+.workflow-view .wf-palette__item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--wf-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--wf-surface-raised);
+  color: var(--wf-text);
+  cursor: grab;
+  text-align: left;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out;
+}
+
+.workflow-view .wf-palette__item:hover:not(:disabled) {
+  border-color: var(--wf-accent-border);
+  background: var(--wf-hover);
+}
+
+.workflow-view .wf-palette__item strong,
+.workflow-view .wf-palette__name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-palette__item small,
+.workflow-view .wf-palette__ports {
+  color: var(--wf-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* 运行中仅锁定叶子节点，目录折叠与搜索仍可使用。 */
+.workflow-view .wf-palette__item:disabled {
+  border-color: var(--wf-border-soft);
+  background: var(--wf-disabled-bg);
+  color: var(--wf-text-disabled);
+  cursor: not-allowed;
+}
+
+.workflow-view .wf-palette__item:disabled small {
+  color: inherit;
+}
+
+.workflow-view .wf-main {
+  min-width: 0;
+}
+
+.workflow-view .wf-stage {
+  position: relative;
+  min-width: 0;
+  height: var(--wf-stage-h);
+  overflow: clip;
+  overscroll-behavior: none;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-md);
+  background: var(--wf-bg-sunken);
+  box-shadow: var(--wf-shadow);
+}
+
+.workflow-view .wf-stage .wf-graph {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: clip;
+}
+
+/* 节点内部滚动到边缘时，不把双轴触控板手势传给外层页面。 */
+.workflow-view .wf-stage :is(.wf-text, .wf-node__body--scroll, .wf-node__message, .wf-pane__code, .wf-tree) {
+  overscroll-behavior: contain;
+}
+
+/* X6 的主 SVG 与 foreignObject body 不使用管理台图标及页面尺寸。 */
+.workflow-view .x6-graph-svg {
+  width: 100%;
+  height: 100%;
+  stroke: none;
+}
+
+.workflow-view .x6-graph-svg foreignObject > body {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.workflow-view .wf-stage-help {
+  margin-bottom: 0.5rem;
+}
+
+/* Ctrl 加左键拖动空白处平移时，根节点带有 .wf-panning。 */
+.workflow-view.wf-panning .wf-stage,
+.workflow-view.wf-panning .wf-stage * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* ---------- 空状态 ---------- */
+
+.workflow-view .wf-empty {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  padding: var(--space-3);
+  place-items: center;
+  pointer-events: none;
+}
+
+.workflow-view .wf-empty__panel {
+  display: flex;
+  max-width: 30rem;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-md);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+  pointer-events: auto;
+  text-align: center;
+}
+
+.workflow-view .wf-empty__icon {
+  width: 3rem;
+  height: 3rem;
+  margin-bottom: 0.5rem;
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-empty__title {
+  margin: 0;
+  color: var(--wf-text);
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.workflow-view .wf-empty__text {
+  margin: 0.5rem 0 var(--space-2);
+  color: var(--wf-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.workflow-view .wf-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.workflow-view .wf-mini-button {
+  min-height: 1.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+}
+
+/* ---------- 节点 ---------- */
+
+.workflow-view .wf-node {
+  --wf-ring: var(--wf-border);
+
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--wf-surface);
+  box-shadow:
+    0 0 0 1px var(--wf-ring),
+    var(--wf-shadow);
+  color: var(--wf-text);
+  container-type: inline-size;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.workflow-view .wf-node[data-status='running'] {
+  --wf-ring: var(--wf-accent);
+}
+
+.workflow-view .wf-node[data-status='succeeded'] {
+  --wf-ring: var(--wf-success-mark);
+}
+
+.workflow-view .wf-node[data-status='failed'] {
+  --wf-ring: var(--wf-danger-mark);
+}
+
+.workflow-view .wf-node--unknown {
+  --wf-ring: var(--wf-warning-mark);
+}
+
+.workflow-view .x6-node-selected .wf-node {
+  --wf-ring: var(--wf-accent);
+
+  box-shadow:
+    0 0 0 2px var(--wf-accent),
+    var(--wf-shadow);
+}
+
+.workflow-view .wf-node__head {
+  display: flex;
+  height: var(--wf-head-h, 40px);
+  flex: 0 0 var(--wf-head-h, 40px);
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 0.5rem;
+  border-bottom: 1px solid var(--wf-border-soft);
+  background: var(--wf-surface-raised);
+}
+
+.workflow-view .wf-node__kind {
+  flex: 0 0 auto;
+  color: var(--wf-accent);
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.workflow-view .wf-node__name {
+  min-width: 0;
+  height: 1.75rem;
+  flex: 1 1 0;
+  padding: 0 0.375rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--wf-text);
+  cursor: text;
+  font: inherit;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+
+.workflow-view .wf-node__name:hover:not([readonly]) {
+  border-color: var(--wf-border-strong);
+}
+
+.workflow-view .wf-node__name:focus-visible {
+  background: var(--wf-field);
+}
+
+.workflow-view .wf-node__status {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--wf-border-soft);
+  color: var(--wf-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.workflow-view .wf-node[data-status='queued'] .wf-node__status {
+  background: var(--wf-accent-soft);
+  color: var(--wf-accent-soft-text);
+}
+
+.workflow-view .wf-node[data-status='running'] .wf-node__status {
+  background: var(--wf-accent-solid);
+  color: var(--wf-on-accent);
+}
+
+.workflow-view .wf-node[data-status='succeeded'] .wf-node__status {
+  background: var(--wf-success-bg);
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-node[data-status='failed'] .wf-node__status {
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-node[data-status='skipped'] .wf-node__status {
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
+}
+
+.workflow-view .wf-node[data-status='cancelled'] .wf-node__status {
+  background: var(--wf-hover);
+  color: var(--wf-text-secondary);
+}
+
+.workflow-view .wf-node__remove {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--wf-text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.workflow-view .wf-node__remove:hover:not(:disabled) {
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-node__remove:disabled {
+  color: var(--wf-text-disabled);
+  cursor: not-allowed;
+}
+
+@container (max-width: 240px) {
+  .wf-node__kind {
+    display: none;
+  }
+}
+
+.workflow-view .wf-node__ports {
+  display: grid;
+  flex: 0 0 auto;
+  grid-auto-rows: var(--wf-port-h, 26px);
+  border-bottom: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-node__port-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.875rem;
+}
+
+.workflow-view .wf-port {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-port--out {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.workflow-view .wf-port__name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-view .wf-port__required {
+  color: var(--wf-danger-mark);
+  font-weight: 700;
+}
+
+.workflow-view .wf-port__type {
+  flex: 0 0 auto;
+  color: var(--wf-text-secondary);
+  font-family: var(--wf-mono);
+  font-size: 0.625rem;
+}
+
+.workflow-view .wf-node__message {
+  max-height: 4.5rem;
+  margin: 0;
+  padding: 0.25rem 0.625rem;
+  overflow: auto;
+  border-bottom: 1px solid var(--wf-border-soft);
+  background: var(--wf-field);
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-node[data-status='failed'] .wf-node__message {
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-node__body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 0.5rem;
+  overflow: hidden;
+}
+
+.workflow-view .wf-node__body--scroll {
+  overflow: auto;
+}
+
+.workflow-view .wf-node__notice {
+  margin: 0;
+  color: var(--wf-warning-text);
+  font-size: 0.75rem;
+}
+
+/* ---------- 文本、对比节点 ---------- */
+
+.workflow-view .wf-text {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  padding: 0.5rem;
+  resize: none;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+  color: var(--wf-text);
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.workflow-view .wf-text[readonly] {
+  color: var(--wf-text-secondary);
+}
+
+.workflow-view .wf-text__count {
+  flex: 0 0 auto;
+  padding-top: 0.25rem;
+  color: var(--wf-text-secondary);
+  font-family: var(--wf-mono);
+  font-size: 0.625rem;
+  text-align: right;
+}
+
+.workflow-view .wf-compare__status {
+  margin: 0 0 0.25rem;
+  color: var(--wf-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.workflow-view .wf-compare__description {
+  margin: 0;
+  color: var(--wf-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+/* ---------- 结果节点 ---------- */
+
+.workflow-view .wf-result {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.workflow-view .wf-result__bar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.workflow-view .wf-result__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.625rem;
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+}
+
+.workflow-view .wf-result__summary {
+  color: var(--wf-text);
+  font-family: Lato, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.8125rem;
+}
+
+.workflow-view .wf-stat--added,
+.workflow-view .wf-tree__status--added {
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-stat--removed,
+.workflow-view .wf-tree__status--removed {
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-stat--modified,
+.workflow-view .wf-tree__status--modified {
+  color: var(--wf-info-text);
+}
+
+.workflow-view .wf-result__tabs {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-view .wf-result__tab {
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  background: var(--wf-surface-raised);
+  color: var(--wf-text);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.workflow-view .wf-result__tab:hover:not([aria-selected='true']) {
+  background: var(--wf-hover);
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-result__tab + .wf-result__tab {
+  border-left: 1px solid var(--wf-border);
+}
+
+.workflow-view .wf-result__tab[aria-selected='true'] {
+  background: var(--wf-accent-solid);
+  color: var(--wf-on-accent);
+}
+
+.workflow-view .wf-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+.workflow-view .wf-result__empty {
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px dashed var(--wf-border);
+  border-radius: var(--radius-sm);
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-result__panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  gap: 0.5rem;
+}
+
+.workflow-view .wf-result__panel--json {
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.workflow-view .wf-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-view .wf-pane__title {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--wf-border-soft);
+  background: var(--wf-surface-raised);
+  color: var(--wf-accent);
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.workflow-view .wf-pane__content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.workflow-view .wf-pane__markers {
+  position: relative;
+  width: 6px;
+  flex: 0 0 6px;
+  overflow: hidden;
+  border-left: 1px solid var(--wf-border-soft);
+  background: var(--wf-field);
+  pointer-events: none;
+}
+
+.workflow-view .wf-pane__marker {
+  position: absolute;
+  right: 0;
+  left: 0;
+  min-height: 2px;
+}
+
+.workflow-view .wf-pane__marker--added {
+  background: var(--wf-success-mark);
+}
+
+.workflow-view .wf-pane__marker--removed {
+  background: var(--wf-danger-mark);
+}
+
+.workflow-view .wf-pane__marker--modified {
+  background: var(--wf-info-text);
+}
+
+.workflow-view .wf-pane__code {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  padding: 0.5rem;
+  overflow: auto;
+  background: var(--wf-field);
+  color: var(--wf-text);
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.workflow-view .wf-pane__code--json {
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-view .wf-json-note {
+  margin: 0;
+  color: var(--wf-warning-text);
+  font-size: 0.6875rem;
+}
+
+.workflow-view .wf-hl--added {
+  background: var(--wf-success-strong);
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-hl--removed {
+  background: var(--wf-danger-strong);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-hl--modified {
+  background: var(--wf-info-strong);
+  color: var(--wf-info-text);
+}
+
+.workflow-view .wf-tree {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+}
+
+.workflow-view .wf-tree__head,
+.workflow-view .wf-tree__row {
+  display: grid;
+  min-width: 28rem;
+  grid-template-columns: minmax(9rem, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.workflow-view .wf-tree__head {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  border-bottom: 1px solid var(--wf-border-soft);
+  background: var(--wf-surface-raised);
+  color: var(--wf-text-secondary);
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+}
+
+.workflow-view .wf-tree__head span {
+  padding: 0.375rem 0.5rem;
+}
+
+.workflow-view .wf-tree__row {
+  border-bottom: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-tree__key,
+.workflow-view .wf-tree__cell {
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.workflow-view .wf-tree__key {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-right: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-tree__toggle {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 1.25rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--wf-accent-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-accent-soft);
+  color: var(--wf-accent-soft-text);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.workflow-view .wf-tree__toggle:hover {
+  border-color: var(--wf-accent);
+  background: var(--wf-hover);
+}
+
+.workflow-view .wf-tree__spacer {
+  width: 1.25rem;
+  flex: 0 0 1.25rem;
+}
+
+.workflow-view .wf-tree__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-view .wf-tree__status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: Lato, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.workflow-view .wf-tree__status--unchanged {
+  color: var(--wf-text-faint);
+}
+
+.workflow-view .wf-tree__cell {
+  border-left: 1px solid var(--wf-border-soft);
+  color: var(--wf-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-tree__cell--added {
+  background: var(--wf-success-bg);
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-tree__cell--removed {
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-tree__cell--modified {
+  background: var(--wf-info-bg);
+  color: var(--wf-info-text);
+}
+
+.workflow-view .wf-tree__cell--missing {
+  background: var(--wf-disabled-bg);
+  color: var(--wf-text-disabled);
+}
+
+/* ---------- X6 交互元素 ---------- */
+
+.workflow-view .wf-node__head,
+.workflow-view .wf-node__ports,
+.workflow-view .wf-node__message {
+  cursor: move;
+  user-select: none;
+}
+
+.workflow-view .wf-text,
+.workflow-view .wf-node__name,
+.workflow-view .wf-pane__code,
+.workflow-view .wf-tree,
+.workflow-view .wf-json-note,
+.workflow-view .wf-compare__description {
+  user-select: text;
+}
+
+.workflow-view.wf-locked .x6-node,
+.workflow-view.wf-locked .wf-node__head,
+.workflow-view.wf-locked .wf-node__ports,
+.workflow-view.wf-locked .wf-node__message {
+  cursor: default;
+}
+
+.workflow-view .wf-edge-halo,
+.workflow-view .wf-edge-glow,
+.workflow-view .wf-edge-line,
+.workflow-view .wf-edge-flow {
+  pointer-events: none;
+}
+
+.workflow-view .wf-edge-flow {
+  offset-anchor: 0px 0px;
+  offset-rotate: auto;
+  animation-name: wf-edge-flow-travel;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-play-state: running;
+}
+
+@keyframes wf-edge-flow-travel {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+
+.workflow-view .x6-edge-selected .wf-edge-flow {
+  animation-play-state: paused;
+}
+
+.workflow-view .wf-edge-halo {
+  stroke-width: 10px;
+  opacity: 0.08;
+}
+
+.workflow-view .wf-edge-glow {
+  stroke-width: 5px;
+  opacity: 0.22;
+}
+
+.workflow-view .wf-edge-line {
+  opacity: 0.9;
+}
+
+.workflow-view .wf-edge-line--preview {
+  stroke: var(--wf-graph-accent);
+  stroke-dasharray: 5 4;
+  opacity: 0.7;
+}
+
+.workflow-view .wf-edge-flow-halo {
+  fill: var(--wf-graph-accent);
+  opacity: 0.16;
+}
+
+.workflow-view .wf-edge-flow-trail {
+  fill: var(--wf-graph-accent);
+  opacity: 0.7;
+}
+
+.workflow-view .wf-edge-flow-core {
+  fill: var(--wf-edge-flow-core);
+  filter: drop-shadow(0 0 3px var(--wf-graph-accent));
+}
+
+.workflow-view .x6-edge-selected .wf-edge-line {
+  stroke: var(--wf-graph-accent);
+  stroke-width: 3px;
+  opacity: 1;
+}
+
+.workflow-view .x6-edge-selected .wf-edge-halo {
+  stroke-width: 14px;
+  opacity: 0.16;
+}
+
+.workflow-view .x6-edge-selected .wf-edge-glow {
+  stroke-width: 8px;
+  opacity: 0.32;
+}
+
+.workflow-view .wf-edge-hit:focus,
+.workflow-view .wf-edge-hit:focus-visible {
+  outline: none;
+}
+
+.workflow-view.wf-edge-motion-paused .wf-edge-flow {
+  visibility: hidden;
+  animation-play-state: paused;
+}
+
+.workflow-view .x6-node [magnet='true'] {
+  cursor: crosshair;
+}
+
+.workflow-view.wf-locked .x6-node [magnet='true'] {
+  cursor: not-allowed;
+}
+
+.workflow-view .wf-magnet-available {
+  fill: var(--wf-graph-accent);
+  stroke-width: 3px;
+}
+
+.workflow-view .x6-widget-selection-rubberband {
+  border: 1px solid var(--wf-graph-accent);
+  background-color: rgb(133 175 232 / 16%);
+  opacity: 1;
+}
+
+.workflow-view .x6-widget-transform {
+  border: 1px dashed var(--wf-graph-accent);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-view .x6-widget-transform > div {
+  border-color: var(--wf-graph-accent);
+  border-radius: 2px;
+  background-color: var(--wf-surface);
+}
+
+.workflow-view .x6-widget-transform > div:hover {
+  background-color: var(--wf-hover);
+}
+
+/* ---------- 响应式 ---------- */
+
+@media (max-width: 1023px) {
+  .workflow-view .wf-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 目录保持递归竖排，由列表容器自身滚动。 */
+  .workflow-view .wf-palette {
+    max-height: 28rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .workflow-view {
+    --wf-stage-h: clamp(26rem, calc(100dvh - 14rem), 40rem);
+  }
+
+  .workflow-view .wf-group + .wf-group {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .workflow-view .wf-group {
+    width: 100%;
+  }
+
+  .workflow-view .wf-field {
+    min-width: 0;
+    flex: 1 1 8rem;
+  }
+
+  .workflow-view .wf-control--select,
+  .workflow-view .wf-control--name {
+    width: 100%;
+  }
+
+  .workflow-view .wf-run-status {
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .workflow-view .wf-result__panel--pairs {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-view .wf-edge-flow {
+    visibility: hidden;
+    animation-play-state: paused;
+  }
+
+  .workflow-view * {
+    transition: none !important;
+  }
+}

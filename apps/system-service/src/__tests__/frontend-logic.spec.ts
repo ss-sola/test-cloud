@@ -45,6 +45,7 @@ describe('static shell and fragment contract', () => {
       'particle',
       'json-compare',
       'env-compare',
+      'workflow',
       'weekly-report',
       'bullmq',
       'config-file-preview',
