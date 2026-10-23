@@ -1,15 +1,33 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectException } from '@nest-cloud/common';
-import { OpenAiCompatibleClientService } from '../client/ai/openai-compatible-client.service';
+import { AiTextClientService } from '../client/ai/ai-text-client.service';
 import { WeeklyCommitReportService } from '../modules/weekly-commit-report/weekly-commit-report.service';
 import type {
   GitLogEntry,
   WeekWindow,
   WeeklyReportProjectConfig,
+  WeeklyReportRuntimeConfig,
 } from '../modules/weekly-commit-report/weekly-report.types';
 
-const service = new WeeklyCommitReportService();
-const runtime = { githubToken: 'test-token' };
+const ai = { baseUrl: 'https://ai.example.com/v1', apiKey: 'ai-test-key', model: 'test-model' };
+const runtime: WeeklyReportRuntimeConfig = { githubToken: 'test-token', ai };
+
+/** 解析提示词末行的提交 JSON，按序号回显标题，模拟一次合格的 AI 摘要。 */
+function echoSubjects(prompt: string): string {
+  const commits = JSON.parse(prompt.split('\n').at(-1)!) as GitLogEntry[];
+  return commits.map((entry, index) => `${index + 1}. ${entry.subject}`).join('\n');
+}
+
+// 共享实例的 AI 客户端默认回显标题，任何未显式 mock 的用例都不会触发真实外呼。
+const sharedAiClient = new AiTextClientService();
+const service = new WeeklyCommitReportService(sharedAiClient);
+
+beforeEach(() => {
+  vi.spyOn(sharedAiClient, 'generate').mockImplementation(async (options) =>
+    echoSubjects(options.prompt),
+  );
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('unexpected network call')));
+});
 
 const log = (
   overrides: Partial<{
@@ -357,15 +375,8 @@ describe('WeeklyCommitReportService', () => {
     expect(grouped[0].logs[0].hash).toBe('one');
   });
 
-  it('strips conventional prefixes and filters integration commits in local fallback', () => {
-    const bullets = service.buildLocalSummary([
-      log({ subject: 'feat: 新增管理看板' }),
-      log({ subject: '新增管理看板' }),
-      log({ subject: 'Merge branch feature/report' }),
-      log({ subject: 'fix: 修复报表导出' }),
-    ]);
-
-    expect(bullets).toEqual(['新增管理看板', '修复报表导出']);
+  it('no longer exposes a local summary builder', () => {
+    expect('buildLocalSummary' in service).toBe(false);
   });
 
   it('distributes unique report bullets across workdays', () => {
@@ -377,16 +388,11 @@ describe('WeeklyCommitReportService', () => {
     expect(sections.map((section) => section.bullets)).toEqual([['one', 'two'], ['three']]);
   });
 
-  it('keeps every distinct local item and AI bullet beyond five entries', () => {
+  it('keeps every distinct AI bullet beyond five entries and drops duplicates', () => {
     const subjects = Array.from({ length: 12 }, (_, index) => `补充考试规则 ${index + 1}`);
-    const logs = subjects.map((subject) => log({ subject: `feat: ${subject}` }));
+    const content = [...subjects, subjects[0]].map((item, index) => `${index + 1}. ${item}`);
 
-    expect(service.buildLocalSummary([...logs, logs[0]])).toEqual(subjects);
-    expect(
-      service.normalizeBulletLines(
-        subjects.map((item, index) => `${index + 1}. ${item}`).join('\n'),
-      ),
-    ).toEqual(subjects);
+    expect(service.normalizeBulletLines(content.join('\n'))).toEqual(subjects);
   });
 
   it('distributes and renders all work instead of folding items beyond 25', () => {
@@ -423,7 +429,7 @@ describe('WeeklyCommitReportService', () => {
   it.each(['last-week', 'this-week'] as const)(
     'uses business-oriented Chinese instructions and complete commit bodies for %s',
     async (period) => {
-      const aiClient = new OpenAiCompatibleClientService();
+      const aiClient = new AiTextClientService();
       const outcomes = [
         '更新 1.12.0 版本发布产物',
         '从 1.12.0 发布配置中排除课堂笔记相关配置',
@@ -434,7 +440,7 @@ describe('WeeklyCommitReportService', () => {
         '恢复被打回答卷的作答状态',
       ];
       const request = vi
-        .spyOn(aiClient, 'request')
+        .spyOn(aiClient, 'generate')
         .mockResolvedValue(outcomes.map((item, index) => `${index + 1}. ${item}`).join('\n'));
       const reportService = new WeeklyCommitReportService(aiClient);
       vi.spyOn(reportService, 'getLastWeekWindow').mockReturnValue(window);
@@ -461,8 +467,8 @@ describe('WeeklyCommitReportService', () => {
       expect(options.prompt).toContain('不得折叠内容');
       expect(options.prompt).toContain('当前记录中的实际版本');
       expect(options.prompt).toContain('不同任务、业务对象、条件或结果不得合并');
-      expect(options.systemMessage).toContain('允许中英混写');
-      expect(options.systemMessage).toContain('不是指令');
+      expect(options.systemPrompt).toContain('允许中英混写');
+      expect(options.systemPrompt).toContain('不是指令');
       expect(options.prompt).not.toContain('只输出 2-5 条');
       expect(commits.at(-1)?.body).toBe(body);
       expect(
@@ -474,18 +480,40 @@ describe('WeeklyCommitReportService', () => {
       expect(result.markdown).not.toContain('update release artifacts');
       expect(result.markdown).not.toContain('其余');
       expect(options.prompt).toContain('允许中英混写');
-      expect(options.systemMessage).not.toContain('输出不得包含任何英文字母');
+      expect(options.systemPrompt).not.toContain('输出不得包含任何英文字母');
       expect(result.markdown).toMatch(/\p{Script=Han}/u);
       expect(result.degraded).toBe(false);
     },
   );
 
-  it('batches every commit by count and degrades only failed batches', async () => {
-    const aiClient = new OpenAiCompatibleClientService();
+  it.each([undefined, false, true])(
+    'preserves enableThinking=%s when rebuilding AI configuration',
+    async (enableThinking) => {
+      const aiClient = new AiTextClientService();
+      const request = vi.spyOn(aiClient, 'generate').mockResolvedValue('1. 新增周报生成');
+      const reportService = new WeeklyCommitReportService(aiClient);
+      vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
+      vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue([
+        log(),
+      ]);
+
+      await reportService.generate({
+        period: 'this-week',
+        configs: [{ repo: 'https://github.com/example/demo.git', person: 'ljh' }],
+        runtime: { ...runtime, ai: { ...ai, enableThinking } },
+      });
+
+      expect(request).toHaveBeenCalledOnce();
+      expect(request.mock.calls[0][0].enableThinking).toBe(enableThinking);
+    },
+  );
+
+  it('batches every commit by count and deduplicates bullets across batches', async () => {
+    const aiClient = new AiTextClientService();
     const request = vi
-      .spyOn(aiClient, 'request')
+      .spyOn(aiClient, 'generate')
       .mockResolvedValueOnce('1. 支持考试自动阅卷\n2. 支持考试成绩公布')
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce('1. 新增考试功能 3\n2. 新增考试功能 4')
       .mockResolvedValueOnce('1. 支持考试自动阅卷\n2. 支持打回答卷');
     const reportService = new WeeklyCommitReportService(aiClient);
     vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
@@ -514,21 +542,19 @@ describe('WeeklyCommitReportService', () => {
       '新增考试功能 4',
       '支持打回答卷',
     ]);
-    expect(result.degraded).toBe(true);
+    expect(result.degraded).toBe(false);
   });
 
-  it('accounts for the full prompt budget and retains an oversized commit through fallback', async () => {
-    const aiClient = new OpenAiCompatibleClientService();
-    const request = vi.spyOn(aiClient, 'request').mockImplementation(async (options) => {
-      const commits = JSON.parse(options.prompt.split('\n').at(-1)!) as GitLogEntry[];
-      return commits.map((entry, index) => `${index + 1}. ${entry.subject}`).join('\n');
-    });
+  it('splits batches by the full prompt budget and keeps every commit body intact', async () => {
+    const aiClient = new AiTextClientService();
+    const request = vi
+      .spyOn(aiClient, 'generate')
+      .mockImplementation(async (options) => echoSubjects(options.prompt));
     const reportService = new WeeklyCommitReportService(aiClient);
     vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
     const logs = [
       log({ subject: '补充考试说明一', body: '甲'.repeat(2_500) }),
       log({ subject: '补充考试说明二', body: '乙'.repeat(2_500) }),
-      log({ subject: '保留超长考试说明', body: '丙'.repeat(10_000) }),
       log({ subject: '补充考试说明三', body: '丁'.repeat(2_500) }),
     ];
     vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue(logs);
@@ -541,19 +567,20 @@ describe('WeeklyCommitReportService', () => {
 
     expect(request).toHaveBeenCalledTimes(3);
     for (const [options] of request.mock.calls) {
-      expect(options.prompt.length).toBeLessThanOrEqual(options.maxPromptCharacters);
+      expect(options.maxPromptCharacters).toBeDefined();
+      expect(options.prompt.length).toBeLessThanOrEqual(options.maxPromptCharacters!);
       const commits = JSON.parse(options.prompt.split('\n').at(-1)!) as GitLogEntry[];
       expect(commits).toHaveLength(1);
       expect(commits[0].body).toHaveLength(2_500);
     }
     expect(result.projects[0].bullets).toEqual(logs.map((entry) => entry.subject));
-    expect(result.degraded).toBe(true);
+    expect(result.degraded).toBe(false);
   });
 
   it.each(['last-week', 'this-week'] as const)(
     'fails explicitly instead of returning truncated %s Markdown',
     async (period) => {
-      const reportService = new WeeklyCommitReportService();
+      const reportService = new WeeklyCommitReportService(sharedAiClient);
       vi.spyOn(reportService, 'getLastWeekWindow').mockReturnValue(window);
       vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
       vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue([
@@ -573,54 +600,255 @@ describe('WeeklyCommitReportService', () => {
     },
   );
 
-  it('rejects AI remainder placeholders and retains every source item through fallback', async () => {
-    const aiClient = new OpenAiCompatibleClientService();
-    vi.spyOn(aiClient, 'request').mockResolvedValue(
-      '1. 支持考试成绩公布\n2. 其余 5 条提交以细节调整和配套修改为主。',
-    );
-    const reportService = new WeeklyCommitReportService(aiClient);
-    vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
-    const logs = Array.from({ length: 7 }, (_, index) =>
-      log({ subject: `补充考试配置 ${index + 1}` }),
-    );
-    vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue(logs);
+  describe('without local fallback', () => {
+    const configs = [{ repo: 'https://github.com/example/demo.git', person: 'ljh' }];
+    const periods = ['last-week', 'this-week'] as const;
 
-    const result = await reportService.generate({
-      period: 'this-week',
-      configs: [{ repo: 'https://github.com/example/demo.git', person: 'ljh' }],
-      runtime,
+    /** 构造使用独立 AI 客户端的服务，窗口固定且 GitHub 采集返回给定提交。 */
+    function createReportService(logs: GitLogEntry[]) {
+      const aiClient = new AiTextClientService();
+      const request = vi
+        .spyOn(aiClient, 'generate')
+        .mockImplementation(async (options) => echoSubjects(options.prompt));
+      const reportService = new WeeklyCommitReportService(aiClient);
+      vi.spyOn(reportService, 'getLastWeekWindow').mockReturnValue(window);
+      vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
+      const collectMock = vi
+        .spyOn(reportService as unknown as CommitCollector, 'collectGitLogs')
+        .mockResolvedValue(logs);
+      return { request, reportService, collectMock };
+    }
+
+    it.each(
+      periods.flatMap((period) =>
+        (
+          [
+            ['missing ai object', undefined],
+            ['empty baseUrl', { ...ai, baseUrl: '' }],
+            ['blank baseUrl', { ...ai, baseUrl: '   ' }],
+            ['empty apiKey', { ...ai, apiKey: '' }],
+            ['blank apiKey', { ...ai, apiKey: ' \t ' }],
+            ['empty model', { ...ai, model: '' }],
+            ['blank model', { ...ai, model: '  ' }],
+          ] as const
+        ).map(([name, incompleteAi]) => [period, name, incompleteAi] as const),
+      ),
+    )('rejects %s with %s before any outbound call', async (period, _name, incompleteAi) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const { request, reportService, collectMock } = createReportService([log()]);
+
+      await expect(
+        reportService.generate({
+          period,
+          configs,
+          runtime: { githubToken: 'test-token', ai: incompleteAi },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+
+      expect(collectMock).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    expect(result.projects[0].bullets).toEqual(logs.map((entry) => entry.subject));
-    expect(result.markdown).not.toContain('其余');
-    expect(result.degraded).toBe(true);
-  });
+    it('trims AI configuration values before calling the client', async () => {
+      const { request, reportService } = createReportService([log()]);
+      request.mockResolvedValue('1. 新增周报生成');
 
-  it('retains every title when the instructions alone exceed the prompt budget', async () => {
-    const aiClient = new OpenAiCompatibleClientService();
-    const request = vi.spyOn(aiClient, 'request');
-    const reportService = new WeeklyCommitReportService(aiClient);
-    vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
-    const logs = [log({ subject: '新增考试成绩查询' }), log({ subject: '修复考试成绩排序' })];
-    vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue(logs);
+      await reportService.generate({
+        period: 'this-week',
+        configs,
+        runtime: {
+          githubToken: 'test-token',
+          ai: { baseUrl: ` ${ai.baseUrl} `, apiKey: ` ${ai.apiKey}\n`, model: `\t${ai.model} ` },
+        },
+      });
 
-    const result = await reportService.generate({
-      period: 'this-week',
-      configs: [{ repo: 'https://github.com/example/demo.git', person: 'ljh' }],
-      runtime: { ...runtime, limits: { maxPromptCharacters: 1_000 } },
+      expect(request.mock.calls[0][0]).toMatchObject({
+        ...ai,
+        temperature: 0.2,
+        maxResponseBytes: 50_000,
+        maxOutputCharacters: 50_000,
+      });
+      expect(request.mock.calls[0][0]).not.toHaveProperty('ai');
     });
 
-    expect(request).not.toHaveBeenCalled();
-    expect(result.projects[0].bullets).toEqual(logs.map((entry) => entry.subject));
-    expect(result.degraded).toBe(true);
+    it.each(
+      periods.flatMap((period) =>
+        [
+          new ProjectException('AI HTTP 请求失败（HTTP 500）。', 502),
+          new ProjectException('AI 请求超时（30000ms）。', 504),
+          new ProjectException('AI 配置不完整，需要 baseUrl、apiKey 和 model。', 400),
+        ].map((error) => [period, error.getStatus(), error] as const),
+      ),
+    )('fails %s generation when the AI request rejects with %i', async (period, status, error) => {
+      const { request, reportService } = createReportService([
+        log({ subject: 'feat: 新增考试成绩查询' }),
+      ]);
+      request.mockRejectedValue(error);
+
+      await expect(reportService.generate({ period, configs, runtime })).rejects.toMatchObject({
+        status,
+        message: error.message,
+      });
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(
+      periods.flatMap((period) =>
+        (
+          [
+            ['English-only item', '1. 支持考试成绩查询\n2. update SQL scripts'],
+            [
+              'remainder placeholder',
+              '1. 支持考试成绩公布\n2. 其余 5 条提交以细节调整和配套修改为主。',
+            ],
+            ['remaining placeholder', '1. 支持考试成绩公布\n2. 剩余 3 条工作为配套调整'],
+            ['empty list', ''],
+            ['heading only', '# 本周工作汇总'],
+            ['placeholder only', '1. 无新增事项。'],
+          ] as const
+        ).map(([name, content]) => [period, name, content] as const),
+      ),
+    )('fails %s generation for an invalid AI summary: %s', async (period, _name, content) => {
+      const { request, reportService } = createReportService([
+        log({ subject: 'feat: 支持考试成绩查询' }),
+        log({ subject: 'feat: 补充 SQL 脚本' }),
+      ]);
+      request.mockResolvedValue(content);
+
+      await expect(reportService.generate({ period, configs, runtime })).rejects.toMatchObject({
+        status: 502,
+        message: 'AI 摘要内容无效，请重试或检查模型配置。',
+      });
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails the whole report when a later batch fails instead of filling it with titles', async () => {
+      const logs = Array.from({ length: 5 }, (_, index) =>
+        log({ subject: `新增考试功能 ${index + 1}` }),
+      );
+      const { request, reportService } = createReportService(logs);
+      request
+        .mockResolvedValueOnce('1. 支持考试自动阅卷\n2. 支持考试成绩公布')
+        .mockRejectedValueOnce(new ProjectException('AI HTTP 请求失败（HTTP 503）。', 502));
+
+      await expect(
+        reportService.generate({
+          period: 'this-week',
+          configs,
+          runtime: { ...runtime, limits: { maxPromptCommits: 2 } },
+        }),
+      ).rejects.toMatchObject({ status: 502, message: 'AI HTTP 请求失败（HTTP 503）。' });
+      expect(request).toHaveBeenCalledTimes(2);
+    });
+
+    const budgetCases = [
+      { name: 'one commit exceeds the budget', maxPromptCharacters: 5_000, bodyLength: 10_000 },
+      { name: 'instructions alone exceed the budget', maxPromptCharacters: 1_000, bodyLength: 0 },
+    ];
+
+    it.each(
+      periods.flatMap((period) => budgetCases.map((item) => [period, item.name, item] as const)),
+    )('fails %s generation with 422 when %s', async (period, _name, item) => {
+      const logs = [
+        log({ subject: '保留超长考试说明', body: '丙'.repeat(item.bodyLength) }),
+        log({ subject: '新增考试成绩查询' }),
+      ];
+      const { request, reportService } = createReportService(logs);
+      // 与真实客户端一致：超出 prompt 预算时抛出 422，而不是返回内容。
+      request.mockImplementation(async (options) => {
+        expect(options.maxPromptCharacters).toBeDefined();
+        if (options.prompt.length > options.maxPromptCharacters!) {
+          throw new ProjectException(
+            `AI prompt 超过长度限制（${options.maxPromptCharacters} 字符）。`,
+            422,
+          );
+        }
+        return echoSubjects(options.prompt);
+      });
+
+      await expect(
+        reportService.generate({
+          period,
+          configs,
+          runtime: { ...runtime, limits: { maxPromptCharacters: item.maxPromptCharacters } },
+        }),
+      ).rejects.toMatchObject({
+        status: 422,
+        message: expect.stringContaining('AI prompt 超过长度限制'),
+      });
+    });
+
+    it.each(periods)(
+      'still isolates GitHub failures per project while AI succeeds for %s',
+      async (period) => {
+        const { reportService, collectMock } = createReportService([]);
+        collectMock
+          .mockRejectedValueOnce(new ProjectException('GitHub API error: 404', 404))
+          .mockResolvedValueOnce([log({ subject: 'feat: 支持考试成绩查询' })]);
+
+        const result = await reportService.generate({
+          period,
+          configs: [
+            { repo: 'https://github.com/example/failed.git', person: 'one@example.com' },
+            { repo: 'https://github.com/example/success.git', person: 'two@example.com' },
+          ],
+          runtime,
+        });
+
+        expect(result.projectErrors).toHaveLength(1);
+        expect(result.projectErrors[0].code).toBe(404);
+        expect(result.projects).toHaveLength(1);
+        expect(result.degraded).toBe(false);
+      },
+    );
+
+    it.each(periods)(
+      'returns a no-commit %s report with complete AI configuration without calling the model',
+      async (period) => {
+        const { request, reportService } = createReportService([]);
+
+        const result = await reportService.generate({ period, configs, runtime });
+
+        expect(request).not.toHaveBeenCalled();
+        expect(result.commitCount).toBe(0);
+        expect(result.markdown).toContain('无提交。');
+        expect(result.degraded).toBe(false);
+      },
+    );
+
+    it('keeps cross-day deduplication in last-week reports without failing the duplicate day', async () => {
+      const { request, reportService } = createReportService([
+        log({ hash: 'day-1', subject: '新增考试成绩公布', date: '2026-04-06T12:00:00+08:00' }),
+        log({ hash: 'day-2', subject: '调整考试成绩公布', date: '2026-04-07T12:00:00+08:00' }),
+        log({ hash: 'day-3', subject: '补充打回答卷规则', date: '2026-04-08T12:00:00+08:00' }),
+      ]);
+      request
+        .mockResolvedValueOnce('1. 支持考试成绩公布')
+        .mockResolvedValueOnce('1. 支持考试成绩公布')
+        .mockResolvedValueOnce('1. 支持考试成绩公布\n2. 支持打回答卷');
+
+      const result = await reportService.generate({ period: 'last-week', configs, runtime });
+
+      expect(request).toHaveBeenCalledTimes(3);
+      expect(request.mock.calls[2][0].prompt).toContain('支持考试成绩公布');
+      expect(
+        result.projects[0].bullets.filter(
+          (bullet) => !['无提交。', '无新增事项。'].includes(bullet),
+        ),
+      ).toEqual(['支持考试成绩公布', '支持打回答卷']);
+      expect(result.markdown.match(/支持考试成绩公布/g)).toHaveLength(1);
+      expect(result.degraded).toBe(false);
+    });
   });
 
   it.each(['last-week', 'this-week'] as const)(
     'filters commits before both counting and AI generation for %s',
     async (period) => {
-      const aiClient = new OpenAiCompatibleClientService();
+      const aiClient = new AiTextClientService();
       const request = vi
-        .spyOn(aiClient, 'request')
+        .spyOn(aiClient, 'generate')
         .mockResolvedValue(
           '1. 支持教师查看课堂笔记\n2. 支持学生查看课堂笔记\n3. 支持课堂笔记导出\n4. 补充课堂笔记使用说明',
         );
@@ -669,8 +897,8 @@ describe('WeeklyCommitReportService', () => {
   it.each(['last-week', 'this-week'] as const)(
     'skips AI generation when all %s commits are filtered out',
     async (period) => {
-      const aiClient = new OpenAiCompatibleClientService();
-      const request = vi.spyOn(aiClient, 'request');
+      const aiClient = new AiTextClientService();
+      const request = vi.spyOn(aiClient, 'generate');
       const reportService = new WeeklyCommitReportService(aiClient);
       vi.spyOn(reportService, 'getLastWeekWindow').mockReturnValue(window);
       vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
@@ -695,10 +923,10 @@ describe('WeeklyCommitReportService', () => {
   );
 
   it.each(['SQL', 'API', 'AI', 'v1.12.0', 'ＡＩ', 'école'])(
-    'accepts AI output containing Chinese and %s without falling back',
+    'accepts AI output containing Chinese and %s',
     async (term) => {
-      const aiClient = new OpenAiCompatibleClientService();
-      vi.spyOn(aiClient, 'request').mockResolvedValue(`1. 支持考试成绩查询 ${term}`);
+      const aiClient = new AiTextClientService();
+      vi.spyOn(aiClient, 'generate').mockResolvedValue(`1. 支持考试成绩查询 ${term}`);
       const reportService = new WeeklyCommitReportService(aiClient);
       vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
       vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue([
@@ -719,18 +947,20 @@ describe('WeeklyCommitReportService', () => {
   );
 
   it.each(['last-week', 'this-week'] as const)(
-    'uses the complete Chinese-containing body when the %s title has no Chinese',
+    'sends the complete Chinese-containing body to AI when the %s title has no Chinese',
     async (period) => {
-      const aiClient = new OpenAiCompatibleClientService();
-      vi.spyOn(aiClient, 'request').mockResolvedValue(undefined);
+      const aiClient = new AiTextClientService();
+      const request = vi
+        .spyOn(aiClient, 'generate')
+        .mockResolvedValue(
+          '1. 补充课堂笔记 SQL 脚本，新增导出 API，支持 v1.12.0\n2. 支持 AI 考试评分',
+        );
       const reportService = new WeeklyCommitReportService(aiClient);
       vi.spyOn(reportService, 'getLastWeekWindow').mockReturnValue(window);
       vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
+      const body = '补充课堂笔记 SQL 脚本\n\n新增导出 API，支持 v1.12.0';
       vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue([
-        log({
-          subject: 'feat: add classroom note export',
-          body: '补充课堂笔记 SQL 脚本\n\n新增导出 API，支持 v1.12.0',
-        }),
+        log({ subject: 'feat: add classroom note export', body }),
         log({ subject: 'feat: 支持 AI 考试评分' }),
         log({ subject: 'update release artifacts for 1.12.0' }),
       ]);
@@ -740,38 +970,23 @@ describe('WeeklyCommitReportService', () => {
         configs: [{ repo: 'https://github.com/example/demo.git', person: 'person@example.com' }],
         runtime,
       });
+      const commits = JSON.parse(
+        request.mock.calls[0][0].prompt.split('\n').at(-1)!,
+      ) as GitLogEntry[];
 
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(commits.map((entry) => entry.body)).toEqual([body, '']);
       expect(result.commitCount).toBe(2);
       expect(
         result.projects[0].bullets.filter(
           (bullet) => !['无提交。', '无新增事项。'].includes(bullet),
         ),
-      ).toEqual(['补充课堂笔记 SQL 脚本 新增导出 API，支持 v1.12.0', '支持 AI 考试评分']);
+      ).toEqual(['补充课堂笔记 SQL 脚本，新增导出 API，支持 v1.12.0', '支持 AI 考试评分']);
       expect(result.markdown).toContain('新增导出 API，支持 v1.12.0');
       expect(result.markdown).not.toContain('update release artifacts');
-      expect(result.degraded).toBe(true);
+      expect(result.degraded).toBe(false);
     },
   );
-
-  it('rejects an AI batch with a Chinese-free item instead of silently omitting it', async () => {
-    const aiClient = new OpenAiCompatibleClientService();
-    vi.spyOn(aiClient, 'request').mockResolvedValue('1. 支持考试成绩查询\n2. update SQL scripts');
-    const reportService = new WeeklyCommitReportService(aiClient);
-    vi.spyOn(reportService, 'getThisWeekWindow').mockReturnValue(window);
-    vi.spyOn(reportService as unknown as CommitCollector, 'collectGitLogs').mockResolvedValue([
-      log({ subject: 'feat: 支持考试成绩查询' }),
-      log({ subject: 'feat: 补充 SQL 脚本' }),
-    ]);
-
-    const result = await reportService.generate({
-      period: 'this-week',
-      configs: [{ repo: 'https://github.com/example/demo.git', person: 'ljh' }],
-      runtime,
-    });
-
-    expect(result.projects[0].bullets).toEqual(['支持考试成绩查询', '补充 SQL 脚本']);
-    expect(result.degraded).toBe(true);
-  });
 
   it('retains Chinese names in the report without translating raw identifiers', () => {
     const markdown = service.renderLastWeekReport({

@@ -16,6 +16,8 @@
   const finite = (value, max) => Number.isFinite(value) && Math.abs(value) <= max
   const idValid = (id) => typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(id)
   const makeId = () => root.crypto?.randomUUID?.() || `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  const idleRuntime = () => ({ running: false, status: 'idle', runId: null, states: new Map(), startedAt: null, finishedAt: null })
+  const QUEUED = Object.freeze({ status: 'queued', message: '', outputs: null })
 
   const frozenData = new WeakSet()
 
@@ -43,13 +45,21 @@
     constructor() {
       this.definitions = new Map()
       this.dataTypes = new Map([['text', (value) => typeof value === 'string' && value.length <= LIMITS.textLength]])
+      this.bases = new Map()
     }
 
-    /** 注册数据类型与执行边界校验。 */
-    registerDataType(name, validate) {
-      if (!idValid(name) || typeof validate !== 'function' || this.dataTypes.has(name)) throw new Error('数据类型定义无效或重复。')
+    /** 注册数据类型与执行边界校验；base 声明其所属的已注册基类型，形成单层语义子类型。 */
+    registerDataType(name, validate, options = {}) {
+      if (!idValid(name) || typeof validate !== 'function' || this.dataTypes.has(name)
+        || (options.base !== undefined && (!this.dataTypes.has(options.base) || this.bases.has(options.base)))) throw new Error('数据类型定义无效或重复。')
       this.dataTypes.set(name, validate)
+      if (options.base !== undefined) this.bases.set(name, options.base)
       return this
+    }
+
+    /** 判断输出能否接入输入：类型相同，或一方是另一方的子类型；同一基类型下的不同子类型互不相容。 */
+    compatible(output, input) {
+      return output === input || this.bases.get(output) === input || this.bases.get(input) === output
     }
 
     /** 注册一个版本的节点，包括端口、配置、执行器和可选渲染器。 */
@@ -102,7 +112,7 @@
     const outPort = fromDef?.outputs.find((port) => port.id === source.port)
     const inPort = toDef?.inputs.find((port) => port.id === target.port)
     if ((fromDef && !outPort) || (toDef && !inPort)) return '请选择输出连接点连接到输入连接点。'
-    if (outPort && inPort && outPort.dataType !== inPort.dataType) return '连接点的数据类型不兼容。'
+    if (outPort && inPort && !registry.compatible(outPort.dataType, inPort.dataType)) return '连接点的数据类型不兼容。'
     if (outPort && inPort && (outPort.kind ?? PORT_KIND.data) !== (inPort.kind ?? PORT_KIND.data)) return '控制连接点与数据连接点不能混接。'
     if (document.edges.some((edge) => edge.id !== connection.id && edge.target.nodeId === to.id && edge.target.port === target.port)) return '每个输入连接点只能接入一个来源。'
     const pending = [to.id]
@@ -193,7 +203,28 @@
         if ((port.kind ?? PORT_KIND.data) === PORT_KIND.data && definitions.get(edge.source.nodeId).execution === NODE_EXECUTION.data) active.add(edge.source.nodeId)
       }
     }
-    return { entry, active, incoming, nodes, definitions }
+    return { entry, active, incoming, outgoing, nodes, definitions }
+  }
+
+  /** 找出两版文档间节点内容或连线变化的节点及其全部下游，只有这些节点的旧结果失效。 */
+  function affectedNodes(previous, next) {
+    const before = new Map(previous.nodes.map((node) => [node.id, node]))
+    const after = new Set(next.nodes.map((node) => node.id))
+    const seeds = new Set()
+    for (const node of next.nodes) {
+      const old = before.get(node.id)
+      if (!old || old.type !== node.type || old.version !== node.version || old.name !== node.name
+        || JSON.stringify(old.config) !== JSON.stringify(node.config)) seeds.add(node.id)
+    }
+    for (const id of before.keys()) if (!after.has(id)) seeds.add(id)
+    const key = (edge) => JSON.stringify([edge.source.nodeId, edge.source.port, edge.target.nodeId, edge.target.port])
+    const oldEdges = new Set(previous.edges.map(key))
+    const newEdges = new Set(next.edges.map(key))
+    for (const edge of previous.edges) if (!newEdges.has(key(edge))) seeds.add(edge.target.nodeId)
+    for (const edge of next.edges) if (!oldEdges.has(key(edge))) seeds.add(edge.target.nodeId)
+    const edges = [...previous.edges, ...next.edges]
+    for (const id of seeds) for (const edge of edges) if (edge.source.nodeId === id) seeds.add(edge.target.nodeId)
+    return seeds
   }
 
   /** 创建可识别的取消异常，不携带业务原文。 */
@@ -342,7 +373,7 @@
     /** 取得流程私有历史和运行状态。 */
     _session(id) {
       this.getDocument(id)
-      if (!this.sessions.has(id)) this.sessions.set(id, { past: [], future: [], merge: null, runtime: { running: false, status: 'idle', runId: null, states: new Map(), startedAt: null, finishedAt: null } })
+      if (!this.sessions.has(id)) this.sessions.set(id, { past: [], future: [], merge: null, runtime: idleRuntime() })
       return this.sessions.get(id)
     }
 
@@ -354,6 +385,16 @@
     /** 运行时阻止所有业务修改，不依赖界面禁用状态。 */
     _assertEditable(id) {
       if (this._session(id).runtime.running) throw new Error('工作流正在运行，请先停止或等待完成。')
+    }
+
+    /** 只让变化节点及其下游的结果失效，其余成功结果保留供“从此节点运行”复用。 */
+    _invalidate(session, previous, next) {
+      const runtime = session.runtime
+      if (!runtime.states.size) return
+      const affected = affectedNodes(previous, next)
+      if (!affected.size) return
+      const states = new Map([...runtime.states].filter(([nodeId]) => !affected.has(nodeId)))
+      session.runtime = states.size ? { ...runtime, status: 'stale', states } : idleRuntime()
     }
 
     /** 限制每份流程及整个工作区的撤销数据量。 */
@@ -390,7 +431,7 @@
       session.merge = options.merge ? { key: options.merge, at: now } : null
       session.future = []
       this._documents = documents
-      if (options.kind !== 'layout') session.runtime = { running: false, status: 'idle', runId: null, states: new Map(), startedAt: null, finishedAt: null }
+      this._invalidate(session, previous, next)
       this._trimHistory()
       this._persist()
       this._notify(id, { kind: options.kind || 'structure', nodeIds: options.nodeIds })
@@ -465,6 +506,30 @@
       const node = { id: makeId(), type, version: definition.version, name: definition.label, position, size: clone(definition.size || { width: 300, height: 220 }), config: clone(definition.defaults) }
       this._commit(this._activeId, (draft) => { draft.nodes.push(node) }, { nodeIds: [node.id] })
       return this.getDocument().nodes.find((item) => item.id === node.id)
+    }
+
+    /** 按注册的逐版本迁移（配置与可选的输入端口改名）把节点显式升级到最新版本，作为一次可撤销的编辑；缺少迁移时拒绝。 */
+    upgradeNode(nodeId, id = this._activeId) {
+      const node = this.getDocument(id).nodes.find((item) => item.id === nodeId)
+      if (!node) throw new Error('节点不存在。')
+      const latest = this.registry.list().find((item) => item.type === node.type)
+      if (!latest || latest.version <= node.version) throw new Error('节点已是最新版本。')
+      let config = clone(node.config)
+      const renames = []
+      for (let version = node.version + 1; version <= latest.version; version += 1) {
+        const definition = this.registry.get(node.type, version)
+        if (typeof definition?.migrate !== 'function') throw new Error('该节点缺少版本迁移方案，不能自动升级。')
+        config = definition.migrate(config)
+        if (definition.renameInputs) renames.push(definition.renameInputs)
+      }
+      return this._commit(id, (draft) => {
+        const target = draft.nodes.find((item) => item.id === nodeId)
+        target.version = latest.version
+        target.config = config
+        for (const rename of renames) {
+          for (const edge of draft.edges) if (edge.target.nodeId === nodeId && has(rename, edge.target.port)) edge.target.port = rename[edge.target.port]
+        }
+      }, { nodeIds: [nodeId] })
     }
 
     /** 更新内容或布局；连续文本输入合并为一次撤销。 */
@@ -565,7 +630,7 @@
       to.push({ document: current, at: Date.now(), bytes: bytes(current), kind: entry.kind })
       this._documents = documents
       session.merge = null
-      if (entry.kind !== 'layout') session.runtime = { running: false, status: 'idle', runId: null, states: new Map(), startedAt: null, finishedAt: null }
+      this._invalidate(session, current, restored)
       this._trimHistory()
       this._persist()
       this._notify(id, { kind: entry.kind === 'layout' ? 'layout' : 'structure' })
@@ -582,7 +647,7 @@
         .sort((a, b) => (a[1].runtime.finishedAt || 0) - (b[1].runtime.finishedAt || 0))
       while (completed.length > LIMITS.resultDocuments) {
         const [id, session] = completed.shift()
-        session.runtime = { running: false, status: 'idle', runId: null, states: new Map(), startedAt: null, finishedAt: null }
+        session.runtime = idleRuntime()
         this._notify(id, { kind: 'runtime' })
       }
     }
@@ -609,7 +674,7 @@
       const old = [...this.sessions.entries()].filter(([key, session]) => key !== id && !session.runtime.running && session.runtime.states.size)
         .sort((a, b) => (a[1].runtime.finishedAt || 0) - (b[1].runtime.finishedAt || 0))
       for (const [key, session] of old) {
-        session.runtime = { running: false, status: 'idle', runId: null, states: new Map(), startedAt: null, finishedAt: null }
+        session.runtime = idleRuntime()
         this._notify(key, { kind: 'runtime', message: '较早的运行结果已从内存清理，可重新运行。' })
         if (measure() <= LIMITS.resultBytes) return
       }
@@ -620,10 +685,42 @@
     async run(id = this._activeId) {
       this._assertEditable(id)
       const document = parseDocument(this.getDocument(id), this.registry)
-      const { entry, active, incoming: incomingByNode, nodes, definitions } = createExecutionPlan(document, this.registry)
+      const plan = createExecutionPlan(document, this.registry)
+      const unreachable = Object.freeze({ status: 'skipped', message: '未连接开始节点，本次未执行。', outputs: null })
+      const states = new Map(document.nodes.map((node) => [node.id, plan.active.has(node.id) ? QUEUED : unreachable]))
+      return this._execute(id, { document, plan, scope: plan.active, states })
+    }
+
+    /** 复用上游已成功的结果，只重跑指定节点及其下游；上游任务缺少可复用结果时在执行前拒绝。 */
+    async runFrom(nodeId, id = this._activeId) {
+      this._assertEditable(id)
+      const document = parseDocument(this.getDocument(id), this.registry)
+      const plan = createExecutionPlan(document, this.registry)
+      if (!plan.active.has(nodeId)) throw new Error('该节点未连接开始节点，不能从此节点运行。')
+      const previous = this._session(id).runtime.states
+      const scope = new Set([nodeId])
+      for (const current of scope) {
+        for (const edge of plan.outgoing.get(current)) if (plan.active.has(edge.target.nodeId)) scope.add(edge.target.nodeId)
+      }
+      for (const current of scope) {
+        for (const edge of plan.incoming.get(current)) {
+          const source = edge.source.nodeId
+          if (scope.has(source) || previous.get(source)?.status === 'succeeded') continue
+          if (plan.definitions.get(source).execution !== NODE_EXECUTION.task) scope.add(source) // 开始与被动数据节点直接重新求值
+          else throw new Error(`上游节点“${plan.nodes.get(source).name}”没有可复用的成功结果，请先运行整图。`)
+        }
+      }
+      const states = new Map(previous)
+      for (const current of scope) states.set(current, QUEUED)
+      return this._execute(id, { document, plan, scope, states })
+    }
+
+    /** 执行范围内的节点并保留范围外的既有状态；类型不同的连线按输入端口类型校验后才分发。 */
+    async _execute(id, { document, plan, scope, states }) {
+      const { entry, incoming: incomingByNode, nodes, definitions } = plan
       const session = this._session(id)
       const controller = new AbortController()
-      const runtime = { running: true, status: 'running', runId: makeId(), states: new Map(document.nodes.map((node) => [node.id, { status: active.has(node.id) ? 'queued' : 'skipped', message: active.has(node.id) ? '' : '未连接开始节点，本次未执行。', outputs: null }])), startedAt: Date.now(), finishedAt: null, controller }
+      const runtime = { running: true, status: 'running', runId: makeId(), states, startedAt: Date.now(), finishedAt: null, controller }
       session.runtime = runtime
       session.merge = null
       const current = () => this.sessions.get(id)?.runtime === runtime && runtime.running && !controller.signal.aborted
@@ -638,7 +735,7 @@
         const task = (async () => {
           const definition = definitions.get(node.id)
           const incoming = incomingByNode.get(node.id)
-          await Promise.all(incoming.filter((edge) => active.has(edge.source.nodeId)).map((edge) => execute(nodes.get(edge.source.nodeId))))
+          await Promise.all(incoming.filter((edge) => scope.has(edge.source.nodeId)).map((edge) => execute(nodes.get(edge.source.nodeId))))
           if (!current()) return
           if (incoming.some((edge) => runtime.states.get(edge.source.nodeId)?.status !== 'succeeded')) {
             setState(node.id, { status: 'skipped', message: '上游失败或未完成，已跳过。', outputs: null })
@@ -647,7 +744,14 @@
           const values = Object.create(null)
           for (const edge of incoming) {
             const outputs = runtime.states.get(edge.source.nodeId).outputs
-            if (outputs && has(outputs, edge.source.port)) values[edge.target.port] = outputs[edge.source.port]
+            if (!outputs || !has(outputs, edge.source.port)) continue
+            const port = definition.inputs.find((item) => item.id === edge.target.port)
+            const source = definitions.get(edge.source.nodeId).outputs.find((item) => item.id === edge.source.port)
+            if (source.dataType !== port.dataType && !this.registry.dataTypes.get(port.dataType)(outputs[edge.source.port])) {
+              setState(node.id, { status: 'failed', message: `输入“${port.label}”不符合 ${port.dataType} 数据类型。`, outputs: null })
+              return
+            }
+            values[edge.target.port] = outputs[edge.source.port]
           }
           const missing = definition.inputs.filter((port) => port.required && !has(values, port.id))
           if (missing.length) {
@@ -666,12 +770,17 @@
             release = await this.pool.acquire(controller.signal)
             if (!current()) return
             setState(node.id, { status: 'running', message: '', outputs: null })
-            const finish = release
+            let slot = release
+            release = null
+            /** 等待人工确认等非计算阶段时归还并发名额，结束后重新排队取得名额。 */
+            const suspend = async (work) => {
+              slot()
+              try { return await work() } finally { slot = await this.pool.acquire(controller.signal) }
+            }
             const execution = Promise.resolve().then(() => {
               if (!current()) throw abortError()
-              return definition.execute({ node, inputs: freeze(inputs), controls: freeze(controls), services: this.services, signal: controller.signal })
-            }).finally(finish)
-            release = null
+              return definition.execute({ node, inputs: freeze(inputs), controls: freeze(controls), services: this.services, signal: controller.signal, suspend })
+            }).finally(() => slot())
             const result = await withAbort(execution, controller.signal)
             if (!current()) return
             if (!isObject(result)) throw new Error('节点未返回有效的端口输出。')
@@ -691,19 +800,17 @@
         return task
       }
       this._notify(id, { kind: 'runtime' })
-      await execute(entry)
+      const others = document.nodes.filter((node) => scope.has(node.id) && node.id !== entry.id)
+      if (scope.has(entry.id)) await execute(entry)
       if (current()) {
-        if (runtime.states.get(entry.id).status === 'succeeded') {
-          await Promise.all(document.nodes.filter((node) => active.has(node.id) && node.id !== entry.id).map(execute))
-        } else {
-          for (const node of document.nodes) if (active.has(node.id) && node.id !== entry.id) setState(node.id, { status: 'skipped', message: '开始节点未成功，已跳过。', outputs: null })
-        }
+        if (!scope.has(entry.id) || runtime.states.get(entry.id).status === 'succeeded') await Promise.all(others.map(execute))
+        else for (const node of others) setState(node.id, { status: 'skipped', message: '开始节点未成功，已跳过。', outputs: null })
       }
       if (current()) {
-        const business = document.nodes.filter((node) => active.has(node.id) && definitions.get(node.id).execution === NODE_EXECUTION.task)
-        const states = business.map((node) => runtime.states.get(node.id).status)
-        const successes = states.filter((status) => status === 'succeeded').length
-        runtime.status = runtime.states.get(entry.id).status !== 'succeeded' ? 'failed' : successes === states.length ? 'succeeded' : successes ? 'partial' : 'failed'
+        const results = others.filter((node) => definitions.get(node.id).execution === NODE_EXECUTION.task).map((node) => runtime.states.get(node.id).status)
+        const successes = results.filter((status) => status === 'succeeded').length
+        const entryFailed = scope.has(entry.id) && runtime.states.get(entry.id).status !== 'succeeded'
+        runtime.status = entryFailed ? 'failed' : successes === results.length ? 'succeeded' : successes ? 'partial' : 'failed'
         runtime.running = false
         runtime.finishedAt = Date.now()
         this._notify(id, { kind: 'runtime' })

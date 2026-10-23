@@ -17,7 +17,11 @@
       <label class="form-field"><span>AI API Key</span><input id="token-ai-api-key" type="password" maxlength="4096" autocomplete="new-password" /></label>
       <label class="form-field"><span>AI Model</span><input id="token-ai-model" type="text" maxlength="256" autocomplete="off" placeholder="gpt-4o-mini" /></label>
     </div>
-    <p class="token-credential-warning" role="note">凭据（包括 AI API Key）保存在当前浏览器 localStorage。AI 三项全部填写才会启用摘要，全部留空时使用本地规则摘要；部分填写会被视为配置不完整且不会发起 AI 请求。请只在受控浏览器使用，离开环境前清空。</p>
+    <label class="weekly-publish-option" for="token-ai-enable-thinking">
+      <input id="token-ai-enable-thinking" type="checkbox" name="token-ai-enable-thinking" aria-describedby="token-ai-enable-thinking-hint" />
+      <span><strong>启用 AI 思考</strong><small id="token-ai-enable-thinking-hint">默认关闭。上游会收到 enable_thinking 布尔值，仅适用于支持该参数的提供方。</small></span>
+    </label>
+    <p class="token-credential-warning" role="note">凭据（包括 AI API Key）保存在当前浏览器 localStorage。AI 三项全部填写才可生成周报；全部留空或配置不完整时仍可保存草稿，但无法生成周报。AI 请求失败不会改用本地摘要。请只在受控浏览器使用，离开环境前清空。</p>
     <div class="compare-actions">
       <button class="compare-button" id="token-config-save" type="submit">保存 Token 配置</button>
       <button class="compare-button compare-button--secondary" id="token-config-clear" type="button">清空凭据</button>

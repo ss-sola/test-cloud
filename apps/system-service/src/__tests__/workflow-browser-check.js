@@ -48,7 +48,7 @@ window.__workflowBrowserCheck = (async () => {
     return workspace.activeId
   }
   function mouse(element, type, point) {
-    element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: point.button ?? 0, buttons: type === 'mouseup' || type === 'click' ? 0 : point.button === 2 ? 2 : point.button === 1 ? 4 : 1, ctrlKey: Boolean(point.ctrlKey), clientX: point.x, clientY: point.y }))
+    element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: point.button ?? 0, buttons: type === 'mouseup' || type === 'click' ? 0 : point.button === 2 ? 2 : point.button === 1 ? 4 : 1, ctrlKey: Boolean(point.ctrlKey), metaKey: Boolean(point.metaKey), clientX: point.x, clientY: point.y }))
   }
   async function drag(element, offset) {
     const rect = element.getBoundingClientRect()
@@ -59,6 +59,61 @@ window.__workflowBrowserCheck = (async () => {
     mouse(document, 'mousemove', end)
     mouse(document, 'mouseup', end)
     await pause(80)
+  }
+  /** 同时覆盖指针事件、X6 鼠标事件和原生点击，检测重复选择与内容误选。 */
+  function pressNodeArea(element, modifiers = {}) {
+    const rect = element.getBoundingClientRect()
+    const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, ...modifiers }
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: point.x, clientY: point.y, ...modifiers }))
+    mouse(element, 'mousedown', point)
+    mouse(element, 'mouseup', point)
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, clientX: point.x, clientY: point.y, ...modifiers }))
+    mouse(element, 'click', point)
+  }
+  /** 所有节点共用类型标签入口，正文点击和焦点不能改变选择。 */
+  function verifyNodeTypeSelection() {
+    const nodes = workspace.getDocument().nodes
+    const labels = nodes.map((node) => root.querySelector(`[data-node-id="${node.id}"] .wf-node__kind`))
+    for (const [index, node] of nodes.entries()) {
+      const host = root.querySelector(`[data-node-id="${node.id}"]`)
+      const label = labels[index]
+      assert(label.getAttribute('role') === 'button' && label.tabIndex === 0 && label.getBoundingClientRect().width > 0, `节点 ${node.type} 的类型选择入口不可见或不可聚焦`)
+      const targets = host.querySelectorAll('.wf-node__name, .wf-node__status, .wf-node__head, .wf-node__ports, .wf-node__body, textarea, .wf-result__summary, .wf-pane__code, .wf-tree')
+      for (const retained of [[], [nodes[0].id]]) {
+        graph.resetSelection(retained)
+        for (const target of targets) {
+          if (!target.getBoundingClientRect().width) continue
+          for (const modifiers of [{}, { ctrlKey: true }, { metaKey: true }]) {
+            pressNodeArea(target, modifiers)
+            target.focus()
+            target.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+            assert(JSON.stringify(graph.getSelectedCells().map((cell) => cell.id)) === JSON.stringify(retained), `点击或聚焦节点 ${node.type} 的 ${target.className} 改变了选择`)
+          }
+        }
+      }
+      graph.cleanSelection()
+      pressNodeArea(label)
+      assert(graph.getSelectedCells().length === 1 && graph.isSelected(node.id) && label.getAttribute('aria-pressed') === 'true', `点击节点 ${node.type} 的类型标签未正确选中`)
+    }
+    graph.cleanSelection()
+    labels[0].focus()
+    labels[0].dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    assert(!graph.getSelectedCells().length, '仅聚焦类型标签就选中了节点')
+    labels[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    assert(graph.isSelected(nodes[0].id), 'Enter 未选中类型标签所属节点')
+    labels[1].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, bubbles: true, cancelable: true }))
+    assert(graph.isSelected(nodes[0].id) && graph.isSelected(nodes[1].id), 'Ctrl+Space 未保留节点多选')
+    labels[1].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, repeat: true, bubbles: true, cancelable: true }))
+    assert(graph.isSelected(nodes[1].id), '按键重复触发了多选切换')
+    for (const modifier of ['ctrlKey', 'metaKey']) {
+      graph.resetSelection(nodes[0].id)
+      pressNodeArea(labels[1], { [modifier]: true })
+      assert(graph.isSelected(nodes[0].id) && graph.isSelected(nodes[1].id), `${modifier} 点击类型标签未添加多选`)
+      pressNodeArea(labels[1], { [modifier]: true })
+      assert(graph.isSelected(nodes[0].id) && !graph.isSelected(nodes[1].id) && labels[1].getAttribute('aria-pressed') === 'false', `${modifier} 点击类型标签未单次取消多选`)
+    }
+    graph.cleanSelection()
+    report.push('所有已载入节点仅类型标签点击选中，正文/输入/结果点击和聚焦不改选；窄节点入口可见、Enter/Space、Ctrl/Meta 单次切换与 aria-pressed 同步通过')
   }
   function selectFlow(id) {
     control('doc-select').value = id
@@ -945,20 +1000,24 @@ window.__workflowBrowserCheck = (async () => {
     await pause()
     control('palette-search').focus()
     searchPalette('JSON')
-    assert(root.querySelectorAll('.wf-palette__item').length === 1 && root.querySelector('.wf-palette__item').dataset.type === 'json-compare', '搜索没有过滤节点类型')
+    const jsonMatches = [...root.querySelectorAll('.wf-palette__item')].map((item) => item.dataset.type)
+    assert(['json-compare', 'json-input', 'json-parse'].every((type) => jsonMatches.includes(type)), '搜索未同时覆盖对比与通用 JSON 节点')
+    searchPalette('json-compare')
+    assert(root.querySelectorAll('.wf-palette__item').length === 1 && root.querySelector('.wf-palette__item').dataset.type === 'json-compare', '类型搜索没有精确过滤节点')
     assert(root.querySelector('.wf-folder').open, '搜索没有展开匹配文件夹')
     assert(document.activeElement === control('palette-search'), '搜索重绘丢失了输入焦点')
     click('palette-clear')
     assert(![...root.querySelectorAll('.wf-folder')].find((folder) => folder.dataset.folderPath === '内容处理').open, '清除搜索后未恢复文件夹折叠')
-    for (const [query, expected] of [['trigger', 'start,json-compare,env-compare'], ['开始', 'start']]) {
+    const triggerTypes = workspace.registry.list().filter((definition) => [...definition.inputs, ...definition.outputs].some((port) => port.dataType === 'trigger')).map((definition) => definition.type).join()
+    for (const [query, expected] of [['trigger', triggerTypes], ['开始', 'start']]) {
       searchPalette(query)
       const found = [...root.querySelectorAll('.wf-palette__item')].map((item) => item.dataset.type).join()
-      assert(found === expected, `搜索“${query}”应匹配 ${expected}，实际为 ${found}`)
+      assert(found.split(',').sort().join() === expected.split(',').sort().join(), `搜索“${query}”应匹配 ${expected}，实际为 ${found}`)
     }
     searchPalette('没有任何匹配的节点')
     assert(root.querySelectorAll('.wf-palette__item').length === 0 && !control('palette-empty').hidden, '无匹配提示不正确')
     control('palette-search').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    assert(control('palette-search').value === '' && root.querySelectorAll('.wf-palette__item').length === 5, 'Escape 没有清空搜索')
+    assert(control('palette-search').value === '' && root.querySelectorAll('.wf-palette__item').length === workspace.registry.list().length, 'Escape 没有清空搜索并恢复完整节点库')
     assert(workspace.exportDocument() === paletteDocument && !workspace.canUndo() && requests.length === 0, '搜索或折叠修改了流程/历史或发起请求')
     const literalType = 'qa-palette-literal'
     workspace.registry.register({ type: literalType, version: 1, label: '<img data-wf-palette-injected src=x onerror="window.__wfPaletteInjected=1">', category: '扩展测试/转换', inputs: [], outputs: [], defaults: {}, size: { width: 280, height: 180 }, execute: () => ({}) })
@@ -967,7 +1026,7 @@ window.__workflowBrowserCheck = (async () => {
     assert(root.querySelectorAll('.wf-folder').length === 2 && [...root.querySelectorAll('.wf-folder')].every((folder) => folder.open), '多层分类没有展开完整路径')
     assert(control('palette').textContent.includes('<img') && !root.querySelector('img[data-wf-palette-injected]') && window.__wfPaletteInjected !== 1, '目录标签被当作 HTML 执行')
     workspace.registry.definitions.delete(addedDefinitions.pop())
-    searchPalette('JSON')
+    searchPalette('json-compare')
     root.querySelector('.wf-palette__item').click()
     assert(workspace.getDocument().nodes[0]?.type === 'json-compare', '过滤后点击节点不能添加')
     assert(workspace.getDocument().nodes.length === 1 && !control('run').disabled && workspace.getRuntime().status === 'idle', '过滤后新增的比较节点应可编辑且可点击运行')
@@ -1044,6 +1103,12 @@ window.__workflowBrowserCheck = (async () => {
     assert(Math.abs(firstHost.getBoundingClientRect().height - first.size.height * graph.zoom()) < 3, 'foreignObject body 被全局页面高度覆盖')
     const initialPosition = { ...first.position }
     const nodePosition = () => workspace.getDocument().nodes.find((node) => node.id === first.id).position
+    for (const selector of ['.wf-node__head .wf-node__status', '.wf-node__ports', '.wf-text__count']) {
+      await drag(firstHost.querySelector(selector), { x: 48, y: 24 })
+      assert(nodePosition().x === initialPosition.x && nodePosition().y === initialPosition.y, `从 ${selector} 拖动不应移动节点`)
+    }
+    assert(getComputedStyle(firstHost.querySelector('.wf-node__kind')).cursor === 'move' && getComputedStyle(firstHost.querySelector('.wf-node__head')).cursor !== 'move', '移动光标应只出现在类型标签上')
+    assert(getComputedStyle(firstHost.querySelector('.wf-node__body')).userSelect === 'text' && getComputedStyle(firstHost.querySelector('.wf-node__kind')).userSelect === 'none', '节点内容不可选中复制或类型标签可被选中')
     await drag(firstHost.querySelector('.wf-node__kind'), { x: 48, y: 24 })
     assert(nodePosition().x !== initialPosition.x, '真实鼠标拖动没有写回节点位置')
     assertAllEdgeEndpoints('节点拖动后')
@@ -1103,6 +1168,7 @@ window.__workflowBrowserCheck = (async () => {
     report.push('缩放 0.35/1/1.6 与平移后端点与端口圆心重合、光点贴合曲线，恢复原视口且不污染业务历史通过')
     report.push(`键盘 Tab 聚焦选中、Enter/Space/Ctrl 切换、Delete 通过${focusFallbacks ? `（页面无系统焦点，${focusFallbacks} 次补发 focusin）` : ''}；节点移动后连线与光点跟随并可撤销通过`)
 
+    verifyNodeTypeSelection()
     const textNodes = workspace.getDocument().nodes.filter((node) => node.type === 'text')
     const positions = textNodes.map((node) => ({ id: node.id, ...node.position }))
     graph.cleanSelection()
@@ -1112,7 +1178,7 @@ window.__workflowBrowserCheck = (async () => {
       const rect = header.getBoundingClientRect()
       const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, ctrlKey: index > 0 }
       mouse(header, 'mousedown', point)
-      mouse(document, 'mouseup', point)
+      mouse(header, 'mouseup', point)
       mouse(header, 'click', point)
     }
     assert(textNodes.every((node) => graph.isSelected(node.id)), 'Ctrl 点击节点没有保留多选')

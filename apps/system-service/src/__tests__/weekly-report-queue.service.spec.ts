@@ -7,10 +7,15 @@ import type {
   WeeklyReportResult,
 } from '../modules/weekly-commit-report/weekly-report.types';
 
+const AI_SECRET = 'ai-secret-key';
+const GITHUB_SECRET = 'github-secret-token';
 const input: GenerateWeeklyReportInput = {
   period: 'this-week',
   configs: [],
-  runtime: { githubToken: 'token' },
+  runtime: {
+    githubToken: GITHUB_SECRET,
+    ai: { baseUrl: 'https://ai.example.com/v1', apiKey: AI_SECRET, model: 'test-model' },
+  },
 };
 const initialProgress: WeeklyReportProgress = {
   phase: 'queued',
@@ -135,6 +140,89 @@ describe('WeeklyReportQueueService', () => {
       initialProgress,
       error: { code: 503, message: 'Token missing' },
     });
+  });
+
+  it.each([
+    ['AI timeout', new ProjectException('AI 请求超时（30000ms）。', 504), 504],
+    ['invalid AI summary', new ProjectException('AI 摘要不符合周报内容要求。', 502), 502],
+  ])('fails the job without publishing when %s stops generation', async (_name, failure, code) => {
+    const summarizingProgress = {
+      ...initialProgress,
+      phase: 'summarizing' as const,
+      percent: 40,
+      completedProjects: 1,
+      totalProjects: 2,
+      currentProject: 'repo',
+    };
+    const reportService = {
+      generate: vi.fn().mockImplementation(async (_input, reportProgress) => {
+        reportProgress(summarizingProgress);
+        throw failure;
+      }),
+    };
+    const publicationService = { publishIfEnabled: vi.fn() };
+    const service = new WeeklyReportQueueService(
+      reportService as never,
+      publicationService as never,
+    );
+    const job = createJob({
+      data: {
+        input: { ...input, publish: { enabled: true, person: '张三' } },
+        initialProgress,
+      },
+    });
+
+    await expect(processJob(service, job)).rejects.toBe(failure);
+
+    expect(publicationService.publishIfEnabled).not.toHaveBeenCalled();
+    expect(job.updateProgress).toHaveBeenLastCalledWith({
+      ...summarizingProgress,
+      phase: 'failed',
+      currentProject: null,
+      message: failure.message,
+    });
+    expect(job.updateProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'publishing' }),
+    );
+    expect(job.updateProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'completed' }),
+    );
+    expect(job.updateData).toHaveBeenCalledWith({
+      input: {
+        ...input,
+        runtime: { githubToken: '' },
+        publish: { enabled: true, person: '张三' },
+      },
+      initialProgress,
+      error: { code, message: failure.message },
+    });
+    const persisted = JSON.stringify(job.updateData.mock.calls);
+    expect(persisted).not.toContain(AI_SECRET);
+    expect(persisted).not.toContain(GITHUB_SECRET);
+  });
+
+  it('hides raw errors that may contain credentials when generation fails unexpectedly', async () => {
+    const reportService = {
+      generate: vi
+        .fn()
+        .mockRejectedValue(new Error(`request to https://ai.example.com failed: ${AI_SECRET}`)),
+    };
+    const publicationService = { publishIfEnabled: vi.fn() };
+    const service = new WeeklyReportQueueService(
+      reportService as never,
+      publicationService as never,
+    );
+    const job = createJob();
+
+    await expect(processJob(service, job)).rejects.toThrow('request to https://ai.example.com');
+
+    expect(publicationService.publishIfEnabled).not.toHaveBeenCalled();
+    expect(job.updateProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'failed', message: '周报任务执行失败。' }),
+    );
+    const persisted = JSON.stringify([job.updateData.mock.calls, job.updateProgress.mock.calls]);
+    expect(persisted).not.toContain(AI_SECRET);
+    expect(persisted).not.toContain(GITHUB_SECRET);
   });
 
   it('uses persisted request settings after the in-memory map is unavailable', async () => {

@@ -1,0 +1,101 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "NestCloud 工作流原子能力",
+    "version": "1.0.0",
+    "description": "独立的 GitHub 提交查询、AI 文本生成、飞书行查找与单元格写入。全部业务参数和凭据随本次请求提交，不复用周报队列，不持久化业务状态。此文件只用于本地审查和经确认的 Apifox 导入。"
+  },
+  "servers": [{"url": "/"}],
+  "tags": [{"name": "工作流原子能力"}],
+  "paths": {
+    "/api/workflow-capabilities/github-commits": {
+      "post": {
+        "tags": ["工作流原子能力"],
+        "summary": "查询 GitHub 原始提交",
+        "operationId": "workflowGithubCommits",
+        "description": "不默认过滤合并提交、中文或重复记录；超过预算明确失败，不静默截断。",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GithubCommitsInput"}}}},
+        "responses": {
+          "200": {"description": "原始提交数组", "headers": {"Cache-Control": {"schema": {"type": "string", "example": "no-store"}}}, "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/Success"}, {"type": "object", "properties": {"data": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/Commit"}}}}]}}}},
+          "default": {"$ref": "#/components/responses/SafeError"}
+        }
+      }
+    },
+    "/api/workflow-capabilities/ai-text": {
+      "post": {
+        "tags": ["工作流原子能力"],
+        "summary": "通用 AI 文本生成",
+        "operationId": "workflowAiText",
+        "description": "提示词与模型完整传入；contextWindowTokens 为 4096～1000000 整数，缺省仅兼容旧请求使用无状态技术默认100000，新前端每次显式发送。以UTF-8字节保守估算，预留20%输入余量并扣256消息开销，估算不保证真实模型上下文。超预算自动无损分片，最多3批并行；首轮严格JSON {instructions,content} 提取所有片段任务要求，按原序去重后作为后续每轮共享user上下文，原systemPrompt每轮重复。材料按原序分组归并、不拆中间项，每轮严格收敛，末轮才返回单一原格式文本，不拼接JSON。最多64初始批/每轮64批/4归并轮/128调用/500000中间字符，单项过大或不收敛等预算错误明确422，不截断。任一失败或停止取消其他调用及排队项，不返回部分结果、不等待忽略信号的底层调用，迟到结果不触发下一轮。并发3仅限单次执行，跨请求无共享配额，无新增持久化/重试/本地降级，不设置主动时限或输出Token参数，maxTokens忽略且不作上下文。按原HTTP/HTTPS协议请求，无新增主机、IP、内外网、端口或DNS策略；保留响应预算和不跟随重定向。",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AiTextInput"}}}},
+        "responses": {
+          "200": {"description": "单一完整的原格式文本，不含中间分片JSON或部分结果", "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/Success"}, {"type": "object", "properties": {"data": {"type": "object", "required": ["text"], "properties": {"text": {"type": "string", "maxLength": 500000}}}}}]}}}},
+          "422": {"description": "上下文无法容纳系统/阶段指令、共享要求或单条中间结果，归并无法收敛或分批预算超限；不截断、不返回部分结果。", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "default": {"$ref": "#/components/responses/SafeError"}
+        }
+      }
+    },
+    "/api/workflow-capabilities/feishu-find-row": {
+      "post": {
+        "tags": ["工作流原子能力"],
+        "summary": "在明确范围内查找飞书唯一行",
+        "operationId": "workflowFeishuFindRow",
+        "description": "只在请求 range 内匹配全部条件，零匹配（404）/多匹配（409）均失败。合并单元格按区域左上角的值参与匹配；合并区域左上角在 range 外时返回 422。不会默认周报日期、姓名列或整个表格范围。",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FindRowInput"}}}},
+        "responses": {
+          "200": {"description": "非秘密目标坐标", "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/Success"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/SheetTarget"}}}]}}}},
+          "default": {"$ref": "#/components/responses/SafeError"}
+        }
+      }
+    },
+    "/api/workflow-capabilities/feishu-write-cells": {
+      "post": {
+        "tags": ["工作流原子能力"],
+        "summary": "显式确认后写入飞书单元格",
+        "operationId": "workflowFeishuWriteCells",
+        "description": "有外部副作用。confirmed 只能为 true，前端须在本次执行时展示实际目标与内容后确认，不保存或从导入恢复授权。不自动重试。写出后的取消/超时不代表回滚，需先核实远端结果。",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WriteCellsInput"}}}},
+        "responses": {
+          "200": {"description": "写入或相同内容跳过，不回显矩阵", "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/Success"}, {"type": "object", "properties": {"data": {"type": "object", "required": ["range", "updatedCells", "status"], "properties": {"range": {"$ref": "#/components/schemas/CellRange"}, "updatedCells": {"type": "integer", "minimum": 0, "maximum": 2000}, "status": {"type": "string", "enum": ["written", "skipped"]}}}}}]}}}},
+          "default": {"$ref": "#/components/responses/SafeError"}
+        }
+      }
+    }
+  },
+  "components": {
+    "responses": {
+      "SafeError": {"description": "受约束的参数、预算、查找、远程失败或超时错误。不回显 DTO、密钥或远程响应体；写请求发出后的失败不能视为撤销。", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    },
+    "schemas": {
+      "Success": {"type": "object", "required": ["code", "data"], "properties": {"code": {"type": "integer", "enum": [200]}, "data": {}}},
+      "Error": {"type": "object", "properties": {"code": {"type": "integer"}, "message": {"type": "string"}}},
+      "CellRange": {"type": "string", "pattern": "^[A-Z]{1,2}[1-9][0-9]{0,6}:[A-Z]{1,2}[1-9][0-9]{0,6}$", "description": "明确单 sheet 坐标，不含 sheetId 或 !，服务端进一步校验起止顺序、行列与矩阵预算。", "example": "D9:E9"},
+      "WikiUrl": {"type": "string", "format": "uri", "maxLength": 2048, "description": "受支持租户的 HTTPS feishu.cn/larksuite.com Wiki 或 Sheets 地址，必须显式包含 sheet 参数。此 URL 只解析资源，真实请求固定 open.feishu.cn。"},
+      "GithubRuntime": {"type": "object", "additionalProperties": false, "required": ["githubToken"], "properties": {"githubToken": {"type": "string", "minLength": 1, "writeOnly": true}}},
+      "AiConfig": {"type": "object", "additionalProperties": false, "required": ["baseUrl", "apiKey", "model"], "properties": {"baseUrl": {"type": "string", "format": "uri"}, "apiKey": {"type": "string", "minLength": 1, "writeOnly": true}, "model": {"type": "string", "minLength": 1}, "enableThinking": {"type": "boolean", "default": false, "description": "可选的 AI 思考开关，仅接受严格布尔值，不接受 null；缺省 false。模型客户端每次上游调用发送 enable_thinking: input.enableThinking ?? false；不支持参数的提供方可能报错，不自动删参数重试。"}}},
+      "AiRuntime": {"type": "object", "additionalProperties": false, "required": ["ai"], "properties": {"ai": {"$ref": "#/components/schemas/AiConfig"}}},
+      "FeishuRuntime": {"type": "object", "additionalProperties": false, "required": ["appId", "appSecret"], "properties": {"appId": {"type": "string", "minLength": 1}, "appSecret": {"type": "string", "minLength": 1, "writeOnly": true}}},
+      "GithubCommitsInput": {
+        "type": "object", "additionalProperties": false,
+        "required": ["repository", "since", "until", "maxCommits", "runtime"],
+        "properties": {
+          "repository": {"type": "string", "minLength": 1, "maxLength": 200, "description": "owner/name 或标准 HTTPS GitHub 仓库 URL"},
+          "branch": {"type": "string", "maxLength": 256}, "author": {"type": "string", "maxLength": 256},
+          "since": {"type": "string", "format": "date-time"}, "until": {"type": "string", "format": "date-time", "description": "晚于 since，跨度最多 366 天"},
+          "maxCommits": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+          "runtime": {"$ref": "#/components/schemas/GithubRuntime"}
+        }
+      },
+      "Commit": {"type": "object", "required": ["hash", "author", "date", "subject", "body", "isMerge"], "properties": {"hash": {"type": "string"}, "author": {"type": "string"}, "date": {"type": "string", "format": "date-time"}, "subject": {"type": "string"}, "body": {"type": "string"}, "isMerge": {"type": "boolean"}}},
+      "AiTextInput": {
+        "type": "object", "additionalProperties": false, "required": ["prompt", "runtime"],
+        "properties": {"prompt": {"type": "string", "minLength": 1, "maxLength": 200000}, "systemPrompt": {"type": "string", "maxLength": 20000}, "contextWindowTokens": {"type": "integer", "minimum": 4096, "maximum": 1000000, "default": 100000, "description": "模型上下文输入技术预算。仅旧直接请求可缺省；新前端每次显式提交，不读取历史配置。UTF-8字节估算与20%余量不保证真实模型上下文或输出长度，不是输出Token上限。"}, "maxTokens": {"type": "integer", "deprecated": true, "description": "仅兼容旧请求，值完全忽略，不作上下文、不向提供方发送任何输出Token上限参数。"}, "runtime": {"$ref": "#/components/schemas/AiRuntime"}}
+      },
+      "Match": {"type": "object", "additionalProperties": false, "required": ["column", "value", "mode"], "properties": {"column": {"type": "string", "pattern": "^[A-Z]{1,2}$", "description": "绝对列名，须在 range 内"}, "value": {"type": "string", "maxLength": 8000}, "mode": {"type": "string", "enum": ["equals", "contains"]}}},
+      "FindRowInput": {"type": "object", "additionalProperties": false, "required": ["wikiUrl", "range", "matches", "runtime"], "properties": {"wikiUrl": {"$ref": "#/components/schemas/WikiUrl"}, "range": {"$ref": "#/components/schemas/CellRange"}, "matches": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"$ref": "#/components/schemas/Match"}}, "runtime": {"$ref": "#/components/schemas/FeishuRuntime"}}},
+      "SheetTarget": {"type": "object", "required": ["wikiUrl", "row", "sheetId"], "properties": {"wikiUrl": {"$ref": "#/components/schemas/WikiUrl"}, "row": {"type": "integer", "minimum": 1, "maximum": 1000000}, "sheetId": {"type": "string", "minLength": 1}}},
+      "Cell": {"oneOf": [{"type": "string", "nullable": true, "maxLength": 8000}, {"type": "number"}, {"type": "boolean"}]},
+      "WriteCellsInput": {"type": "object", "additionalProperties": false, "required": ["wikiUrl", "range", "values", "confirmed", "runtime"], "properties": {"wikiUrl": {"$ref": "#/components/schemas/WikiUrl"}, "range": {"$ref": "#/components/schemas/CellRange"}, "values": {"type": "array", "minItems": 1, "maxItems": 200, "description": "矩形、最多 50 列/2000 格，总序列化 UTF-8 最多 512 KiB，形状必须与 range 一致。", "items": {"type": "array", "minItems": 1, "maxItems": 50, "items": {"$ref": "#/components/schemas/Cell"}}}, "confirmed": {"type": "boolean", "enum": [true]}, "runtime": {"$ref": "#/components/schemas/FeishuRuntime"}}}
+    }
+  }
+}

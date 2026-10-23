@@ -47,7 +47,7 @@
                 <p id="wf-palette-count" class="wf-palette__count" data-wf="palette-count" role="status" aria-live="polite"></p>
                 <div class="wf-palette__list" data-wf="palette"></div>
                 <p class="wf-palette__empty" data-wf="palette-empty" hidden>没有匹配的节点，请尝试其他关键词。</p>
-                <p class="wf-palette__note">工作流内容（包括输入的 JSON、ENV 原文）以明文保存在本浏览器 localStorage，并原样写入导出文件，不会加密或自动脱敏。</p>
+                <p class="wf-palette__note">工作流内容（包括输入的 JSON、ENV 原文）以明文保存在本浏览器 localStorage，并原样写入导出文件，不会加密或自动脱敏。远程节点仅在运行时请求；AI 会将提示词及其包含的数据发送到所配置的服务。凭据仅引用 Token 配置，不随节点导出。</p>
               </aside>
               <div class="wf-main">
                 <div class="wf-stage" data-wf="stage" tabindex="0" role="group" aria-label="工作流画布" aria-describedby="wf-stage-help">
@@ -56,15 +56,16 @@
                     <div class="wf-empty__panel">
                       <svg class="wf-empty__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2.5" y="3" width="6" height="5" rx="1"></rect><rect x="2.5" y="16" width="6" height="5" rx="1"></rect><rect x="15.5" y="9.5" width="6" height="5" rx="1"></rect><path d="M8.5 5.5h3a2 2 0 0 1 2 2V12M8.5 18.5h3a2 2 0 0 0 2-2V12M13.5 12h2"></path></svg>
                       <h2 class="wf-empty__title">画布还是空的</h2>
-                      <p class="wf-empty__text">先添加一个开始节点，将“开始”输出连接到处理节点的“启动”输入，再把文本接入 A/B、对比结果接到结果节点。也可载入带开始节点的样例；只有开始节点可达的流程及其所需输入会执行，样例不会自动运行。</p>
+                      <p class="wf-empty__text">先添加一个开始节点并连接需要运行的处理节点，再按端口类型连接输入和输出。对比样例展示 A/B 数据流；周报样例由提交抓取、模板、AI 和文本展示组合而成，需填写仓库及 Token 配置，不会自动运行或发布。</p>
                       <div class="wf-empty__actions">
                         <button type="button" class="wf-button wf-button--primary" data-wf="template-json">载入 JSON 对比样例</button>
                         <button type="button" class="wf-button" data-wf="template-env">载入 ENV 对比样例</button>
+                        <button type="button" class="wf-button" data-wf="template-weekly">载入周报组合样例</button>
                       </div>
                     </div>
                   </div>
                 </div>
-                <p class="wf-stage-help" id="wf-stage-help">Ctrl 加左键拖动空白处平移，也可按住右键或中键拖动；画布不响应普通滚轮、触控板滚动或方向键平移；Ctrl 或 Command 加滚轮以鼠标位置为中心放大缩小，也可使用工具栏缩放，节点内文本和结果仍可滚动。普通左键拖动空白处框选，Ctrl 或 Command 点击节点多选；选中单个节点后拖动边框手柄调整大小。画布获得焦点时，Delete 删除所选节点或连线；点击连线可选中，Tab 聚焦连线后也可用 Delete 删除。</p>
+                <p class="wf-stage-help" id="wf-stage-help">Ctrl 加左键拖动空白处平移，也可按住右键或中键拖动；画布不响应普通滚轮、触控板滚动或方向键平移；Ctrl 或 Command 加滚轮以鼠标位置为中心放大缩小，也可使用工具栏缩放，节点内文本和结果仍可滚动。普通左键拖动空白处框选；拖动节点左上角的类型标签移动节点，点击类型标签选择，Ctrl 或 Command 点击类型标签多选，节点内其余文字和结果可直接选中复制；选中单个节点后拖动边框手柄调整大小。画布获得焦点时，Delete 删除所选节点或连线；点击连线可选中，Tab 聚焦连线后也可用 Delete 删除。</p>
               </div>
             </div>
           </section>

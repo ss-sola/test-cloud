@@ -1,0 +1,851 @@
+/* 工作流原子节点通用表单、文本结果与写入确认；全部作用域在 .workflow-view 内并复用 --wf-* 令牌。 */
+
+/* ---------- 通用能力节点 ---------- */
+
+.workflow-view .wf-cap {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-cap__notice {
+  margin: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-info-bg);
+  color: var(--wf-info-text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap__notice--warning {
+  border-color: var(--wf-warning-line);
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
+}
+
+.workflow-view .wf-cap__link {
+  color: var(--wf-accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.workflow-view .wf-cap__link:hover {
+  color: var(--wf-accent-soft-text);
+}
+
+.workflow-view .wf-cap__link:focus-visible,
+.workflow-view .wf-md__link:focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: 2px;
+}
+
+.workflow-view .wf-cap__form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.workflow-view .wf-cap__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.workflow-view .wf-cap__field--checkbox {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+}
+
+/* 占满节点剩余高度的文本域（如文本节点），沿用 .wf-text 编辑器外观。 */
+.workflow-view :is(.wf-cap--fill, .wf-cap--fill .wf-cap__form, .wf-cap__field--fill) {
+  min-height: 0;
+  flex: 1;
+}
+
+.workflow-view .wf-cap__label {
+  color: var(--wf-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.workflow-view .wf-cap__field--checkbox .wf-cap__label {
+  color: var(--wf-text);
+}
+
+.workflow-view .wf-cap__control {
+  width: 100%;
+  min-width: 0;
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+  color: var(--wf-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  box-sizing: border-box;
+}
+
+.workflow-view .wf-cap__control option {
+  background: var(--wf-field);
+  color: var(--wf-text);
+}
+
+.workflow-view .wf-cap__control--textarea {
+  min-height: 4rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  resize: vertical;
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.workflow-view .wf-cap__control:hover:not(:focus-visible, [readonly], :disabled) {
+  border-color: var(--wf-border-strong);
+}
+
+.workflow-view .wf-cap__control:focus-visible {
+  border-color: var(--wf-accent);
+  outline: 0;
+  box-shadow: var(--wf-focus-ring);
+}
+
+.workflow-view .wf-cap__control[readonly],
+.workflow-view .wf-cap__control:disabled {
+  background: var(--wf-disabled-bg);
+  color: var(--wf-text-disabled);
+}
+
+.workflow-view .wf-cap__control:disabled,
+.workflow-view .wf-cap__checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.workflow-view .wf-cap__control[aria-invalid='true'] {
+  border-color: var(--wf-danger-mark);
+}
+
+.workflow-view .wf-cap__checkbox {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--wf-accent-solid);
+}
+
+.workflow-view .wf-cap__checkbox:focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: 2px;
+}
+
+/* 日期字段：与下拉框一致为单个输入框，日历图标位于框内右侧（同下拉箭头位置）；图标打开暗色月历浮层。 */
+.workflow-view .wf-cap__date {
+  position: relative;
+  min-width: 0;
+}
+
+.workflow-view .wf-cap__date > .wf-cap__control {
+  padding-right: 2rem;
+}
+
+.workflow-view .wf-cap__date-button {
+  position: absolute;
+  top: 50%;
+  right: 0.25rem;
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--wf-text);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.workflow-view .wf-cap__date-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.workflow-view .wf-cap__date-button:hover:not(:disabled) {
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-cap__date-button:focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: 1px;
+}
+
+.workflow-view .wf-cap__date-button:disabled {
+  color: var(--wf-text-disabled);
+  cursor: not-allowed;
+}
+
+/* 日历浮层：按工作流暗色令牌绘制，定位在日期输入框旁，周一开头。 */
+.workflow-view.wf-cap-calendar {
+  position: fixed;
+  z-index: 1000;
+  width: 15.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--wf-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--wf-surface-raised);
+  box-shadow: var(--wf-shadow);
+  color: var(--wf-text);
+  font-size: 0.8125rem;
+  color-scheme: dark;
+}
+
+.workflow-view .wf-cap-calendar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.375rem;
+}
+
+.workflow-view .wf-cap-calendar__title {
+  font-weight: 700;
+}
+
+.workflow-view .wf-cap-calendar__nav {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--wf-text-secondary);
+  cursor: pointer;
+}
+
+.workflow-view .wf-cap-calendar__nav:hover {
+  border-color: var(--wf-accent-border);
+  background: var(--wf-hover);
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-cap-calendar__nav svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.workflow-view :is(.wf-cap-calendar__weekdays, .wf-cap-calendar__grid) {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.125rem;
+}
+
+.workflow-view .wf-cap-calendar__weekdays span {
+  padding: 0.25rem 0;
+  color: var(--wf-text-faint);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.workflow-view .wf-cap-calendar__day {
+  height: 1.875rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--wf-text);
+  cursor: pointer;
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out;
+}
+
+.workflow-view .wf-cap-calendar__day--outside {
+  color: var(--wf-text-disabled);
+}
+
+.workflow-view .wf-cap-calendar__day:hover {
+  border-color: var(--wf-accent-border);
+  background: var(--wf-hover);
+}
+
+.workflow-view .wf-cap-calendar__day[aria-current='date'] {
+  border-color: var(--wf-accent-border);
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-cap-calendar__day[aria-pressed='true'] {
+  border-color: var(--wf-accent-solid);
+  background: var(--wf-accent-solid);
+  color: var(--wf-on-accent);
+  font-weight: 700;
+}
+
+.workflow-view :is(.wf-cap-calendar__nav, .wf-cap-calendar__day):focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: 1px;
+}
+
+.workflow-view .wf-cap-calendar__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--wf-border-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-view .wf-cap-calendar__day {
+    transition: none;
+  }
+}
+
+.workflow-view .wf-cap__help {
+  margin: 0;
+  color: var(--wf-text-faint);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.workflow-view .wf-cap__field-error {
+  margin: 0;
+  color: var(--wf-danger-text);
+  font-size: 0.6875rem;
+}
+
+.workflow-view .wf-cap__empty {
+  margin: 0;
+  color: var(--wf-text-secondary);
+}
+
+.workflow-view .wf-cap__form-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--wf-danger-line);
+  border-radius: var(--radius-sm);
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-cap__form-error[hidden] {
+  display: none;
+}
+
+.workflow-view .wf-cap__form-error-text {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap__preview {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-cap__status {
+  margin: 0;
+  color: var(--wf-text-secondary);
+  font-weight: 500;
+}
+
+.workflow-view .wf-cap__status[data-status='succeeded'] {
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-cap__status[data-status='failed'] {
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-cap__output {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.workflow-view .wf-cap__output-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  margin: 0;
+  color: var(--wf-text);
+  font-weight: 600;
+}
+
+.workflow-view .wf-cap__output-title small {
+  color: var(--wf-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.workflow-view .wf-cap__pre {
+  max-height: 10rem;
+  margin: 0;
+  padding: 0.375rem 0.5rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+  color: var(--wf-text);
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap__pre:focus-visible,
+.workflow-view .wf-cap-result__panel:focus-visible,
+.workflow-view .wf-md__pre:focus-visible,
+.workflow-view .wf-cap-dialog__matrix:focus-visible,
+.workflow-view .wf-cap-result__tab:focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 文本结果节点 ---------- */
+
+.workflow-view .wf-cap-result {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-cap-result__bar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+}
+
+.workflow-view .wf-cap-result__format {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--wf-text-secondary);
+  font-weight: 500;
+}
+
+.workflow-view .wf-cap-result__select {
+  width: auto;
+  min-height: 1.75rem;
+  padding: 0 0.375rem;
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-cap-result__tabs {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-view .wf-cap-result__tabs[hidden] {
+  display: none;
+}
+
+.workflow-view .wf-cap-result__tab {
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border: 0;
+  background: var(--wf-surface-raised);
+  color: var(--wf-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-cap-result__tab + .wf-cap-result__tab {
+  border-left: 1px solid var(--wf-border);
+}
+
+.workflow-view .wf-cap-result__tab:hover:not([aria-selected='true']) {
+  background: var(--wf-hover);
+  color: var(--wf-accent);
+}
+
+.workflow-view .wf-cap-result__tab[aria-selected='true'] {
+  background: var(--wf-accent-soft);
+  color: var(--wf-accent-soft-text);
+  font-weight: 700;
+}
+
+.workflow-view .wf-cap-result__stats {
+  color: var(--wf-text-secondary);
+  font-family: var(--wf-mono);
+  font-size: 0.6875rem;
+}
+
+.workflow-view .wf-cap-result__actions {
+  display: inline-flex;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+.workflow-view .wf-cap-result__feedback,
+.workflow-view .wf-cap-result__note,
+.workflow-view .wf-cap-result__empty {
+  margin: 0;
+  color: var(--wf-text-secondary);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap-result__feedback {
+  color: var(--wf-success-text);
+}
+
+.workflow-view .wf-cap-result__feedback--error {
+  color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-cap-result__note {
+  color: var(--wf-warning-text);
+  font-size: 0.6875rem;
+}
+
+.workflow-view .wf-cap-result__panel {
+  min-height: 0;
+  margin: 0;
+  flex: 1;
+  padding: 0.5rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+  color: var(--wf-text);
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap-result__panel[hidden] {
+  display: none;
+}
+
+.workflow-view .wf-cap-result__raw {
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* ---------- 安全 Markdown 预览 ---------- */
+
+.workflow-view .wf-md {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.workflow-view .wf-md > :first-child {
+  margin-top: 0;
+}
+
+.workflow-view .wf-md__paragraph {
+  margin: 0.5em 0;
+  white-space: pre-wrap;
+}
+
+.workflow-view .wf-md__heading {
+  margin: 0.875em 0 0.375em;
+  color: var(--wf-text);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.workflow-view .wf-md__heading--1 {
+  font-size: 1.125rem;
+}
+
+.workflow-view .wf-md__heading--2 {
+  font-size: 1rem;
+}
+
+.workflow-view .wf-md__heading--3,
+.workflow-view .wf-md__heading--4,
+.workflow-view .wf-md__heading--5,
+.workflow-view .wf-md__heading--6 {
+  font-size: 0.875rem;
+}
+
+.workflow-view .wf-md__list {
+  margin: 0.5em 0;
+  padding-left: 1.25rem;
+}
+
+.workflow-view .wf-md__item {
+  margin: 0.125em 0;
+  white-space: pre-wrap;
+}
+
+.workflow-view .wf-md__code {
+  padding: 0.0625rem 0.25rem;
+  border: 1px solid var(--wf-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--wf-bg-sunken);
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-md__pre {
+  max-height: 16rem;
+  margin: 0.5em 0;
+  padding: 0.5rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--wf-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--wf-bg-sunken);
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.workflow-view .wf-md__link {
+  color: var(--wf-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.workflow-view .wf-md__link:hover {
+  color: var(--wf-accent-soft-text);
+}
+
+/* ---------- 飞书写入确认对话框 ---------- */
+
+.workflow-view.wf-cap-dialog {
+  width: min(56rem, calc(100vw - 1.5rem));
+  max-width: none;
+  max-height: calc(100dvh - 1.5rem);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--wf-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+  color: var(--wf-text);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.workflow-view.wf-cap-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.workflow-view.wf-cap-dialog::backdrop {
+  background: rgb(8 12 18 / 72%);
+}
+
+.workflow-view .wf-cap-dialog__head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view .wf-cap-dialog__title {
+  margin: 0;
+  color: var(--wf-text);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.workflow-view .wf-cap-dialog__warning {
+  flex: 0 0 auto;
+  margin: 0.75rem 1rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--wf-danger-line);
+  border-radius: var(--radius-sm);
+  background: var(--wf-danger-bg);
+  color: var(--wf-danger-text);
+  font-weight: 600;
+}
+
+.workflow-view .wf-cap-dialog__facts {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0.75rem 1rem 0;
+}
+
+.workflow-view .wf-cap-dialog__facts dt {
+  color: var(--wf-text-secondary);
+}
+
+.workflow-view .wf-cap-dialog__facts dd {
+  margin: 0;
+  color: var(--wf-text);
+  font-family: var(--wf-mono);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap-dialog__issues {
+  flex: 0 0 auto;
+  margin: 0.75rem 1rem 0;
+  padding: 0.5rem 0.75rem 0.5rem 1.75rem;
+  border: 1px solid var(--wf-warning-line);
+  border-radius: var(--radius-sm);
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
+}
+
+.workflow-view .wf-cap-dialog__matrix {
+  min-height: 6rem;
+  flex: 1 1 auto;
+  margin: 0.75rem 1rem 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-field);
+}
+
+.workflow-view .wf-cap-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.75rem;
+}
+
+.workflow-view .wf-cap-matrix th,
+.workflow-view .wf-cap-matrix td {
+  padding: 0.25rem 0.5rem;
+  border-right: 1px solid var(--wf-border-soft);
+  border-bottom: 1px solid var(--wf-border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.workflow-view .wf-cap-matrix th {
+  position: sticky;
+  z-index: 1;
+  background: var(--wf-surface-raised);
+  color: var(--wf-text-secondary);
+  font-weight: 500;
+}
+
+.workflow-view .wf-cap-matrix thead th {
+  top: 0;
+}
+
+.workflow-view .wf-cap-matrix tbody th {
+  left: 0;
+}
+
+.workflow-view .wf-cap-matrix td {
+  min-width: 4rem;
+  max-width: 24rem;
+  color: var(--wf-text);
+  font-family: var(--wf-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workflow-view .wf-cap-matrix__null {
+  color: var(--wf-text-faint);
+  font-style: italic;
+}
+
+.workflow-view .wf-cap-dialog__footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.workflow-view .wf-cap-button--danger {
+  border-color: var(--wf-danger-line);
+  background: var(--wf-danger-strong);
+  color: var(--wf-danger-text);
+  font-weight: 700;
+}
+
+.workflow-view .wf-cap-button--danger:hover:not(:disabled) {
+  border-color: var(--wf-danger-mark);
+  background: var(--wf-danger-line);
+  color: var(--wf-on-accent);
+}
+
+.workflow-view .wf-cap-button--danger:focus-visible {
+  outline: 2px solid var(--wf-danger-mark);
+  outline-offset: 2px;
+}
+
+@media (max-width: 40rem) {
+  .workflow-view.wf-cap-dialog {
+    width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .workflow-view .wf-cap-dialog__facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .workflow-view .wf-cap-dialog__facts dd {
+    margin-bottom: 0.375rem;
+  }
+
+  .workflow-view .wf-cap-dialog__footer {
+    flex-direction: column-reverse;
+  }
+
+  .workflow-view .wf-cap-dialog__footer .wf-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-view .wf-cap-result__tab,
+  .workflow-view .wf-cap__control,
+  .workflow-view .wf-cap-dialog .wf-button {
+    transition: none;
+  }
+}

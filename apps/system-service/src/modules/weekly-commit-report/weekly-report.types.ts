@@ -79,6 +79,7 @@ export interface WeeklyReportResult {
   projects: WeeklyReportProjectResult[];
   projectErrors: WeeklyReportProjectError[];
   commitCount: number;
+  /** @deprecated 兼容历史结果，新生成的报告不使用本地摘要，固定为 false。 */
   degraded: boolean;
   /** 上周日报的工作日摘要，用于按列写入飞书 Sheet。 */
   dailySections?: DailyReportSection[];
@@ -107,6 +108,7 @@ export interface WeeklyReportRuntimeConfig {
     baseUrl: string;
     apiKey: string;
     model: string;
+    enableThinking?: boolean;
   };
   limits?: Partial<WeeklyReportLimits>;
 }

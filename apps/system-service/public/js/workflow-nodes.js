@@ -1,5 +1,6 @@
 ((root) => {
   const Core = typeof module !== 'undefined' && module.exports ? require('./workflow-core.js') : root.NestCloudWorkflowCore
+  const Capabilities = typeof module !== 'undefined' && module.exports ? require('./workflow-capabilities.js') : root.NestCloudWorkflowCapabilities
   const ENDPOINTS = Object.freeze({ json: '/api/content-compare/json', env: '/api/content-compare/env' })
   const REQUEST_TIMEOUT_MS = 30_000
   const STATUSES = new Set(['added', 'removed', 'modified', 'unchanged'])
@@ -49,6 +50,7 @@
     const request = options.request || root.fetch?.bind(root)
     const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS
     return {
+      ...Capabilities.createServices(options),
       /** 提交一组完整文本，处理超时、取消及后端协议错误。 */
       async compare({ format, left, right, signal }) {
         if (!Object.hasOwn(ENDPOINTS, format)) throw new CompareRequestError('不支持的对比格式。')
@@ -99,7 +101,8 @@
     registry.register({
       type: 'text', version: 1, label: '文本', category: '数据输入', execution: Core.NODE_EXECUTION.data,
       inputs: [], outputs: [{ id: 'text', label: '文本', dataType: 'text' }],
-      defaults: { text: '' }, size: { width: 320, height: 280 }, render: renderers.text,
+      defaults: { text: '' }, size: { width: 320, height: 280 }, render: renderers.capability, preview: false,
+      fields: [{ key: 'text', label: '文本内容', type: 'textarea', fill: true, counter: true, placeholder: '输入或粘贴文本，运行时作为输出传给下游节点' }],
       validateConfig: (config) => typeof config.text !== 'string' || config.text.length > Core.LIMITS.textLength ? '文本节点内容必须是最多 500000 字符的文本。' : null,
       execute: ({ node }) => ({ text: node.config.text }),
     })
@@ -119,6 +122,7 @@
       defaults: {}, size: { width: 820, height: 580 }, render: renderers.result,
       execute: ({ inputs }) => ({ diff: inputs.diff }),
     })
+    Capabilities.register(registry, renderers)
     return registry
   }
 

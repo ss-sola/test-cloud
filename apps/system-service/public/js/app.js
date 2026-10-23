@@ -184,7 +184,7 @@
       githubToken: '',
       feishuAppId: '',
       feishuAppSecret: '',
-      ai: { baseUrl: '', apiKey: '', model: '' },
+      ai: { baseUrl: '', apiKey: '', model: '', enableThinking: false },
     }
     const ai = value.ai && typeof value.ai === 'object' ? value.ai : {}
     return {
@@ -195,6 +195,7 @@
         baseUrl: typeof ai.baseUrl === 'string' ? ai.baseUrl.trim() : '',
         apiKey: typeof ai.apiKey === 'string' ? ai.apiKey.trim() : '',
         model: typeof ai.model === 'string' ? ai.model.trim() : '',
+        enableThinking: ai.enableThinking === true,
       },
     }
   }
@@ -857,13 +858,13 @@
         const configs = collectConfigs()
         const tokenConfig = readTokenConfig()
         const aiValues = [tokenConfig.ai.baseUrl, tokenConfig.ai.apiKey, tokenConfig.ai.model]
-        if (aiValues.some(Boolean) && !aiValues.every(Boolean)) {
-          throw new Error('AI 配置不完整，请在 Token 配置页填写 Base URL、API Key 和 Model，或全部留空。')
+        if (!aiValues.every(Boolean)) {
+          throw new Error('AI 配置不完整，无法生成周报。请在 Token 配置页填写 Base URL、API Key 和 Model。')
         }
         const runtime = {
           githubToken: tokenConfig.githubToken,
           allowedRepositories: configs.map((config) => config.repo),
-          ...(aiValues.every(Boolean) ? { ai: tokenConfig.ai } : {}),
+          ai: tokenConfig.ai,
         }
         const response = await fetch('/api/weekly-commit-reports/jobs', {
           method: 'POST',
@@ -885,7 +886,9 @@
         output.hidden = false
         actions.hidden = false
         const projectErrorCount = renderProjectErrors(result.projectErrors)
-        const modeLabel = result.degraded ? '本地规则摘要' : 'AI 摘要'
+        const modeLabel = result.degraded === true
+          ? '历史本地结果'
+          : result.commitCount === 0 ? '无可用提交（未调用 AI）' : 'AI 摘要'
         const errorLabel = projectErrorCount > 0 ? ` · ${projectErrorCount} 个项目失败` : ''
         const publicationStatus = publication?.status
         const publicationLabel = publicationStatus === 'succeeded'

@@ -28,6 +28,12 @@ class FakeHTMLElement {
 
 class FakeInput extends FakeHTMLElement {
   value = '';
+  type = 'text';
+  checked = false;
+}
+
+class FakeCheckbox extends FakeInput {
+  type = 'checkbox';
 }
 
 class FakeForm extends FakeHTMLElement {}
@@ -63,6 +69,7 @@ class FakeRoot extends FakeHTMLElement {
     '#token-ai-base-url': new FakeInput(),
     '#token-ai-api-key': new FakeInput(),
     '#token-ai-model': new FakeInput(),
+    '#token-ai-enable-thinking': new FakeCheckbox(),
     '#token-config-clear': new FakeButton(),
     '#token-config-status': new FakeHTMLElement(),
   };
@@ -73,6 +80,10 @@ class FakeRoot extends FakeHTMLElement {
 
   input(id: string): FakeInput {
     return this.elements[`#token-${id}`] as FakeInput;
+  }
+
+  get thinking(): FakeInput {
+    return this.elements['#token-ai-enable-thinking'] as FakeInput;
   }
 
   get form(): FakeHTMLElement {
@@ -166,7 +177,12 @@ describe('token config page', () => {
       githubToken: 'ghp_new',
       feishuAppId: 'cli_new',
       feishuAppSecret: 'feishu-secret',
-      ai: { baseUrl: 'https://ai.example.com/v1', apiKey: 'sk-old', model: 'gpt-old' },
+      ai: {
+        baseUrl: 'https://ai.example.com/v1',
+        apiKey: 'sk-old',
+        model: 'gpt-old',
+        enableThinking: false,
+      },
     });
     expect(storage.getItem(TOKEN_KEY)).not.toMatch(/jenkins/i);
     expect(events.map((event) => event.type)).toEqual(['nestcloud:tokens-updated']);
@@ -205,11 +221,12 @@ describe('token config page', () => {
       baseUrl: 'https://ai.example.com/v1',
       apiKey: 'sk-new',
       model: 'gpt-new',
+      enableThinking: false,
     });
     expect(root.status).toContain('AI 摘要已启用');
   });
 
-  it('omits AI config when all AI fields are empty and falls back to local summary', () => {
+  it('saves a draft without AI fields and warns that weekly reports cannot be generated', () => {
     const { root, storage } = mountTokenConfig();
     root.input('github').value = 'ghp_only';
     root.input('ai-model').value = '   ';
@@ -219,7 +236,9 @@ describe('token config page', () => {
     const saved = JSON.parse(storage.getItem(TOKEN_KEY) ?? '') as Record<string, unknown>;
     expect(saved.githubToken).toBe('ghp_only');
     expect(saved).not.toHaveProperty('ai');
-    expect(root.status).toContain('本地规则摘要');
+    expect(root.status).toContain('尚未配置 AI');
+    expect(root.status).toContain('无法生成周报');
+    expect(root.status).not.toContain('本地规则摘要');
   });
 
   it('keeps a partially filled AI config but warns that it is incomplete', () => {
@@ -232,8 +251,73 @@ describe('token config page', () => {
       baseUrl: 'https://ai.example.com/v1',
       apiKey: '',
       model: '',
+      enableThinking: false,
     });
     expect(root.status).toContain('AI 配置不完整');
+    expect(root.status).toContain('无法生成周报');
+  });
+
+  it('keeps AI thinking off by default, restores only a stored true, and treats legacy or invalid values as off', () => {
+    expect(mountTokenConfig().root.thinking.checked).toBe(false);
+    expect(mountTokenConfig({ [TOKEN_KEY]: legacy }).root.thinking.checked).toBe(false);
+    for (const invalid of ['true', 1, 'on', null, {}]) {
+      const raw = JSON.stringify({
+        ai: { baseUrl: 'https://a.example', apiKey: 'k', model: 'm', enableThinking: invalid },
+      });
+      expect(mountTokenConfig({ [TOKEN_KEY]: raw }).root.thinking.checked).toBe(false);
+    }
+    const on = JSON.stringify({
+      ai: { baseUrl: 'https://a.example', apiKey: 'k', model: 'm', enableThinking: true },
+    });
+    expect(mountTokenConfig({ [TOKEN_KEY]: on }).root.thinking.checked).toBe(true);
+  });
+
+  it('saves the thinking switch as a real boolean without affecting AI completeness', () => {
+    const { root, storage } = mountTokenConfig({ [TOKEN_KEY]: legacy });
+    root.thinking.checked = true;
+    root.form.emit('submit');
+    expect(JSON.parse(storage.getItem(TOKEN_KEY) ?? '').ai.enableThinking).toBe(true);
+    expect(root.status).toContain('AI 摘要已启用');
+
+    root.thinking.checked = false;
+    root.form.emit('submit');
+    expect(JSON.parse(storage.getItem(TOKEN_KEY) ?? '').ai.enableThinking).toBe(false);
+    expect(root.status).toContain('AI 摘要已启用');
+  });
+
+  it('reports AI as not configured when only the thinking switch is on', () => {
+    const { root, storage } = mountTokenConfig();
+    root.thinking.checked = true;
+    root.form.emit('submit');
+    expect(JSON.parse(storage.getItem(TOKEN_KEY) ?? '').ai).toEqual({
+      baseUrl: '',
+      apiKey: '',
+      model: '',
+      enableThinking: true,
+    });
+    expect(root.status).toContain('尚未配置 AI');
+    expect(root.status).not.toContain('AI 摘要已启用');
+  });
+
+  it('clears the thinking switch together with credentials', () => {
+    const on = JSON.stringify({
+      ai: { baseUrl: 'https://a.example', apiKey: 'k', model: 'm', enableThinking: true },
+    });
+    const { root } = mountTokenConfig({ [TOKEN_KEY]: on });
+    root.clearButton.emit('click');
+    expect(root.thinking.checked).toBe(false);
+  });
+
+  it('declares an unchecked, labelled and described thinking checkbox in the page markup', () => {
+    const html = readFileSync(resolve(__dirname, '../../public/html/token-config.html'), 'utf8');
+    const input = html.match(/<input id="token-ai-enable-thinking"[^>]*>/)?.[0] ?? '';
+    expect(input).toContain('type="checkbox"');
+    expect(input).not.toMatch(/\bchecked\b/);
+    expect(input).toContain('aria-describedby="token-ai-enable-thinking-hint"');
+    expect(html).toContain('for="token-ai-enable-thinking"');
+    expect(html).toMatch(
+      /id="token-ai-enable-thinking-hint"[^>]*>[^<]*默认关闭[^<]*enable_thinking/,
+    );
   });
 
   it('shows empty values and a not-saved status when nothing is stored', () => {

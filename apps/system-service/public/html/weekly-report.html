@@ -4,7 +4,7 @@
     <div>
       <p class="eyebrow">WEEKLY REPORT / GITHUB API</p>
       <h1 id="weekly-report-title">周报生成</h1>
-      <p class="page-description">按 GitHub 提交记录生成上周或本周项目汇总。摘要处理在服务端完成，结果不会自动写入服务器文件。</p>
+      <p class="page-description">按 GitHub 提交记录生成上周或本周项目汇总。需在 Token 配置页完整填写 AI 三项；AI 请求或摘要校验失败时直接报错，不使用本地摘要。结果不会自动写入服务器文件。</p>
     </div>
     <span class="heading-mark" aria-hidden="true">05</span>
   </div>
@@ -27,7 +27,7 @@
       </fieldset>
       <label class="weekly-publish-option" for="weekly-report-publish">
         <input id="weekly-report-publish" type="checkbox" name="weekly-report-publish" />
-        <span><strong>同步到飞书文档</strong><small>仅上周周报支持同步，将写入服务端配置的飞书周报表格。</small></span>
+        <span><strong>同步到飞书文档</strong><small>仅上周周报支持同步，将写入本次请求指定的飞书周报表格。</small></span>
       </label>
       <fieldset class="weekly-feishu-settings" id="weekly-feishu-settings" disabled>
         <legend>飞书同步配置</legend>
@@ -46,8 +46,8 @@
       <button class="compare-button weekly-report-submit" id="weekly-report-submit" type="submit">生成周报 <span
           aria-hidden="true">→</span></button>
       <p class="tool-error" id="weekly-report-error" role="alert" hidden></p>
-      <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>项目配置和对比内容保存在当前浏览器；GitHub Token
-          只由服务端环境提供。</span></p>
+      <p class="tool-note"><span class="metric-dot metric-dot-blue"></span><span>项目配置保存在当前浏览器；GitHub Token 和完整 AI 配置从
+          <a href="#token-config">Token 配置</a> 页面读取，仅随本次请求提交。</span></p>
     </form>
 
     <section class="weekly-report-result" aria-labelledby="weekly-report-result-title">

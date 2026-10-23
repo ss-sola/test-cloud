@@ -338,6 +338,7 @@ body:has(.main-content[data-route='workflow']) {
 
 .workflow-view .wf-control:focus-visible,
 .workflow-view .wf-text:focus-visible,
+.workflow-view .wf-node__kind:focus-visible,
 .workflow-view .wf-node__name:focus-visible {
   border-color: var(--wf-accent);
   outline: 0;
@@ -427,6 +428,7 @@ body:has(.main-content[data-route='workflow']) {
 .workflow-view .wf-result__tab:focus-visible,
 .workflow-view .wf-tree__toggle:focus-visible,
 .workflow-view .wf-node__remove:focus-visible,
+.workflow-view .wf-node__run:focus-visible,
 .workflow-view .wf-stage:focus-visible,
 .workflow-view .wf-pane__code:focus-visible {
   outline: 2px solid var(--wf-accent);
@@ -464,6 +466,11 @@ body:has(.main-content[data-route='workflow']) {
 .workflow-view .wf-run-status[data-status='failed'] {
   background: var(--wf-danger-bg);
   color: var(--wf-danger-text);
+}
+
+.workflow-view .wf-run-status[data-status='stale'] {
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
 }
 
 .workflow-view .wf-zoom {
@@ -739,7 +746,9 @@ body:has(.main-content[data-route='workflow']) {
 }
 
 /* 节点内部滚动到边缘时，不把双轴触控板手势传给外层页面。 */
-.workflow-view .wf-stage :is(.wf-text, .wf-node__body--scroll, .wf-node__message, .wf-pane__code, .wf-tree) {
+.workflow-view
+  .wf-stage
+  :is(.wf-text, .wf-node__body--scroll, .wf-node__message, .wf-pane__code, .wf-tree) {
   overscroll-behavior: contain;
 }
 
@@ -885,11 +894,22 @@ body:has(.main-content[data-route='workflow']) {
 }
 
 .workflow-view .wf-node__kind {
-  flex: 0 0 auto;
+  min-width: 1.5rem;
+  max-width: 45%;
+  height: 1.75rem;
+  flex: 0 1 auto;
+  overflow: hidden;
+  padding: 0 0.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--wf-accent);
+  cursor: move;
   font-family: var(--wf-mono);
   font-size: 0.6875rem;
   font-weight: 500;
+  line-height: 1.625rem;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -982,10 +1002,44 @@ body:has(.main-content[data-route='workflow']) {
   cursor: not-allowed;
 }
 
-@container (max-width: 240px) {
-  .wf-node__kind {
-    display: none;
-  }
+/* 从此节点运行：复用上游结果，只重跑本节点及下游。 */
+.workflow-view .wf-node__run {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--wf-text-secondary);
+  cursor: pointer;
+  font-size: 0.6875rem;
+  line-height: 1;
+}
+
+.workflow-view .wf-node__run:hover:not(:disabled) {
+  background: var(--wf-accent-soft);
+  color: var(--wf-accent-soft-text);
+}
+
+.workflow-view .wf-node__run:disabled {
+  color: var(--wf-text-disabled);
+  cursor: not-allowed;
+}
+
+/* 旧版本节点的显式升级提示。 */
+.workflow-view .wf-node__upgrade {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border-bottom: 1px solid var(--wf-border-soft);
+  background: var(--wf-warning-bg);
+  color: var(--wf-warning-text);
+  font-size: 0.75rem;
 }
 
 .workflow-view .wf-node__ports {
@@ -1150,7 +1204,12 @@ body:has(.main-content[data-route='workflow']) {
 
 .workflow-view .wf-result__summary {
   color: var(--wf-text);
-  font-family: Lato, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    Lato,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 0.8125rem;
 }
 
@@ -1417,7 +1476,12 @@ body:has(.main-content[data-route='workflow']) {
 .workflow-view .wf-tree__status {
   flex: 0 0 auto;
   margin-left: auto;
-  font-family: Lato, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    Lato,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
 }
 
 .workflow-view .wf-tree__status--unchanged {
@@ -1452,26 +1516,24 @@ body:has(.main-content[data-route='workflow']) {
 
 /* ---------- X6 交互元素 ---------- */
 
-.workflow-view .wf-node__head,
-.workflow-view .wf-node__ports,
-.workflow-view .wf-node__message {
-  cursor: move;
-  user-select: none;
+/* 节点只能通过左上角类型标签拖动；其余内容（预览、结果、错误信息等）可原生选中复制。 */
+.workflow-view .x6-node {
+  cursor: default;
 }
 
-.workflow-view .wf-text,
-.workflow-view .wf-node__name,
-.workflow-view .wf-pane__code,
-.workflow-view .wf-tree,
-.workflow-view .wf-json-note,
-.workflow-view .wf-compare__description {
+.workflow-view .wf-node {
+  cursor: auto;
   user-select: text;
 }
 
-.workflow-view.wf-locked .x6-node,
-.workflow-view.wf-locked .wf-node__head,
-.workflow-view.wf-locked .wf-node__ports,
-.workflow-view.wf-locked .wf-node__message {
+.workflow-view .wf-node__kind,
+.workflow-view .wf-node__status,
+.workflow-view .wf-node__ports,
+.workflow-view .wf-node button {
+  user-select: none;
+}
+
+.workflow-view.wf-locked .wf-node__kind {
   cursor: default;
 }
 
@@ -1492,8 +1554,12 @@ body:has(.main-content[data-route='workflow']) {
 }
 
 @keyframes wf-edge-flow-travel {
-  from { offset-distance: 0%; }
-  to { offset-distance: 100%; }
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
 }
 
 .workflow-view .x6-edge-selected .wf-edge-flow {

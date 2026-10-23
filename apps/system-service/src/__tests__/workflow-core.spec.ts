@@ -44,6 +44,7 @@ interface ExecuteContext {
   controls: Record<string, unknown>;
   services: unknown;
   signal: AbortSignal;
+  suspend<T>(work: () => Promise<T>): Promise<T>;
 }
 interface NodeDefinition {
   type: string;
@@ -56,11 +57,17 @@ interface NodeDefinition {
   defaults: Record<string, unknown>;
   size?: { width: number; height: number };
   validateConfig?(config: Record<string, unknown>): string | null | undefined;
+  migrate?(config: Record<string, unknown>): Record<string, unknown>;
   execute(context: ExecuteContext): unknown;
 }
 interface Registry {
   register(definition: NodeDefinition): Registry;
-  registerDataType(name: string, validate: (value: unknown) => boolean): Registry;
+  registerDataType(
+    name: string,
+    validate: (value: unknown) => boolean,
+    options?: { base?: string },
+  ): Registry;
+  compatible(output: string, input: string): boolean;
   get(type: string, version?: number): NodeDefinition | undefined;
   list(): NodeDefinition[];
 }
@@ -103,9 +110,16 @@ interface WorkspaceApi {
   updateNode(nodeId: string, patch: Partial<WorkflowNode>, documentId?: string): WorkflowDocument;
   deleteSelection(selection: { nodeIds?: string[]; edgeIds?: string[] }, documentId?: string): void;
   copySelection(nodeIds: string[], documentId?: string): WorkflowNode[];
-  insertSubgraph(graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, documentId?: string): WorkflowNode[];
+  insertSubgraph(
+    graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] },
+    documentId?: string,
+  ): WorkflowNode[];
   updateLayout(
-    updates: Array<{ id: string; position?: { x: number; y: number }; size?: { width: number; height: number } }>,
+    updates: Array<{
+      id: string;
+      position?: { x: number; y: number };
+      size?: { width: number; height: number };
+    }>,
     documentId?: string,
   ): WorkflowDocument;
   connect(connection: Connection, documentId?: string): WorkflowEdge;
@@ -116,6 +130,8 @@ interface WorkspaceApi {
   canUndo(id?: string): boolean;
   canRedo(id?: string): boolean;
   run(id?: string): Promise<{ status: string; runId: string }>;
+  runFrom(nodeId: string, id?: string): Promise<{ status: string; runId: string }>;
+  upgradeNode(nodeId: string, id?: string): WorkflowDocument;
   stop(id?: string): void;
 }
 interface CoreModule {
@@ -129,12 +145,26 @@ interface CoreModule {
     onStorageError?: (message: string) => void;
   }) => WorkspaceApi;
   parseDocument(raw: unknown, registry: Registry): WorkflowDocument;
-  validateConnection(document: WorkflowDocument, registry: Registry, connection: Connection): string | null;
+  validateConnection(
+    document: WorkflowDocument,
+    registry: Registry,
+    connection: Connection,
+  ): string | null;
   withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T>;
 }
 
-const core = createRequire(__filename)(resolve(__dirname, '../../public/js/workflow-core.js')) as CoreModule;
-const { LIMITS, STORAGE_KEY, NodeRegistry, Workspace, parseDocument, validateConnection, withAbort } = core;
+const core = createRequire(__filename)(
+  resolve(__dirname, '../../public/js/workflow-core.js'),
+) as CoreModule;
+const {
+  LIMITS,
+  STORAGE_KEY,
+  NodeRegistry,
+  Workspace,
+  parseDocument,
+  validateConnection,
+  withAbort,
+} = core;
 
 /* ------------------------------ 夹具 ------------------------------ */
 
@@ -157,7 +187,12 @@ function deferred<T = unknown>(): Deferred<T> {
 
 const tick = (): Promise<void> => new Promise((done) => setImmediate(done));
 
-const nodeOf = (id: string, type: string, config: Record<string, unknown> = {}, version = 1): WorkflowNode => ({
+const nodeOf = (
+  id: string,
+  type: string,
+  config: Record<string, unknown> = {},
+  version = 1,
+): WorkflowNode => ({
   id,
   type,
   version,
@@ -177,7 +212,11 @@ const conn = (from: string, fromPort: string, to: string, toPort: string): Conne
   source: { nodeId: from, port: fromPort },
   target: { nodeId: to, port: toPort },
 });
-const docOf = (id: string, nodes: WorkflowNode[], edges: WorkflowEdge[] = []): WorkflowDocument => ({
+const docOf = (
+  id: string,
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[] = [],
+): WorkflowDocument => ({
   version: 1,
   id,
   name: id,
@@ -192,7 +231,13 @@ const nested = (depth: number): Record<string, unknown> => {
 };
 const text = (id: string, required = true): Port => ({ id, label: id, dataType: 'text', required });
 /** 控制端口：触发数据类型为 trigger，kind 为 control；输入侧可选。 */
-const ctlPort = (required = false): Port => ({ id: 'ctl', label: 'ctl', dataType: 'trigger', kind: 'control', required });
+const ctlPort = (required = false): Port => ({
+  id: 'ctl',
+  label: 'ctl',
+  dataType: 'trigger',
+  kind: 'control',
+  required,
+});
 const ENTRY_ID = 'entry0';
 const entryNode = (id = ENTRY_ID): WorkflowNode => nodeOf(id, 'entry');
 const note = (id: string, value = id): WorkflowNode => nodeOf(id, 'note', { value });
@@ -238,20 +283,54 @@ class Lab {
       outputs: [ctlPort()],
       defaults: {},
       size: { width: 200, height: 200 },
-      execute: (context) => (this.handlers.get(context.node.id) ?? (() => ({ ctl: true })))(context),
+      execute: (context) =>
+        (this.handlers.get(context.node.id) ?? (() => ({ ctl: true })))(context),
     });
-    this.define('note', [], [text('out')], { value: '' }, ({ node }) => ({ out: node.config.value }), undefined, 1, 'data');
-    this.define('src', [], [text('out')], { value: '' }, ({ node }) => ({ out: node.config.value }), (config) =>
-      typeof config.value === 'string' && config.value.length <= LIMITS.textLength ? null : '配置无效',
+    this.define(
+      'note',
+      [],
+      [text('out')],
+      { value: '' },
+      ({ node }) => ({ out: node.config.value }),
+      undefined,
+      1,
+      'data',
     );
-    this.define('task', [text('in')], [text('out')], {}, (context) => ({ out: `${context.node.id}<${join(context)}` }));
-    this.define('join', [text('a'), text('b')], [text('out')], {}, (context) => ({ out: join(context) }));
-    this.define('opt', [text('in'), text('extra', false)], [text('out')], {}, (context) => ({ out: join(context) }));
-    this.define('num', [], [{ id: 'out', label: 'out', dataType: 'number' }], {}, () => ({ out: 1 }));
-    this.define('bag', [], [{ id: 'out', label: 'out', dataType: 'list' }], {}, () => ({ out: [] }));
-    this.define('special', [text('constructor'), text('toString', false)], [text('valueOf')], {}, ({ inputs }) => ({
-      valueOf: String(inputs.constructor),
+    this.define(
+      'src',
+      [],
+      [text('out')],
+      { value: '' },
+      ({ node }) => ({ out: node.config.value }),
+      (config) =>
+        typeof config.value === 'string' && config.value.length <= LIMITS.textLength
+          ? null
+          : '配置无效',
+    );
+    this.define('task', [text('in')], [text('out')], {}, (context) => ({
+      out: `${context.node.id}<${join(context)}`,
     }));
+    this.define('join', [text('a'), text('b')], [text('out')], {}, (context) => ({
+      out: join(context),
+    }));
+    this.define('opt', [text('in'), text('extra', false)], [text('out')], {}, (context) => ({
+      out: join(context),
+    }));
+    this.define('num', [], [{ id: 'out', label: 'out', dataType: 'number' }], {}, () => ({
+      out: 1,
+    }));
+    this.define('bag', [], [{ id: 'out', label: 'out', dataType: 'list' }], {}, () => ({
+      out: [],
+    }));
+    this.define(
+      'special',
+      [text('constructor'), text('toString', false)],
+      [text('valueOf')],
+      {},
+      ({ inputs }) => ({
+        valueOf: String(inputs.constructor),
+      }),
+    );
     this.define('versioned', [], [text('out')], {}, () => ({ out: 'v1' }), undefined, 1);
     this.define('versioned', [], [text('out')], {}, () => ({ out: 'v2' }), undefined, 2);
   }
@@ -286,7 +365,10 @@ class Lab {
 
   /** 以固定标识的草稿启动工作区，便于直接引用节点。 */
   open(documents: WorkflowDocument[]): WorkspaceApi {
-    this.storage.data.set(STORAGE_KEY, JSON.stringify({ version: 1, activeId: documents[0].id, documents }));
+    this.storage.data.set(
+      STORAGE_KEY,
+      JSON.stringify({ version: 1, activeId: documents[0].id, documents }),
+    );
     return this.reopen();
   }
 
@@ -302,7 +384,11 @@ class Lab {
       const definition = this.registry.get(node.type, node.version);
       return definition !== undefined && definition.execution !== 'data' && !targeted.has(node.id);
     });
-    return { ...document, nodes: [...document.nodes, entryNode()], edges: [...document.edges, ...roots.map((node) => ctlEdge(node.id))] };
+    return {
+      ...document,
+      nodes: [...document.nodes, entryNode()],
+      edges: [...document.edges, ...roots.map((node) => ctlEdge(node.id))],
+    };
   }
 
   /** 以当前存储内容重新创建工作区，模拟刷新页面。 */
@@ -456,11 +542,15 @@ describe('连线规则', () => {
 
   it('校验已存在的边时排除其自身，不把自己当作第二个来源', () => {
     const document = base();
-    expect(validateConnection(document, lab.registry, { id: 's-t-in', ...conn('s', 'out', 't', 'in') })).toBeNull();
+    expect(
+      validateConnection(document, lab.registry, { id: 's-t-in', ...conn('s', 'out', 't', 'in') }),
+    ).toBeNull();
   });
 
   it('拒绝形成环路的连线；移除链路中的一条边后同一连线合法', () => {
-    const workspace = lab.open([docOf('A', [task('x'), task('y'), task('z')], [edgeOf('x', 'y'), edgeOf('y', 'z')])]);
+    const workspace = lab.open([
+      docOf('A', [task('x'), task('y'), task('z')], [edgeOf('x', 'y'), edgeOf('y', 'z')]),
+    ]);
     const closing = conn('z', 'out', 'x', 'in');
     expect(() => workspace.connect(closing)).toThrow(Error);
     workspace.disconnect('y-z-in');
@@ -494,7 +584,11 @@ describe('连线规则', () => {
 
     it.each(failing)('%s不改变文档、历史、存储和事件', (_name, operation) => {
       const workspace = lab.open([
-        docOf('A', [src('s'), nodeOf('n', 'num'), task('x'), task('y'), task('z')], [edgeOf('x', 'y'), edgeOf('y', 'z')]),
+        docOf(
+          'A',
+          [src('s'), nodeOf('n', 'num'), task('x'), task('y'), task('z')],
+          [edgeOf('x', 'y'), edgeOf('y', 'z')],
+        ),
       ]);
       const before = lab.snapshot(workspace);
       expect(() => operation(workspace)).toThrow(Error);
@@ -526,7 +620,9 @@ describe('输出与输入的缺失/空串', () => {
     ['输出类型错误', { out: 1 }],
     ['输出超过文本上限', { out: 'x'.repeat(LIMITS.textLength + 1) }],
   ])('执行器%s时节点失败并跳过下游；成功的上游任务使整体为 partial', async (_name, result) => {
-    const workspace = lab.openRun([docOf('A', [src('s'), task('t'), task('after')], [edgeOf('s', 't'), edgeOf('t', 'after')])]);
+    const workspace = lab.openRun([
+      docOf('A', [src('s'), task('t'), task('after')], [edgeOf('s', 't'), edgeOf('t', 'after')]),
+    ]);
     lab.handlers.set('t', () => result);
     await expect(workspace.run()).resolves.toMatchObject({ status: 'partial' });
     expect(status(workspace, 't')).toBe('failed');
@@ -536,7 +632,9 @@ describe('输出与输入的缺失/空串', () => {
   });
 
   it('缺少必需输入的节点失败且不执行，独立完整分支继续并整体为 partial', async () => {
-    const workspace = lab.openRun([docOf('A', [src('s'), task('good'), task('lonely')], [edgeOf('s', 'good')])]);
+    const workspace = lab.openRun([
+      docOf('A', [src('s'), task('good'), task('lonely')], [edgeOf('s', 'good')]),
+    ]);
     await expect(workspace.run()).resolves.toMatchObject({ status: 'partial' });
     expect(status(workspace, 'good')).toBe('succeeded');
     expect(status(workspace, 'lonely')).toBe('failed');
@@ -584,9 +682,13 @@ describe('特殊键与恶意内容', () => {
   });
 
   it('导入配置中的 __proto__ 键只作为自有数据保留，不污染原型', async () => {
-    const config = JSON.parse('{"value":"v","__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}');
+    const config = JSON.parse(
+      '{"value":"v","__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}',
+    );
     const workspace = lab.open([docOf('A', [])]);
-    const imported = workspace.importDocument(JSON.stringify(lab.withEntry(docOf('B', [nodeOf('s', 'src', config)]))));
+    const imported = workspace.importDocument(
+      JSON.stringify(lab.withEntry(docOf('B', [nodeOf('s', 'src', config)]))),
+    );
     const stored = imported.nodes[0].config;
     expect(Object.keys(stored)).toContain('__proto__');
     expect(Object.getPrototypeOf(stored)).toBe(Object.prototype);
@@ -616,7 +718,9 @@ describe('特殊键与恶意内容', () => {
     });
     await expect(workspace.run()).resolves.toMatchObject({ status: 'succeeded' });
     expect(keys).toEqual(['constructor']);
-    expect(workspace.getRuntime().states.get('t')?.outputs).toEqual({ out: expect.stringContaining('payload') });
+    expect(workspace.getRuntime().states.get('t')?.outputs).toEqual({
+      out: expect.stringContaining('payload'),
+    });
   });
 
   it('执行器上下文只读：节点、输入和输出都已冻结，且传入 services 与取消信号', async () => {
@@ -660,7 +764,14 @@ describe('存储：结果只在内存，草稿保护', () => {
     expect(raw).not.toContain(marker);
     expect(workspace.exportDocument()).not.toContain(marker);
     const stored = JSON.parse(raw).documents[0] as WorkflowDocument;
-    expect(Object.keys(stored).sort()).toEqual(['edges', 'id', 'name', 'nodes', 'version', 'viewport']);
+    expect(Object.keys(stored).sort()).toEqual([
+      'edges',
+      'id',
+      'name',
+      'nodes',
+      'version',
+      'viewport',
+    ]);
 
     const callsBefore = lab.calls.length;
     const reopened = lab.reopen();
@@ -693,8 +804,14 @@ describe('存储：结果只在内存，草稿保护', () => {
     ['不是 JSON', () => '{not json'],
     ['格式版本不兼容', () => JSON.stringify({ version: 2, documents: [docOf('A', [])] })],
     ['没有任何流程', () => JSON.stringify({ version: 1, documents: [] })],
-    ['其中一份流程无效', () => JSON.stringify({ version: 1, documents: [{ ...docOf('A', []), nodes: 'x' }] })],
-    ['流程标识重复', () => JSON.stringify({ version: 1, documents: [docOf('A', []), docOf('A', [])] })],
+    [
+      '其中一份流程无效',
+      () => JSON.stringify({ version: 1, documents: [{ ...docOf('A', []), nodes: 'x' }] }),
+    ],
+    [
+      '流程标识重复',
+      () => JSON.stringify({ version: 1, documents: [docOf('A', []), docOf('A', [])] }),
+    ],
     ['超过工作区体积上限', () => 'x'.repeat(LIMITS.workspaceBytes + 1)],
   ];
 
@@ -740,7 +857,9 @@ describe('存储：结果只在内存，草稿保护', () => {
 
     lab.storage.failWrites = false;
     workspace.updateNode('s', { position: { x: 3, y: 3 } });
-    expect(JSON.parse(lab.storage.data.get(STORAGE_KEY) ?? '').documents[0].nodes[0].position).toEqual({ x: 3, y: 3 });
+    expect(
+      JSON.parse(lab.storage.data.get(STORAGE_KEY) ?? '').documents[0].nodes[0].position,
+    ).toEqual({ x: 3, y: 3 });
 
     lab.storage.failWrites = true;
     workspace.updateNode('s', { position: { x: 4, y: 4 } });
@@ -754,7 +873,9 @@ describe('导入', () => {
   it('未知节点类型与不支持的版本连同配置和连线一并保留，但整图不能运行', async () => {
     const ghost = nodeOf('g', 'ghost', { keep: { deep: [1, { x: 2 }] } });
     const future = nodeOf('f', 'versioned', { keep: true }, 9);
-    const raw = lab.withEntry(docOf('X', [src('s'), ghost, future], [edgeOf('s', 'g'), edgeOf('s', 'f')]));
+    const raw = lab.withEntry(
+      docOf('X', [src('s'), ghost, future], [edgeOf('s', 'g'), edgeOf('s', 'f')]),
+    );
     const workspace = lab.reopen();
     const imported = workspace.importDocument(JSON.stringify(raw));
     expect(imported.nodes).toEqual(raw.nodes);
@@ -770,8 +891,12 @@ describe('导入', () => {
 
   it('已知版本的无效配置被拒绝，同样内容在未知类型下按数据保留', () => {
     const workspace = lab.reopen();
-    expect(() => workspace.importDocument(docOf('X', [nodeOf('s', 'src', { value: 1 })]))).toThrow(Error);
-    expect(() => workspace.importDocument(docOf('X', [nodeOf('s', 'unknown', { value: 1 })]))).not.toThrow(Error);
+    expect(() => workspace.importDocument(docOf('X', [nodeOf('s', 'src', { value: 1 })]))).toThrow(
+      Error,
+    );
+    expect(() =>
+      workspace.importDocument(docOf('X', [nodeOf('s', 'unknown', { value: 1 })])),
+    ).not.toThrow(Error);
   });
 
   it('导入总是生成新标识，不覆盖同标识流程，也不继承历史', () => {
@@ -783,31 +908,59 @@ describe('导入', () => {
     expect(workspace.canUndo()).toBe(false);
   });
 
-  const tooMany = (count: number): WorkflowNode[] => Array.from({ length: count }, (_, i) => src(`n${i}`));
+  const tooMany = (count: number): WorkflowNode[] =>
+    Array.from({ length: count }, (_, i) => src(`n${i}`));
   const rejected: Array<[string, () => unknown]> = [
     ['不是 JSON', () => '{'],
     ['格式版本不支持', () => ({ ...docOf('X', []), version: 2 })],
     ['空白名称', () => ({ ...docOf('X', []), name: '   ' })],
     ['节点数超限', () => docOf('X', tooMany(LIMITS.nodes + 1))],
-    ['连线数超限', () => docOf('X', [src('s'), task('t')], Array.from({ length: LIMITS.edges + 1 }, (_, i) => edgeOf('s', 't', `p${i}`)))],
+    [
+      '连线数超限',
+      () =>
+        docOf(
+          'X',
+          [src('s'), task('t')],
+          Array.from({ length: LIMITS.edges + 1 }, (_, i) => edgeOf('s', 't', `p${i}`)),
+        ),
+    ],
     ['节点标识重复', () => docOf('X', [src('s'), src('s')])],
-    ['节点坐标越界', () => docOf('X', [{ ...src('s'), position: { x: LIMITS.coordinate + 1, y: 0 } }])],
-    ['节点尺寸过小', () => docOf('X', [{ ...src('s'), size: { width: LIMITS.minSize - 1, height: 200 } }])],
-    ['节点尺寸过大', () => docOf('X', [{ ...src('s'), size: { width: 200, height: LIMITS.maxSize + 1 } }])],
+    [
+      '节点坐标越界',
+      () => docOf('X', [{ ...src('s'), position: { x: LIMITS.coordinate + 1, y: 0 } }]),
+    ],
+    [
+      '节点尺寸过小',
+      () => docOf('X', [{ ...src('s'), size: { width: LIMITS.minSize - 1, height: 200 } }]),
+    ],
+    [
+      '节点尺寸过大',
+      () => docOf('X', [{ ...src('s'), size: { width: 200, height: LIMITS.maxSize + 1 } }]),
+    ],
     ['缩放越界', () => ({ ...docOf('X', []), viewport: { x: 0, y: 0, zoom: LIMITS.maxZoom + 1 } })],
     ['配置嵌套过深', () => docOf('X', [nodeOf('g', 'ghost', nested(LIMITS.configDepth + 1))])],
     [
       '配置含超出范围的数值',
-      () => JSON.stringify(docOf('X', [nodeOf('g', 'ghost', { n: 0 })])).replace('"n":0', '"n":1e999'),
+      () =>
+        JSON.stringify(docOf('X', [nodeOf('g', 'ghost', { n: 0 })])).replace('"n":0', '"n":1e999'),
     ],
     ['存在环路', () => docOf('X', [task('x'), task('y')], [edgeOf('x', 'y'), edgeOf('y', 'x')])],
     ['数据类型不兼容的边', () => docOf('X', [nodeOf('n', 'num'), task('t')], [edgeOf('n', 't')])],
-    ['单输入多源', () => docOf('X', [src('a'), src('b'), task('t')], [edgeOf('a', 't'), edgeOf('b', 't')])],
+    [
+      '单输入多源',
+      () => docOf('X', [src('a'), src('b'), task('t')], [edgeOf('a', 't'), edgeOf('b', 't')]),
+    ],
     ['边引用不存在的节点', () => docOf('X', [src('s')], [edgeOf('s', 'missing')])],
     ['文件超过 4 MiB', () => ' '.repeat(LIMITS.documentBytes + 1)],
     [
       '内容超过 4 MiB',
-      () => docOf('X', Array.from({ length: LIMITS.nodes }, (_, i) => nodeOf(`g${i}`, 'ghost', { blob: 'a'.repeat(50_000) }))),
+      () =>
+        docOf(
+          'X',
+          Array.from({ length: LIMITS.nodes }, (_, i) =>
+            nodeOf(`g${i}`, 'ghost', { blob: 'a'.repeat(50_000) }),
+          ),
+        ),
     ],
   ];
 
@@ -821,7 +974,11 @@ describe('导入', () => {
 
   it('限额边界上的文档仍被接受', () => {
     const nodes = tooMany(LIMITS.nodes);
-    nodes[0] = { ...nodes[0], position: { x: LIMITS.coordinate, y: -LIMITS.coordinate }, size: { width: LIMITS.minSize, height: LIMITS.maxSize } };
+    nodes[0] = {
+      ...nodes[0],
+      position: { x: LIMITS.coordinate, y: -LIMITS.coordinate },
+      size: { width: LIMITS.minSize, height: LIMITS.maxSize },
+    };
     nodes[1] = nodeOf('deep', 'ghost', nested(LIMITS.configDepth));
     for (const zoom of [LIMITS.minZoom, LIMITS.maxZoom]) {
       const document = { ...docOf('X', nodes), viewport: { x: 0, y: 0, zoom } };
@@ -833,7 +990,8 @@ describe('导入', () => {
 /* ------------------------------ 历史 ------------------------------ */
 
 describe('历史', () => {
-  const ghostBlob = (id: string): WorkflowNode => nodeOf(id, 'ghost', { blob: 'a'.repeat(400_000) });
+  const ghostBlob = (id: string): WorkflowNode =>
+    nodeOf(id, 'ghost', { blob: 'a'.repeat(400_000) });
 
   it('多个流程拥有独立历史，可按 documentId 编辑非活动流程', () => {
     const workspace = lab.open([docOf('A', [src('sa')]), docOf('B', [src('sb')])]);
@@ -902,7 +1060,8 @@ describe('历史', () => {
 
   it('每份流程最多保留 historySteps 步', () => {
     const workspace = lab.open([docOf('A', [src('s')])]);
-    for (let i = 1; i <= LIMITS.historySteps + 10; i += 1) workspace.updateNode('s', { position: { x: i, y: i } });
+    for (let i = 1; i <= LIMITS.historySteps + 10; i += 1)
+      workspace.updateNode('s', { position: { x: i, y: i } });
     let steps = 0;
     while (workspace.canUndo()) {
       workspace.undo();
@@ -914,7 +1073,8 @@ describe('历史', () => {
   it('撤销数据总量受字节预算限制，大文档保留的步数少于步数上限', () => {
     const workspace = lab.open([docOf('A', [ghostBlob('big')])]);
     const documentBytes = Buffer.byteLength(JSON.stringify(workspace.getDocument()));
-    for (let i = 1; i <= LIMITS.historySteps; i += 1) workspace.updateNode('big', { position: { x: i, y: i } });
+    for (let i = 1; i <= LIMITS.historySteps; i += 1)
+      workspace.updateNode('big', { position: { x: i, y: i } });
     let steps = 0;
     while (workspace.canUndo()) {
       workspace.undo();
@@ -1006,7 +1166,8 @@ describe('流程管理与子图复制', () => {
 
     lab.storage = new MemoryStorage();
     const bulky = lab.reopen();
-    const blob = (): WorkflowDocument => docOf('X', [nodeOf('g', 'ghost', { blob: 'a'.repeat(3 * 1024 * 1024) })]);
+    const blob = (): WorkflowDocument =>
+      docOf('X', [nodeOf('g', 'ghost', { blob: 'a'.repeat(3 * 1024 * 1024) })]);
     bulky.importDocument(blob());
     bulky.importDocument(blob());
     const before = lab.snapshot(bulky);
@@ -1018,7 +1179,11 @@ describe('流程管理与子图复制', () => {
 /* ------------------------------ 运行锁 ------------------------------ */
 
 describe('运行锁', () => {
-  const setup = async (): Promise<{ workspace: WorkspaceApi; finished: Promise<unknown>; gate: Deferred }> => {
+  const setup = async (): Promise<{
+    workspace: WorkspaceApi;
+    finished: Promise<unknown>;
+    gate: Deferred;
+  }> => {
     const workspace = lab.openRun([
       docOf('A', [src('s'), task('t'), task('u')], [edgeOf('s', 't')]),
       docOf('B', [src('b')]),
@@ -1096,7 +1261,13 @@ describe('调度', () => {
       docOf(
         'A',
         [src('s'), task('bad'), task('good'), nodeOf('j', 'join'), src('s2'), task('free')],
-        [edgeOf('s', 'bad'), edgeOf('s', 'good'), edgeOf('bad', 'j', 'a'), edgeOf('good', 'j', 'b'), edgeOf('s2', 'free')],
+        [
+          edgeOf('s', 'bad'),
+          edgeOf('s', 'good'),
+          edgeOf('bad', 'j', 'a'),
+          edgeOf('good', 'j', 'b'),
+          edgeOf('s2', 'free'),
+        ],
       ),
     ]);
     lab.handlers.set('bad', () => {
@@ -1116,7 +1287,12 @@ describe('调度', () => {
       docOf(
         'A',
         [src('s', 'shared'), task('left'), task('right'), nodeOf('j', 'join')],
-        [edgeOf('s', 'left'), edgeOf('s', 'right'), edgeOf('left', 'j', 'a'), edgeOf('right', 'j', 'b')],
+        [
+          edgeOf('s', 'left'),
+          edgeOf('s', 'right'),
+          edgeOf('left', 'j', 'a'),
+          edgeOf('right', 'j', 'b'),
+        ],
       ),
     ]);
     const seen: Record<string, unknown>[] = [];
@@ -1150,7 +1326,11 @@ describe('调度', () => {
 
   it('已就绪的下游不等待无关的慢分支', async () => {
     const workspace = lab.openRun([
-      docOf('A', [src('s1'), task('fast'), task('fastDown'), src('s2'), task('slow')], [edgeOf('s1', 'fast'), edgeOf('fast', 'fastDown'), edgeOf('s2', 'slow')]),
+      docOf(
+        'A',
+        [src('s1'), task('fast'), task('fastDown'), src('s2'), task('slow')],
+        [edgeOf('s1', 'fast'), edgeOf('fast', 'fastDown'), edgeOf('s2', 'slow')],
+      ),
     ]);
     const gate = lab.gate('slow');
     const finished = workspace.run();
@@ -1163,7 +1343,12 @@ describe('调度', () => {
 
   it('多个流程共享有界并发，排队节点显示 queued', async () => {
     const ids = ['D0', 'D1', 'D2'];
-    const documents = ids.map((id) => docOf(id, Array.from({ length: 4 }, (_, i) => src(`${id}n${i}`))));
+    const documents = ids.map((id) =>
+      docOf(
+        id,
+        Array.from({ length: 4 }, (_, i) => src(`${id}n${i}`)),
+      ),
+    );
     const workspace = lab.openRun(documents);
     let active = 0;
     let peak = 0;
@@ -1185,7 +1370,9 @@ describe('调度', () => {
     await tick();
     expect(active).toBe(LIMITS.concurrency);
     const total = ids.length * 4;
-    const queued = ids.flatMap((id) => [...workspace.getRuntime(id).states.values()]).filter((state) => state.status === 'queued');
+    const queued = ids
+      .flatMap((id) => [...workspace.getRuntime(id).states.values()])
+      .filter((state) => state.status === 'queued');
     expect(queued).toHaveLength(total - LIMITS.concurrency);
 
     let done = false;
@@ -1353,7 +1540,8 @@ describe('停止', () => {
 /* ------------------------------ 结果内存预算 ------------------------------ */
 
 describe('运行结果内存预算', () => {
-  const bigValue = (index: number, tag = ''): string => `${tag}${index}:${'汉'.repeat(LIMITS.textLength - 20)}`;
+  const bigValue = (index: number, tag = ''): string =>
+    `${tag}${index}:${'汉'.repeat(LIMITS.textLength - 20)}`;
   const bigSources = (prefix: string, count: number): WorkflowNode[] => {
     const nodes = Array.from({ length: count }, (_, i) => src(`${prefix}${i}`));
     nodes.forEach((node, i) => lab.handlers.set(node.id, () => ({ out: bigValue(i, prefix) })));
@@ -1365,7 +1553,9 @@ describe('运行结果内存预算', () => {
     const count = Math.ceil(LIMITS.resultBytes / perOutput) + 3;
     const workspace = lab.openRun([docOf('A', bigSources('n', count))]);
     const result = await workspace.run();
-    const states = [...workspace.getRuntime().states].filter(([id]) => id !== ENTRY_ID).map(([, state]) => state); // 入口不产生业务输出，不计预算
+    const states = [...workspace.getRuntime().states]
+      .filter(([id]) => id !== ENTRY_ID)
+      .map(([, state]) => state); // 入口不产生业务输出，不计预算
     const succeeded = states.filter((state) => state.status === 'succeeded');
     const failed = states.filter((state) => state.status === 'failed');
     expect(result.status).toBe('partial');
@@ -1376,7 +1566,10 @@ describe('运行结果内存预算', () => {
 
   it('其他流程的旧结果先被清理以腾出空间，并通知该流程', async () => {
     const count = Math.ceil((LIMITS.resultBytes * 0.6) / perOutput);
-    const workspace = lab.openRun([docOf('A', bigSources('a', count)), docOf('B', bigSources('b', count))]);
+    const workspace = lab.openRun([
+      docOf('A', bigSources('a', count)),
+      docOf('B', bigSources('b', count)),
+    ]);
     await workspace.run('A');
     expect(workspace.getRuntime('A').status).toBe('succeeded');
     await expect(workspace.run('B')).resolves.toMatchObject({ status: 'succeeded' });
@@ -1395,28 +1588,38 @@ describe('回归：预算与连线保护', () => {
     for (const node of nodes) lab.handlers.set(node.id, () => ({ out: shared }));
     const workspace = lab.openRun([docOf('A', nodes)]);
     await expect(workspace.run()).resolves.toMatchObject({ status: 'partial' });
-    const states = [...workspace.getRuntime().states].filter(([id]) => id !== ENTRY_ID).map(([, state]) => state);
+    const states = [...workspace.getRuntime().states]
+      .filter(([id]) => id !== ENTRY_ID)
+      .map(([, state]) => state);
     expect(states.some((state) => state.status === 'failed')).toBe(true);
-    expect(states.filter((state) => state.status === 'succeeded').length * perOutput).toBeLessThanOrEqual(LIMITS.resultBytes);
+    expect(
+      states.filter((state) => state.status === 'succeeded').length * perOutput,
+    ).toBeLessThanOrEqual(LIMITS.resultBytes);
   });
 
   it('connect 忽略调用方传入的 allowUnknown，不能连到未安装的节点', () => {
     const workspace = lab.open([docOf('A', [src('s'), nodeOf('g', 'ghost')])]);
     const before = lab.snapshot(workspace);
-    expect(() => workspace.connect({ ...conn('s', 'out', 'g', 'in'), allowUnknown: true })).toThrow(Error);
+    expect(() => workspace.connect({ ...conn('s', 'out', 'g', 'in'), allowUnknown: true })).toThrow(
+      Error,
+    );
     expect(lab.snapshot(workspace)).toEqual(before);
   });
 
   it('connect 忽略调用方传入的边 id，不能借已有边的 id 绕过单输入限制', () => {
     const workspace = lab.open([docOf('A', [src('s'), src('s2'), task('t')], [edgeOf('s', 't')])]);
     const before = lab.snapshot(workspace);
-    expect(() => workspace.connect({ id: 's-t-in', ...conn('s2', 'out', 't', 'in') })).toThrow(Error);
+    expect(() => workspace.connect({ id: 's-t-in', ...conn('s2', 'out', 't', 'in') })).toThrow(
+      Error,
+    );
     expect(lab.snapshot(workspace)).toEqual(before);
     expect(workspace.getDocument().edges).toHaveLength(1);
   });
 
   it('停止的流程残留的取消结果同样计入保留上限，最早的结果被清理并通知', async () => {
-    const documents = Array.from({ length: LIMITS.resultDocuments + 1 }, (_, i) => docOf(`D${i}`, [src(`n${i}`)]));
+    const documents = Array.from({ length: LIMITS.resultDocuments + 1 }, (_, i) =>
+      docOf(`D${i}`, [src(`n${i}`)]),
+    );
     const workspace = lab.openRun(documents);
     const last = documents[documents.length - 1];
     for (const document of documents.slice(0, -1)) await workspace.run(document.id);
@@ -1426,7 +1629,9 @@ describe('回归：预算与连线保护', () => {
     lab.events.length = 0;
     workspace.stop(last.id);
     await finished;
-    const withResults = documents.filter((document) => workspace.getRuntime(document.id).states.size > 0);
+    const withResults = documents.filter(
+      (document) => workspace.getRuntime(document.id).states.size > 0,
+    );
     expect(withResults).toHaveLength(LIMITS.resultDocuments);
     expect(workspace.getRuntime('D0').status).toBe('idle');
     expect(workspace.getRuntime(last.id).status).toBe('cancelled');
@@ -1435,13 +1640,18 @@ describe('回归：预算与连线保护', () => {
 });
 
 describe('回归：整个工作区预算与 withAbort', () => {
-  const blobDocument = (id: string, size: number): WorkflowDocument => docOf(id, [nodeOf('g', 'ghost', { blob: 'a'.repeat(size) })]);
+  const blobDocument = (id: string, size: number): WorkflowDocument =>
+    docOf(id, [nodeOf('g', 'ghost', { blob: 'a'.repeat(size) })]);
   const seedAtLimit = (): WorkspaceApi => {
     const raw = (lastBlob: number): string =>
       JSON.stringify({
         version: 1,
         activeId: 'A',
-        documents: [blobDocument('A', 3_000_000), blobDocument('LONGER_ID_B', 3_000_000), blobDocument('C', lastBlob)],
+        documents: [
+          blobDocument('A', 3_000_000),
+          blobDocument('LONGER_ID_B', 3_000_000),
+          blobDocument('C', lastBlob),
+        ],
       });
     const slack = LIMITS.workspaceBytes - Buffer.byteLength(raw(0));
     lab.storage.data.set(STORAGE_KEY, raw(slack));
@@ -1510,26 +1720,39 @@ describe('批量编辑：insertSubgraph 与 updateLayout', () => {
     expect(workspace.getDocument().edges).toEqual([]);
     expect(workspace.canUndo()).toBe(false);
     workspace.redo();
-    expect(workspace.getDocument().nodes.map((node) => node.id)).toEqual(['existing', ...inserted.map((node) => node.id)]);
+    expect(workspace.getDocument().nodes.map((node) => node.id)).toEqual([
+      'existing',
+      ...inserted.map((node) => node.id),
+    ]);
     expect(workspace.getDocument().edges).toHaveLength(1);
   });
 
-  it('模板插入清除旧结果并只发布一次 structure 事件', async () => {
+  it('模板插入保留无关旧结果、标记过期并只发布一次 structure 事件', async () => {
     const workspace = lab.openRun([docOf('A', [src('existing')])]);
     await workspace.run();
     lab.events.length = 0;
     workspace.insertSubgraph(template());
-    expect(workspace.getRuntime().states.size).toBe(0);
+    expect(workspace.getRuntime().states.size).toBe(2);
+    expect(workspace.getRuntime().status).toBe('stale');
     expect(lab.events.filter((event) => event.kind === 'structure')).toHaveLength(1);
   });
 
   it.each<[string, () => { nodes: WorkflowNode[]; edges: WorkflowEdge[] }]>([
     ['未注册的节点类型', () => ({ nodes: [src('t1'), nodeOf('g', 'ghost')], edges: [] })],
-    ['类型不兼容的连线', () => ({ nodes: [nodeOf('n', 'num'), task('t')], edges: [edgeOf('n', 't')] })],
+    [
+      '类型不兼容的连线',
+      () => ({ nodes: [nodeOf('n', 'num'), task('t')], edges: [edgeOf('n', 't')] }),
+    ],
     ['连线引用不存在的节点', () => ({ nodes: [src('t1')], edges: [edgeOf('t1', 'missing')] })],
-    ['环路', () => ({ nodes: [task('x'), task('y')], edges: [edgeOf('x', 'y'), edgeOf('y', 'x')] })],
+    [
+      '环路',
+      () => ({ nodes: [task('x'), task('y')], edges: [edgeOf('x', 'y'), edgeOf('y', 'x')] }),
+    ],
     ['已知节点配置无效', () => ({ nodes: [nodeOf('s', 'src', { value: 1 })], edges: [] })],
-    ['超出节点上限', () => ({ nodes: Array.from({ length: LIMITS.nodes }, (_, i) => src(`n${i}`)), edges: [] })],
+    [
+      '超出节点上限',
+      () => ({ nodes: Array.from({ length: LIMITS.nodes }, (_, i) => src(`n${i}`)), edges: [] }),
+    ],
   ])('模板含%s时整体拒绝，不改变文档、历史和存储', (_name, build) => {
     const workspace = lab.open([docOf('A', [src('existing')])]);
     const before = lab.snapshot(workspace);
@@ -1537,7 +1760,8 @@ describe('批量编辑：insertSubgraph 与 updateLayout', () => {
     expect(lab.snapshot(workspace)).toEqual(before);
   });
 
-  const trio = (): WorkflowDocument => docOf('A', [src('a'), task('b'), task('c')], [edgeOf('a', 'b')]);
+  const trio = (): WorkflowDocument =>
+    docOf('A', [src('a'), task('b'), task('c')], [edgeOf('a', 'b')]);
 
   it('多节点拖动是一次历史：一次撤销全部还原，重做全部恢复，且保留运行结果', async () => {
     const workspace = lab.openRun([trio()]);
@@ -1563,9 +1787,27 @@ describe('批量编辑：insertSubgraph 与 updateLayout', () => {
   });
 
   it.each<[string, Parameters<WorkspaceApi['updateLayout']>[0]]>([
-    ['其中一个节点不存在', [{ id: 'a', position: { x: 10, y: 10 } }, { id: 'missing', position: { x: 1, y: 1 } }]],
-    ['其中一个坐标越界', [{ id: 'a', position: { x: 10, y: 10 } }, { id: 'b', position: { x: LIMITS.coordinate + 1, y: 0 } }]],
-    ['其中一个尺寸越界', [{ id: 'a', position: { x: 10, y: 10 } }, { id: 'b', size: { width: LIMITS.maxSize + 1, height: 200 } }]],
+    [
+      '其中一个节点不存在',
+      [
+        { id: 'a', position: { x: 10, y: 10 } },
+        { id: 'missing', position: { x: 1, y: 1 } },
+      ],
+    ],
+    [
+      '其中一个坐标越界',
+      [
+        { id: 'a', position: { x: 10, y: 10 } },
+        { id: 'b', position: { x: LIMITS.coordinate + 1, y: 0 } },
+      ],
+    ],
+    [
+      '其中一个尺寸越界',
+      [
+        { id: 'a', position: { x: 10, y: 10 } },
+        { id: 'b', size: { width: LIMITS.maxSize + 1, height: 200 } },
+      ],
+    ],
   ])('批量布局%s时整体失败，已通过校验的节点也不会移动', (_name, updates) => {
     const workspace = lab.open([trio()]);
     const before = lab.snapshot(workspace);
@@ -1585,7 +1827,9 @@ describe('withAbort', () => {
   it('信号已取消时立即拒绝；等待中取消时拒绝为 AbortError，之后的结果被忽略', async () => {
     const aborted = new AbortController();
     aborted.abort();
-    await expect(withAbort(Promise.resolve('x'), aborted.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(withAbort(Promise.resolve('x'), aborted.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
 
     const controller = new AbortController();
     const pending = deferred<string>();
@@ -1599,7 +1843,9 @@ describe('withAbort', () => {
   it('未取消时透传结果与错误', async () => {
     const controller = new AbortController();
     await expect(withAbort(Promise.resolve('value'), controller.signal)).resolves.toBe('value');
-    await expect(withAbort(Promise.reject(new Error('fail')), controller.signal)).rejects.toThrow('fail');
+    await expect(withAbort(Promise.reject(new Error('fail')), controller.signal)).rejects.toThrow(
+      'fail',
+    );
   });
 });
 
@@ -1607,7 +1853,9 @@ describe('withAbort', () => {
 
 describe('结果失效与事件', () => {
   const prepare = async (): Promise<WorkspaceApi> => {
-    const workspace = lab.openRun([docOf('A', [src('s'), task('t'), task('u')], [edgeOf('s', 't')])]);
+    const workspace = lab.openRun([
+      docOf('A', [src('s'), task('t'), task('u')], [edgeOf('s', 't')]),
+    ]);
     await workspace.run();
     lab.events.length = 0;
     return workspace;
@@ -1620,41 +1868,57 @@ describe('结果失效与事件', () => {
     expect(workspace.getRuntime()).toMatchObject({ status: 'idle', running: false });
     expect(workspace.getRuntime().states.size).toBe(0);
   };
+  const kept = (workspace: WorkspaceApi): string[] =>
+    [...workspace.getRuntime().states.keys()].sort();
 
   it.each<[string, (workspace: WorkspaceApi) => unknown]>([
     ['视口', (w) => w.setViewport({ x: 10, y: 10, zoom: 1.5 })],
     ['位置', (w) => w.updateNode('t', { position: { x: 40, y: 40 } })],
     ['尺寸', (w) => w.updateNode('t', { size: { width: 400, height: 300 } })],
+    ['流程改名', (w) => w.rename('A', 'renamed')],
   ])('%s变更不清除运行结果', async (_name, operation) => {
     const workspace = await prepare();
+    const before = workspace.getRuntime().status;
     operation(workspace);
     expectKept(workspace);
+    expect(workspace.getRuntime().status).toBe(before);
   });
 
-  it.each<[string, (workspace: WorkspaceApi) => unknown]>([
-    ['节点配置', (w) => w.updateNode('s', { config: { value: 'changed' } })],
-    ['节点名称', (w) => w.updateNode('t', { name: 'renamed' })],
-    ['新增连线', (w) => w.connect(conn('s', 'out', 'u', 'in'))],
-    ['删除连线', (w) => w.disconnect('s-t-in')],
-    ['新增节点', (w) => w.addNode('src', { x: 0, y: 0 })],
-    ['删除节点', (w) => w.deleteSelection({ nodeIds: ['u'] })],
-    ['复制子图', (w) => w.copySelection(['s'])],
-    ['流程改名', (w) => w.rename('A', 'renamed')],
-  ])('%s变更清除本图旧结果', async (_name, operation) => {
-    const workspace = await prepare();
-    operation(workspace);
+  it.each<[string, (workspace: WorkspaceApi) => unknown, string[]]>([
+    ['节点配置', (w) => w.updateNode('s', { config: { value: 'changed' } }), [ENTRY_ID, 'u']],
+    ['节点名称', (w) => w.updateNode('t', { name: 'renamed' }), [ENTRY_ID, 's', 'u']],
+    ['新增连线', (w) => w.connect(conn('s', 'out', 'u', 'in')), [ENTRY_ID, 's', 't']],
+    ['删除连线', (w) => w.disconnect('s-t-in'), [ENTRY_ID, 's', 'u']],
+    ['新增节点', (w) => w.addNode('src', { x: 0, y: 0 }), [ENTRY_ID, 's', 't', 'u']],
+    ['删除节点', (w) => w.deleteSelection({ nodeIds: ['u'] }), [ENTRY_ID, 's', 't']],
+    ['复制子图', (w) => w.copySelection(['s']), [ENTRY_ID, 's', 't', 'u']],
+  ])(
+    '%s变更只让变化节点及其下游结果失效，其余结果保留并标记过期',
+    async (_name, operation, remaining) => {
+      const workspace = await prepare();
+      operation(workspace);
+      expect(kept(workspace)).toEqual([...remaining].sort());
+      expect(workspace.getRuntime().status).toBe('stale');
+    },
+  );
+
+  it('全部结果失效时回到尚未运行状态', async () => {
+    const workspace = lab.openRun([docOf('A', [src('a')])]);
+    await workspace.run();
+    workspace.deleteSelection({ nodeIds: ['a', ENTRY_ID] });
     expectCleared(workspace);
   });
 
-  it('撤销与重做内容变更同样使旧结果失效', async () => {
+  it('撤销与重做内容变更同样只让相关结果失效', async () => {
     const workspace = await prepare();
     workspace.updateNode('s', { config: { value: 'changed' } });
     await workspace.run();
     workspace.undo();
-    expectCleared(workspace);
+    expect(kept(workspace)).toEqual([ENTRY_ID, 'u']);
     await workspace.run();
     workspace.redo();
-    expectCleared(workspace);
+    expect(kept(workspace)).toEqual([ENTRY_ID, 'u']);
+    expect(workspace.getRuntime().status).toBe('stale');
   });
 
   it('撤销与重做纯布局变更保留结果，只发布 layout 事件', async () => {
@@ -1673,7 +1937,7 @@ describe('结果失效与事件', () => {
     await workspace.run('A');
     await workspace.run('B');
     workspace.updateNode('a', { config: { value: 'changed' } }, 'A');
-    expect(workspace.getRuntime('A').states.size).toBe(0);
+    expect([...workspace.getRuntime('A').states.keys()]).toEqual([ENTRY_ID]);
     expect(workspace.getRuntime('B').status).toBe('succeeded');
   });
 
@@ -1707,10 +1971,14 @@ describe('结果失效与事件', () => {
   });
 
   it('保留结果的流程数超过上限时清理最早的结果并通知', async () => {
-    const documents = Array.from({ length: LIMITS.resultDocuments + 2 }, (_, i) => docOf(`D${i}`, [src(`n${i}`)]));
+    const documents = Array.from({ length: LIMITS.resultDocuments + 2 }, (_, i) =>
+      docOf(`D${i}`, [src(`n${i}`)]),
+    );
     const workspace = lab.openRun(documents);
     for (const document of documents) await workspace.run(document.id);
-    const withResults = documents.filter((document) => workspace.getRuntime(document.id).states.size > 0);
+    const withResults = documents.filter(
+      (document) => workspace.getRuntime(document.id).states.size > 0,
+    );
     expect(withResults).toHaveLength(LIMITS.resultDocuments);
     expect(workspace.getRuntime('D0').status).toBe('idle');
     expect(workspace.getRuntime('D1').status).toBe('idle');
@@ -1722,14 +1990,17 @@ describe('结果失效与事件', () => {
     const workspace = await prepare();
     workspace.getRuntime().states.clear();
     expect(workspace.getRuntime().states.size).toBe(4);
-    expect(workspace.getDocument()).toSatisfy((document: WorkflowDocument) => Object.isFrozen(document) && Object.isFrozen(document.nodes));
+    expect(workspace.getDocument()).toSatisfy(
+      (document: WorkflowDocument) => Object.isFrozen(document) && Object.isFrozen(document.nodes),
+    );
   });
 });
 
 /* ------------------------------ 开始节点与入口范围 ------------------------------ */
 
 describe('开始节点与入口范围', () => {
-  const entryCount = (document: WorkflowDocument): number => document.nodes.filter((node) => node.type === 'entry').length;
+  const entryCount = (document: WorkflowDocument): number =>
+    document.nodes.filter((node) => node.type === 'entry').length;
 
   it('无开始节点的旧草稿可恢复、编辑和导出，但运行在任何执行器前被拒绝且不自动改图', async () => {
     const workspace = lab.open([docOf('A', [src('s'), task('t')], [edgeOf('s', 't')])]);
@@ -1754,7 +2025,9 @@ describe('开始节点与入口范围', () => {
   it('单份文档最多一个开始节点：解析、导入、复制、子图插入原子拒绝，复制整份流程有效', () => {
     const two = docOf('X', [entryNode('e1'), entryNode('e2'), src('s')], [ctlEdge('s', 'e1')]);
     expect(() => parseDocument(two, lab.registry)).toThrow(Error);
-    expect(() => parseDocument(docOf('X', [entryNode(), src('s')], [ctlEdge('s')]), lab.registry)).not.toThrow(Error);
+    expect(() =>
+      parseDocument(docOf('X', [entryNode(), src('s')], [ctlEdge('s')]), lab.registry),
+    ).not.toThrow(Error);
     expect(() => parseDocument(docOf('X', [src('s')]), lab.registry)).not.toThrow(Error);
 
     const workspace = lab.open([docOf('A', [src('s'), entryNode()], [ctlEdge('s')])]);
@@ -1762,7 +2035,12 @@ describe('开始节点与入口范围', () => {
     expect(() => workspace.importDocument(JSON.stringify(two))).toThrow(Error);
     expect(() => workspace.addNode('entry', { x: 0, y: 0 })).toThrow(Error);
     expect(() => workspace.copySelection([ENTRY_ID])).toThrow(Error);
-    expect(() => workspace.insertSubgraph({ nodes: [entryNode('e9'), src('s9')], edges: [ctlEdge('s9', 'e9')] })).toThrow(Error);
+    expect(() =>
+      workspace.insertSubgraph({
+        nodes: [entryNode('e9'), src('s9')],
+        edges: [ctlEdge('s9', 'e9')],
+      }),
+    ).toThrow(Error);
     expect(lab.snapshot(workspace)).toEqual(before);
 
     const copy = workspace.duplicate('A');
@@ -1771,7 +2049,9 @@ describe('开始节点与入口范围', () => {
 
   it('没有入口的文档可新增一个开始节点，但不能一次插入多个', () => {
     const workspace = lab.open([docOf('A', [src('s')])]);
-    expect(() => workspace.insertSubgraph({ nodes: [entryNode('e1'), entryNode('e2')], edges: [] })).toThrow(Error);
+    expect(() =>
+      workspace.insertSubgraph({ nodes: [entryNode('e1'), entryNode('e2')], edges: [] }),
+    ).toThrow(Error);
     expect(workspace.addNode('entry', { x: 0, y: 0 }).type).toBe('entry');
     expect(() => workspace.addNode('entry', { x: 0, y: 0 })).toThrow(Error);
     expect(entryCount(workspace.getDocument())).toBe(1);
@@ -1779,10 +2059,26 @@ describe('开始节点与入口范围', () => {
 
   it('连线同时要求数据类型与端口 kind 相容：控制与数据端口不能互连，即使数据类型相同', () => {
     const base = { version: 1, category: 'test', defaults: {}, execute: () => ({}) };
-    lab.registry.register({ ...base, type: 'trigOut', label: 'trigOut', inputs: [], outputs: [{ id: 'out', label: 'out', dataType: 'trigger' }] });
-    lab.registry.register({ ...base, type: 'trigIn', label: 'trigIn', inputs: [{ id: 'in', label: 'in', dataType: 'trigger' }], outputs: [text('out')] });
-    const document = parseDocument(docOf('A', [entryNode(), nodeOf('d', 'trigOut'), nodeOf('di', 'trigIn'), task('t')]), lab.registry);
-    const check = (connection: Connection): string | null => validateConnection(document, lab.registry, connection);
+    lab.registry.register({
+      ...base,
+      type: 'trigOut',
+      label: 'trigOut',
+      inputs: [],
+      outputs: [{ id: 'out', label: 'out', dataType: 'trigger' }],
+    });
+    lab.registry.register({
+      ...base,
+      type: 'trigIn',
+      label: 'trigIn',
+      inputs: [{ id: 'in', label: 'in', dataType: 'trigger' }],
+      outputs: [text('out')],
+    });
+    const document = parseDocument(
+      docOf('A', [entryNode(), nodeOf('d', 'trigOut'), nodeOf('di', 'trigIn'), task('t')]),
+      lab.registry,
+    );
+    const check = (connection: Connection): string | null =>
+      validateConnection(document, lab.registry, connection);
     expect(check(conn(ENTRY_ID, 'ctl', 't', 'ctl'))).toBeNull();
     expect(check(conn('d', 'out', 't', 'ctl'))).not.toBeNull();
     expect(check(conn(ENTRY_ID, 'ctl', 'di', 'in'))).not.toBeNull();
@@ -1790,7 +2086,9 @@ describe('开始节点与入口范围', () => {
   });
 
   it('入口先于所有节点执行，被动数据只在入口成功后读取；与节点在文档中的顺序无关', async () => {
-    const workspace = lab.open([docOf('A', [note('d', 'payload'), task('t'), entryNode()], [edgeOf('d', 't'), ctlEdge('t')])]);
+    const workspace = lab.open([
+      docOf('A', [note('d', 'payload'), task('t'), entryNode()], [edgeOf('d', 't'), ctlEdge('t')]),
+    ]);
     const gate = lab.gate(ENTRY_ID);
     const finished = workspace.run();
     await vi.waitFor(() => expect(status(workspace, ENTRY_ID)).toBe('running'));
@@ -1831,13 +2129,20 @@ describe('开始节点与入口范围', () => {
     await workspace.run();
     expect(lab.calls).not.toContain('outside');
     expect(lab.calls).not.toContain('blocked');
-    expect([status(workspace, 'outside'), status(workspace, 'blocked')]).toEqual(['skipped', 'skipped']);
+    expect([status(workspace, 'outside'), status(workspace, 'blocked')]).toEqual([
+      'skipped',
+      'skipped',
+    ]);
     expect(status(workspace, 'free')).toBe('succeeded');
   });
 
   it('只靠开始触发的源任务失败时不被其他成功的数据任务掩盖，整体为 partial', async () => {
     const workspace = lab.open([
-      docOf('A', [entryNode(), src('a'), src('b'), task('t')], [ctlEdge('a'), ctlEdge('b'), edgeOf('b', 't')]),
+      docOf(
+        'A',
+        [entryNode(), src('a'), src('b'), task('t')],
+        [ctlEdge('a'), ctlEdge('b'), edgeOf('b', 't')],
+      ),
     ]);
     lab.handlers.set('a', () => {
       throw new Error('control-only failure');
@@ -1848,10 +2153,16 @@ describe('开始节点与入口范围', () => {
   });
 
   it('开始与被动数据节点不参与聚合：唯一的处理任务失败时整体为 failed', async () => {
-    const workspace = lab.open([docOf('A', [entryNode(), note('n'), task('x')], [edgeOf('n', 'x'), ctlEdge('x')])]);
+    const workspace = lab.open([
+      docOf('A', [entryNode(), note('n'), task('x')], [edgeOf('n', 'x'), ctlEdge('x')]),
+    ]);
     lab.handlers.set('x', () => ({}));
     await expect(workspace.run()).resolves.toMatchObject({ status: 'failed' });
-    expect([status(workspace, ENTRY_ID), status(workspace, 'n'), status(workspace, 'x')]).toEqual(['succeeded', 'succeeded', 'failed']);
+    expect([status(workspace, ENTRY_ID), status(workspace, 'n'), status(workspace, 'x')]).toEqual([
+      'succeeded',
+      'succeeded',
+      'failed',
+    ]);
   });
 
   it.each<[string, Handler]>([
@@ -1864,13 +2175,18 @@ describe('开始节点与入口范围', () => {
     ['返回非法触发值', () => ({ ctl: false })],
   ])('入口%s时整体直接 failed，不执行任何其他节点', async (_name, handler) => {
     const workspace = lab.open([
-      docOf('A', [entryNode(), src('s'), note('n'), task('t')], [edgeOf('n', 't'), ctlEdge('s'), ctlEdge('t')]),
+      docOf(
+        'A',
+        [entryNode(), src('s'), note('n'), task('t')],
+        [edgeOf('n', 't'), ctlEdge('s'), ctlEdge('t')],
+      ),
     ]);
     lab.handlers.set(ENTRY_ID, handler);
     await expect(workspace.run()).resolves.toMatchObject({ status: 'failed' });
     expect(status(workspace, ENTRY_ID)).toBe('failed');
     expect(lab.calls).toEqual([]);
-    for (const id of ['s', 'n', 't']) expect(['running', 'succeeded']).not.toContain(status(workspace, id));
+    for (const id of ['s', 'n', 't'])
+      expect(['running', 'succeeded']).not.toContain(status(workspace, id));
     expect(workspace.getRuntime().running).toBe(false);
   });
 
@@ -1886,9 +2202,16 @@ describe('开始节点与入口范围', () => {
   });
 
   it('控制输入只出现在只读 controls 中，不混入业务 inputs', async () => {
-    const workspace = lab.open([docOf('A', [entryNode(), src('s'), task('t')], [edgeOf('s', 't'), ctlEdge('s'), ctlEdge('t')])]);
+    const workspace = lab.open([
+      docOf(
+        'A',
+        [entryNode(), src('s'), task('t')],
+        [edgeOf('s', 't'), ctlEdge('s'), ctlEdge('t')],
+      ),
+    ]);
     const contexts = new Map<string, ExecuteContext>();
-    for (const id of ['s', 't']) lab.handlers.set(id, (context) => (contexts.set(id, context), { out: id }));
+    for (const id of ['s', 't'])
+      lab.handlers.set(id, (context) => (contexts.set(id, context), { out: id }));
     await expect(workspace.run()).resolves.toMatchObject({ status: 'succeeded' });
     expect(Object.keys(contexts.get('s')?.inputs ?? {})).toEqual([]);
     expect(Object.keys(contexts.get('t')?.inputs ?? {})).toEqual(['in']);
@@ -1896,5 +2219,219 @@ describe('开始节点与入口范围', () => {
       expect({ ...context.controls }).toEqual({ ctl: true });
       expect(Object.isFrozen(context.controls)).toBe(true);
     }
+  });
+});
+
+/* ------------------------------ 从节点运行 ------------------------------ */
+
+describe('从节点运行', () => {
+  const chain = (): WorkflowDocument =>
+    docOf('A', [src('s'), task('t'), task('v'), task('w')], [edgeOf('s', 't'), edgeOf('t', 'v')]);
+
+  it('复用上游成功结果，只执行指定节点及其下游，其他分支结果保持不变', async () => {
+    const workspace = lab.openRun([chain()]);
+    await workspace.run();
+    const upstream = workspace.getRuntime().states.get('s');
+    const branch = workspace.getRuntime().states.get('w');
+    const before = workspace.getRuntime().states.get('v')?.outputs;
+    lab.calls.length = 0;
+    await expect(workspace.runFrom('t')).resolves.toMatchObject({ status: 'succeeded' });
+    expect(lab.calls).toEqual(['t', 'v']);
+    const states = workspace.getRuntime().states;
+    expect(states.get('s')).toEqual(upstream);
+    expect(states.get('w')).toEqual(branch);
+    expect(states.get('v')?.outputs).toEqual(before);
+  });
+
+  it('编辑节点后只需从该节点重跑，上游结果无需重新计算', async () => {
+    const workspace = lab.openRun([chain()]);
+    await workspace.run();
+    workspace.updateNode('t', { name: 'renamed' });
+    expect(status(workspace, 't')).toBeUndefined();
+    expect(status(workspace, 's')).toBe('succeeded');
+    lab.calls.length = 0;
+    await workspace.runFrom('t');
+    expect(lab.calls).toEqual(['t', 'v']);
+    expect(workspace.getRuntime().status).toBe('succeeded');
+  });
+
+  it('上游任务没有可复用结果时在执行任何节点前拒绝', async () => {
+    const workspace = lab.openRun([chain()]);
+    await expect(workspace.runFrom('t')).rejects.toThrow('没有可复用的成功结果');
+    expect(lab.calls).toEqual([]);
+    expect(workspace.getRuntime()).toMatchObject({ status: 'idle', running: false });
+  });
+
+  it('开始与被动数据上游缺少结果时直接重新求值，不要求先运行整图', async () => {
+    const workspace = lab.open([
+      docOf('A', [note('n', 'first'), task('t'), entryNode()], [edgeOf('n', 't'), ctlEdge('t')]),
+    ]);
+    await workspace.run();
+    workspace.updateNode('n', { config: { value: 'second' } });
+    lab.calls.length = 0;
+    await workspace.runFrom('t');
+    expect(lab.calls).toEqual(['n', 't']);
+    expect(String(workspace.getRuntime().states.get('t')?.outputs?.out)).toContain('second');
+  });
+
+  it('未连接开始节点的节点不能单独运行', async () => {
+    const workspace = lab.openRun([docOf('A', [src('s')])]);
+    const orphan = workspace.addNode('task', { x: 0, y: 0 });
+    await expect(workspace.runFrom(orphan.id)).rejects.toThrow('未连接开始节点');
+  });
+});
+
+/* ------------------------------ 语义子类型 ------------------------------ */
+
+describe('语义子类型', () => {
+  const nonEmpty = (value: unknown): boolean => Array.isArray(value) && value.length > 0;
+  const register = (): void => {
+    lab.registry.registerDataType('rows', nonEmpty, { base: 'list' });
+    lab.registry.registerDataType('cols', Array.isArray, { base: 'list' });
+    lab.registry.register({
+      type: 'rows-src',
+      version: 1,
+      label: 'rows-src',
+      category: 'test',
+      inputs: [ctlPort()],
+      outputs: [{ id: 'out', label: 'out', dataType: 'rows' }],
+      defaults: {},
+      execute: () => ({ out: [1] }),
+    });
+    for (const dataType of ['rows', 'list', 'cols']) {
+      lab.registry.register({
+        type: `${dataType}-sink`,
+        version: 1,
+        label: `${dataType}-sink`,
+        category: 'test',
+        inputs: [ctlPort(), { id: 'in', label: '数据', dataType, required: true }],
+        outputs: [text('out')],
+        defaults: {},
+        execute: ({ inputs }) => ({ out: JSON.stringify(inputs.in) }),
+      });
+    }
+  };
+
+  it('子类型只能声明已注册且本身不是子类型的基类型', () => {
+    expect(() => lab.registry.registerDataType('orphan', () => true, { base: 'missing' })).toThrow(
+      Error,
+    );
+    lab.registry.registerDataType('rows', nonEmpty, { base: 'list' });
+    expect(() => lab.registry.registerDataType('deep', () => true, { base: 'rows' })).toThrow(
+      Error,
+    );
+    expect(lab.registry.compatible('rows', 'list')).toBe(true);
+    expect(lab.registry.compatible('list', 'rows')).toBe(true);
+    expect(lab.registry.compatible('rows', 'rows')).toBe(true);
+    expect(lab.registry.compatible('rows', 'text')).toBe(false);
+  });
+
+  it('子类型与基类型双向可连，同一基类型下的不同子类型互斥', () => {
+    register();
+    const document = parseDocument(
+      docOf('A', [
+        nodeOf('r', 'rows-src'),
+        nodeOf('b', 'bag'),
+        nodeOf('l', 'list-sink'),
+        nodeOf('k', 'rows-sink'),
+        nodeOf('c', 'cols-sink'),
+      ]),
+      lab.registry,
+    );
+    expect(validateConnection(document, lab.registry, conn('r', 'out', 'l', 'in'))).toBeNull();
+    expect(validateConnection(document, lab.registry, conn('b', 'out', 'k', 'in'))).toBeNull();
+    expect(validateConnection(document, lab.registry, conn('r', 'out', 'c', 'in'))).toBe(
+      '连接点的数据类型不兼容。',
+    );
+  });
+
+  it('基类型数据进入子类型输入时按输入类型校验，不合格时节点失败且不执行', async () => {
+    register();
+    const workspace = lab.openRun([
+      docOf(
+        'A',
+        [
+          nodeOf('b', 'bag'),
+          nodeOf('k', 'rows-sink'),
+          nodeOf('r', 'rows-src'),
+          nodeOf('l', 'list-sink'),
+        ],
+        [edgeOf('b', 'k'), edgeOf('r', 'l')],
+      ),
+    ]);
+    await expect(workspace.run()).resolves.toMatchObject({ status: 'partial' });
+    expect(workspace.getRuntime().states.get('k')).toMatchObject({
+      status: 'failed',
+      message: '输入“数据”不符合 rows 数据类型。',
+    });
+    expect(workspace.getRuntime().states.get('l')?.outputs).toEqual({ out: '[1]' });
+  });
+});
+
+/* ------------------------------ 并发名额让出 ------------------------------ */
+
+describe('等待人工操作时让出并发名额', () => {
+  it('执行器通过 suspend 等待时不占名额，其他节点照常运行；结束后重新取得名额完成', async () => {
+    const ids = Array.from({ length: LIMITS.concurrency }, (_, index) => `w${index}`);
+    const workspace = lab.openRun([docOf('A', [...ids.map((id) => src(id)), src('quick')])]);
+    const gate = deferred();
+    for (const id of ids)
+      lab.handlers.set(id, ({ suspend }) => suspend(() => gate.promise).then(() => ({ out: id })));
+    const run = workspace.run();
+    await vi.waitFor(() => expect(status(workspace, 'quick')).toBe('succeeded'));
+    for (const id of ids) expect(status(workspace, id)).toBe('running');
+    gate.resolve(undefined);
+    await expect(run).resolves.toMatchObject({ status: 'succeeded' });
+  });
+});
+
+/* ------------------------------ 显式版本升级 ------------------------------ */
+
+describe('显式版本升级', () => {
+  const register = (): void => {
+    lab.registry.register({
+      type: 'migrating',
+      version: 1,
+      label: 'migrating',
+      category: 'test',
+      inputs: [],
+      outputs: [text('out')],
+      defaults: { old: '' },
+      execute: ({ node }) => ({ out: String(node.config.old) }),
+    });
+    lab.registry.register({
+      type: 'migrating',
+      version: 2,
+      label: 'migrating',
+      category: 'test',
+      inputs: [],
+      outputs: [text('out')],
+      defaults: { value: '' },
+      execute: ({ node }) => ({ out: String(node.config.value) }),
+      migrate: (config) => ({ value: config.old }),
+    });
+  };
+
+  it('按迁移函数升级为最新版本，是一次可撤销编辑', () => {
+    register();
+    const workspace = lab.open([docOf('A', [nodeOf('m', 'migrating', { old: 'kept' }, 1)])]);
+    workspace.upgradeNode('m');
+    expect(workspace.getDocument().nodes[0]).toMatchObject({
+      version: 2,
+      config: { value: 'kept' },
+    });
+    workspace.undo();
+    expect(workspace.getDocument().nodes[0]).toMatchObject({ version: 1, config: { old: 'kept' } });
+  });
+
+  it('已是最新版本或缺少迁移方案时拒绝且不修改文档', () => {
+    register();
+    const workspace = lab.open([
+      docOf('A', [nodeOf('m', 'migrating', { value: 'x' }, 2), nodeOf('old', 'versioned', {}, 1)]),
+    ]);
+    const before = lab.snapshot(workspace);
+    expect(() => workspace.upgradeNode('m')).toThrow('最新版本');
+    expect(() => workspace.upgradeNode('old')).toThrow('迁移方案');
+    expect(lab.snapshot(workspace)).toEqual(before);
   });
 });

@@ -13,14 +13,13 @@
   const EDGE_EFFECT = Object.freeze({ duration: 2.8, particles: 3, hitWidth: 16 })
   const COORDINATE_LIMIT = 100_000
   const VIEWPORT_SAVE_MS = 300
-  const TEXT_SAVE_MS = 200
   const HINT_MS = 6000
   const ZOOM_STEP = 0.1
   const JSON_PREVIEW_LIMIT = 200_000
   const TREE_ROW_BUDGET = 400
   const TREE_EXPAND_LIMIT = 5000
   const NODE_STATUS_LABELS = Object.freeze({ idle: '待运行', queued: '排队中', running: '运行中', succeeded: '成功', failed: '失败', skipped: '已跳过', cancelled: '已取消' })
-  const RUN_STATUS_LABELS = Object.freeze({ idle: '尚未运行', running: '运行中', succeeded: '全部成功', partial: '部分成功', failed: '运行失败', cancelled: '已停止' })
+  const RUN_STATUS_LABELS = Object.freeze({ idle: '尚未运行', running: '运行中', succeeded: '全部成功', partial: '部分成功', failed: '运行失败', cancelled: '已停止', stale: '结果部分过期' })
   const DIFF_LABELS = Object.freeze({ added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' })
   const IDLE_STATE =Object.freeze({ status: 'idle', message: '', outputs: null })
   const COMPARE_COPY = Object.freeze({
@@ -102,54 +101,6 @@
   /* ------------------------------------------------------------------ */
   /* 节点内容渲染器：由内置注册表按节点定义调用，视图只做展示和提交命令。 */
   /* ------------------------------------------------------------------ */
-
-  /** 文本节点：直接编辑 config.text，输入经工作区命令写入，失败时回滚显示。 */
-  function renderTextNode({ node, body, workspace, documentId }) {
-    const limit = window.NestCloudWorkflowCore.LIMITS.textLength
-    const textarea = createElement('textarea', 'wf-text')
-    textarea.spellcheck = false
-    textarea.maxLength = limit
-    textarea.placeholder = '输入或粘贴文本，运行时作为输出传给下游节点'
-    const count = createElement('span', 'wf-text__count')
-    body.classList.add('wf-node__body--fill')
-    body.append(textarea, count)
-    let current = node
-    let pending = false
-    let timer = null
-
-    const refreshCount = () => { count.textContent = `${textarea.value.length.toLocaleString('zh-CN')} / ${limit.toLocaleString('zh-CN')} 字符` }
-    function flush() {
-      window.clearTimeout(timer)
-      if (!pending) return
-      pending = false
-      try {
-        workspace.updateNode(current.id, { config: { ...current.config, text: textarea.value } }, documentId)
-      } catch (error) {
-        textarea.value = current.config.text
-        refreshCount()
-        throw error
-      }
-    }
-    const commit = () => { try { flush() } catch (error) { feedback.error(messageOf(error)) } }
-    textarea.addEventListener('input', () => {
-      refreshCount()
-      pending = true
-      window.clearTimeout(timer)
-      timer = window.setTimeout(commit, TEXT_SAVE_MS)
-    })
-    textarea.addEventListener('blur', commit)
-    return {
-      flush,
-      destroy() { window.clearTimeout(timer) },
-      update({ node: next, locked }) {
-        current = next
-        textarea.setAttribute('aria-label', `${next.name} 文本内容`)
-        textarea.readOnly = locked
-        if (!pending && textarea.value !== next.config.text) textarea.value = next.config.text
-        refreshCount()
-      },
-    }
-  }
 
   /** 开始节点说明；执行状态由通用节点壳展示。 */
   function renderStartNode({ body }) {
@@ -452,7 +403,7 @@
     }
   }
 
-  const renderers = Object.freeze({ start: renderStartNode, text: renderTextNode, compare: renderCompareNode, result: renderResultNode })
+  const renderers = Object.freeze({ start: renderStartNode, compare: renderCompareNode, result: renderResultNode })
 
   /* ------------------------------------------------------------------ */
   /* 工作区单例：任务与视图分离，重复挂载或切换菜单不会销毁运行中的任务。 */
@@ -465,10 +416,11 @@
     if (engine) return engine
     const Core = window.NestCloudWorkflowCore
     const Nodes = window.NestCloudWorkflowNodes
-    const registry = Nodes.createRegistry(renderers)
+    const capabilityView = window.NestCloudWorkflowCapabilityView
+    const registry = Nodes.createRegistry({ ...renderers, capability: capabilityView.capability, textResult: capabilityView.textResult })
     let storage = null
     try { storage = window.localStorage } catch { storage = null }
-    const workspace = new Core.Workspace({ registry, storage, services: Nodes.createServices(), onStorageError: (message) => storageListener(message) })
+    const workspace = new Core.Workspace({ registry, storage, services: Nodes.createServices({ confirmWrite: capabilityView.confirmWrite }), onStorageError: (message) => storageListener(message) })
     engine = { Core, registry, workspace }
     return engine
   }
@@ -484,6 +436,9 @@
     const X6 = window.NestCloudWorkflowGraph
     if (!window.NestCloudWorkflowCore?.Workspace || !window.NestCloudWorkflowNodes?.createRegistry
       || !window.NestCloudWorkflowPalette?.createPaletteTree
+      || !window.NestCloudWorkflowCapabilities?.register
+      || !window.NestCloudWorkflowCapabilityView?.capability || !window.NestCloudWorkflowCapabilityView?.textResult
+      || !window.NestCloudWorkflowCapabilityView?.confirmWrite
       || !X6?.Graph || !X6.Shape?.HTML || !X6.Selection || !X6.Transform) {
       refs.error.textContent = '工作流依赖脚本未能加载，请刷新页面重试。'
       refs.error.hidden = false
@@ -591,9 +546,20 @@
       nameInput.spellcheck = false
       nameInput.autocomplete = 'off'
       nameInput.setAttribute('aria-label', `节点名称（${definition?.label ?? node.type}）`)
+      const kind = createElement('span', 'wf-node__kind', definition?.label ?? '未知节点')
+      kind.tabIndex = 0
+      kind.setAttribute('role', 'button')
+      kind.setAttribute('aria-label', `选择节点 ${node.name}`)
+      kind.title = `拖动移动节点，点击选择（${definition?.label ?? node.type}）`
+      kind.setAttribute('aria-pressed', 'false')
       const status = createElement('span', 'wf-node__status', NODE_STATUS_LABELS.idle)
       const remove = createButton('wf-node__remove', '×', `删除节点 ${node.name}`)
-      head.append(createElement('span', 'wf-node__kind', definition?.label ?? '未知节点'), nameInput, status, remove)
+      // 开始节点由工具栏“运行”触发；其他已安装节点可复用上游结果从本节点重跑。
+      const runFrom = definition && definition.execution !== Core.NODE_EXECUTION.entry
+        ? createButton('wf-node__run', '▶', `从此节点运行 ${node.name}`)
+        : null
+      if (runFrom) runFrom.title = '从此节点运行：复用上游已成功的结果，只重跑本节点及下游'
+      head.append(kind, nameInput, status, ...(runFrom ? [runFrom] : []), remove)
 
       const portsElement = createElement('div', 'wf-node__ports')
       for (let index = 0; index < Math.max(inputs.length, outputs.length); index += 1) {
@@ -604,7 +570,14 @@
       const message = createElement('p', 'wf-node__message')
       message.hidden = true
       const body = createElement('div', 'wf-node__body')
-      host.append(head, portsElement, message, body)
+      const latest = definition ? registry.list().find((item) => item.type === node.type) : null
+      let upgrade = null
+      if (latest && latest.version > node.version) {
+        upgrade = createButton('wf-mini-button', `升级到 v${latest.version}`, `将节点 ${node.name} 升级到版本 ${latest.version}`)
+        const notice = createElement('div', 'wf-node__upgrade')
+        notice.append(createElement('span', '', `旧版本 v${node.version}，配置按原规则继续可用。`), upgrade)
+        host.append(head, portsElement, notice, message, body)
+      } else host.append(head, portsElement, message, body)
 
       let controller = null
       if (!definition) body.append(createElement('p', 'wf-node__notice', `节点类型 ${node.type}（版本 ${node.version}）尚未安装，配置已原样保留，此流程不能运行。`))
@@ -631,21 +604,42 @@
         }
       })
       remove.addEventListener('click', () => command(() => workspace.deleteSelection({ nodeIds: [current.id] }, ui.docId)))
-      host.addEventListener('pointerdown', (event) => {
-        if (!(event.target instanceof Element) || !event.target.closest(INTERACTIVE_SELECTOR)) return
-        selectCell(current.id, event.ctrlKey || event.metaKey)
+      runFrom?.addEventListener('click', async () => {
+        showError('')
+        try {
+          flushInputs()
+          await workspace.runFrom(current.id, ui.docId)
+        } catch (error) {
+          showError(messageOf(error, '运行失败，请重试。'))
+        }
       })
-      host.addEventListener('focusin', () => selectCell(current.id, false))
+      upgrade?.addEventListener('click', () => {
+        if (command(() => workspace.upgradeNode(current.id, ui.docId))) setHint(`已将节点“${current.name}”升级到 v${latest.version}，可撤销。`)
+      })
+      kind.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        event.stopPropagation()
+        if (!event.repeat) selectCell(current.id, event.ctrlKey || event.metaKey)
+      })
 
       return {
         host,
+        key: `${node.type}@${node.version}`,
         flush() { controller?.flush?.() },
         update(nextNode, state, locked) {
           current = nextNode
           if (nameInput.value !== nextNode.name && window.document.activeElement !== nameInput) nameInput.value = nextNode.name
           nameInput.readOnly = locked
+          kind.setAttribute('aria-label', `选择节点 ${nextNode.name}`)
+          kind.setAttribute('aria-pressed', String(graph.isSelected(nextNode.id)))
           remove.disabled = locked
           remove.setAttribute('aria-label', `删除节点 ${nextNode.name}`)
+          if (runFrom) {
+            runFrom.disabled = locked
+            runFrom.setAttribute('aria-label', `从此节点运行 ${nextNode.name}`)
+          }
+          if (upgrade) upgrade.disabled = locked
           host.dataset.status = state.status
           status.textContent = NODE_STATUS_LABELS[state.status] ?? state.status
           message.textContent = state.message
@@ -721,7 +715,9 @@
       scaling: { min: LAYOUT.minZoom, max: LAYOUT.maxZoom },
       panning: { enabled: true, eventTypes: ['rightMouseDown', 'mouseWheelDown'] },
       mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], factor: 1.1, minScale: LAYOUT.minZoom, maxScale: LAYOUT.maxZoom, zoomAtMousePosition: true, guard: (event) => event.deltaY !== 0 },
-      guard: (event) => event.target instanceof Element && Boolean(event.target.closest(INTERACTIVE_SELECTOR)),
+      // 节点只能从左上角类型标签拖动和选择，其余内容交给浏览器原生文本选择与复制
+      guard: (event) => event.target instanceof Element && (Boolean(event.target.closest(INTERACTIVE_SELECTOR))
+        || (Boolean(event.target.closest('.wf-node')) && !event.target.closest('.wf-node__kind'))),
       interacting: () => ({
         nodeMovable: !ui.locked, magnetConnectable: !ui.locked, edgeMovable: false, edgeLabelMovable: false,
         arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false, useEdgeTools: false,
@@ -753,7 +749,13 @@
         },
       },
     })
-    const selection = new X6.Selection({
+    /** 节点仅由类型标签显式选择，连线保留 X6 的鼠标选择行为。 */
+    class WorkflowSelection extends X6.Selection {
+      onCellMouseUp(args) {
+        if (args.cell.isEdge()) super.onCellMouseUp(args)
+      }
+    }
+    const selection = new WorkflowSelection({
       enabled: true, multiple: true, rubberband: true, rubberEdge: true, movable: true,
       showNodeSelectionBox: false, showEdgeSelectionBox: false,
       eventTypes: ['leftMouseDown'], multipleSelectionModifiers: ['ctrl', 'meta'],
@@ -833,7 +835,11 @@
         for (const edge of graph.getEdges()) if (edge.getData()?.wf && !edgeIds.has(edge.id)) graph.removeEdge(edge.id)
         for (const id of nodeViews.keys()) if (!nodeIds.has(id)) removeNodeFromGraph(id)
         for (const node of flow.nodes) {
-          const cell = graph.getCellById(node.id)
+          let cell = graph.getCellById(node.id)
+          if (cell && nodeViews.get(node.id)?.key !== `${node.type}@${node.version}`) {
+            removeNodeFromGraph(node.id) // 版本升级后端口与视图可能变化，整体重建
+            cell = null
+          }
           if (!cell) {
             addNodeToGraph(node, flow)
             continue
@@ -967,7 +973,7 @@
       return { nodeIds: cells.filter((cell) => cell.isNode()).map((cell) => cell.id), edgeIds: cells.filter((cell) => cell.isEdge()).map((cell) => cell.id) }
     }
 
-    /** 内容获得焦点时同步选择；已选中的对象保持多选不变。 */
+    /** 显式选择对象；普通激活已选对象时保持多选不变。 */
     function selectCell(id, additive) {
       if (additive) {
         if (graph.isSelected(id)) graph.unselect(id)
@@ -991,10 +997,14 @@
       }
     }
 
+    graph.on('node:click', ({ node, e }) => {
+      if (e.target instanceof Element && e.target.closest('.wf-node__kind')) selectCell(node.id, e.ctrlKey || e.metaKey)
+    })
     graph.on('selection:changed', () => {
       const { nodeIds, edgeIds } = selectedIds()
       transform.clearWidgets()
       if (nodeIds.length === 1 && !edgeIds.length && !ui.locked) transform.createWidget(graph.getCellById(nodeIds[0]))
+      for (const [id, view] of nodeViews) view.host.querySelector('.wf-node__kind').setAttribute('aria-pressed', String(graph.isSelected(id)))
       for (const edge of graph.getEdges()) {
         if (!edge.getData()?.wf) continue
         const selected = String(graph.isSelected(edge.id))
@@ -1193,6 +1203,52 @@
       })
     }
 
+    /** 周报仅是原子能力的组合，提示词可编辑，默认不包含任何发布步骤。 */
+    function loadWeeklyTemplate() {
+      command(() => {
+        const definitions = new Map(registry.list().map((definition) => [definition.type, definition]))
+        const sizeOf = (type) => definitions.get(type).size
+        const gap = 80
+        const sourceX = 40
+        const githubX = sourceX + Math.max(sizeOf('start').width, sizeOf('date-range').width) + gap
+        const mergeX = githubX + sizeOf('github-commits').width + gap
+        const promptX = mergeX + sizeOf('json-merge').width + gap
+        const aiX = promptX + sizeOf('text-template').width + gap
+        const outputX = aiX + sizeOf('ai-text').width + gap
+        const template = [
+          '请根据以下 GitHub 提交生成中文工作周报。',
+          '周期：{{context.b.startDate}} 至 {{context.b.endDate}}。',
+          '', '提交数据：', '{{context.a}}', '',
+          '要求：只根据真实提交总结，不编造工作事项；合并同类内容但不遗漏独立事项。',
+          '按完成事项、改进和问题组织，输出 Markdown；没有可用提交时明确说明。',
+        ].join('\n')
+        const specs = [
+          { id: 'start', type: 'start', position: { x: sourceX, y: 40 } },
+          { id: 'range', type: 'date-range', name: '周报时间范围', position: { x: sourceX, y: 40 + sizeOf('start').height + gap } },
+          { id: 'github', type: 'github-commits', name: '抓取提交（先填写仓库和人员）', position: { x: githubX, y: 40 } },
+          { id: 'merge', type: 'json-merge', name: '组合提交（a）与日期范围（b）', position: { x: mergeX, y: 40 }, config: { mode: 'object' } },
+          { id: 'prompt', type: 'text-template', name: '周报提示词模板（可替换）', position: { x: promptX, y: 40 }, config: { template } },
+          { id: 'ai', type: 'ai-text', name: 'AI 文本生成', position: { x: aiX, y: 40 } },
+          { id: 'output', type: 'text-result', name: '周报 Markdown', position: { x: outputX, y: 40 }, config: { format: 'markdown' } },
+        ]
+        const nodes = specs.map((spec) => {
+          const definition = definitions.get(spec.type)
+          return { ...spec, version: definition.version, size: definition.size, name: spec.name ?? definition.label, config: spec.config ?? definition.defaults }
+        })
+        workspace.insertSubgraph({ nodes, edges: [
+          { id: 'start-github', source: { nodeId: 'start', port: 'trigger' }, target: { nodeId: 'github', port: 'trigger' } },
+          { id: 'range-github', source: { nodeId: 'range', port: 'range' }, target: { nodeId: 'github', port: 'range' } },
+          { id: 'github-merge', source: { nodeId: 'github', port: 'data' }, target: { nodeId: 'merge', port: 'a' } },
+          { id: 'range-merge', source: { nodeId: 'range', port: 'range' }, target: { nodeId: 'merge', port: 'b' } },
+          { id: 'merge-prompt', source: { nodeId: 'merge', port: 'data' }, target: { nodeId: 'prompt', port: 'context' } },
+          { id: 'prompt-ai', source: { nodeId: 'prompt', port: 'text' }, target: { nodeId: 'ai', port: 'prompt' } },
+          { id: 'ai-output', source: { nodeId: 'ai', port: 'text' }, target: { nodeId: 'output', port: 'text' } },
+        ] })
+        setHint('已载入独立能力组成的周报样例。请填写仓库和人员，并在 Token 配置填写 GitHub 与 AI 凭据；运行时提交数据会发给所配置的 AI。样例不发布飞书。')
+        window.requestAnimationFrame(fitView)
+      })
+    }
+
     /* ---------------- 视图控制 ---------------- */
 
     function fitView() {
@@ -1234,6 +1290,7 @@
       refs['delete-selection'].disabled = running || (!selected.nodeIds.length && !selected.edgeIds.length)
       refs['template-json'].disabled = running
       refs['template-env'].disabled = running
+      refs['template-weekly'].disabled = running
       refs.palette.querySelectorAll('.wf-palette__item').forEach((button) => {
         button.disabled = running
         button.draggable = !running
@@ -1310,6 +1367,7 @@
     listen(refs['zoom-fit'], 'click', fitView)
     listen(refs['template-json'], 'click', () => loadTemplate('json'))
     listen(refs['template-env'], 'click', () => loadTemplate('env'))
+    listen(refs['template-weekly'], 'click', loadWeeklyTemplate)
 
     /* ---------------- 键盘 ---------------- */
 

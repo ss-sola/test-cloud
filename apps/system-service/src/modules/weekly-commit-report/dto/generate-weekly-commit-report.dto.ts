@@ -1,16 +1,21 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
+  IsDefined,
   IsIn,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import type { WeeklyReportPeriod } from '../weekly-report.types';
@@ -35,16 +40,24 @@ export class WeeklyReportProjectDto {
 
 class WeeklyReportAiDto {
   @IsString()
+  @Matches(/\S/)
   @MaxLength(2048)
   baseUrl!: string;
 
   @IsString()
+  @Matches(/\S/)
   @MaxLength(4096)
   apiKey!: string;
 
   @IsString()
+  @Matches(/\S/)
   @MaxLength(256)
   model!: string;
+
+  @Transform(({ obj, key }) => obj[key])
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsBoolean()
+  enableThinking?: boolean;
 }
 
 class WeeklyReportLimitsDto {
@@ -110,10 +123,11 @@ class WeeklyReportRuntimeDto {
   @IsString({ each: true })
   allowedRepositories?: string[];
 
-  @IsOptional()
+  @IsDefined()
+  @IsObject()
   @ValidateNested()
   @Type(() => WeeklyReportAiDto)
-  ai?: WeeklyReportAiDto;
+  ai!: WeeklyReportAiDto;
 
   @IsOptional()
   @ValidateNested()
@@ -132,6 +146,8 @@ export class GenerateWeeklyCommitReportDto {
   @Type(() => WeeklyReportProjectDto)
   configs!: WeeklyReportProjectDto[];
 
+  @IsDefined()
+  @IsObject()
   @ValidateNested()
   @Type(() => WeeklyReportRuntimeDto)
   runtime!: WeeklyReportRuntimeDto;

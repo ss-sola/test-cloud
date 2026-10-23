@@ -7,6 +7,7 @@
 - [前端交互](./前端交互.md)
 - [JSON/ENV 内容对比](../content-compare/README.md)
 - [工作流画布](../workflow/README.md)
+- [工作流原子能力与周报组合](../workflow-capabilities/README.md)
 - [周报生成](./周报.md)
 - [周报生成与飞书写入实现](./周报生成与飞书写入实现.md)
 - [BullMQ 面板](./bullmq-dashboard.md)

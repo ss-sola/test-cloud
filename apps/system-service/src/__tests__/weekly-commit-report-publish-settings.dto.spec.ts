@@ -16,7 +16,11 @@ const settings = {
   name: '张三',
 };
 
-const runtime = { githubToken: 'github-token', allowedRepositories: [project.repo] };
+const runtime = {
+  githubToken: 'github-token',
+  allowedRepositories: [project.repo],
+  ai: { baseUrl: 'https://ai.example.com/v1', apiKey: 'ai-key', model: 'test-model' },
+};
 
 describe('GenerateWeeklyCommitReportDto publish settings', () => {
   it('accepts a flat request-level Feishu configuration', async () => {

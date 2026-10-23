@@ -96,6 +96,9 @@ describe('weekly report menu contract', () => {
     expect(weekly).not.toContain('data-weekly-feishu-target-remove');
     expect(weekly).not.toContain('月度表格目标');
     expect(weekly).toContain('仅上周周报支持同步');
+    expect(weekly).toContain('需在 Token 配置页完整填写 AI 三项');
+    expect(weekly).toContain('不使用本地摘要');
+    expect(weekly).not.toContain('只由服务端环境提供');
     expect(weekly).toContain('id="weekly-project-add"');
     expect(weekly).toContain('id="weekly-project-template"');
     expect(weekly).not.toContain('wzj-nodejs-v2');
@@ -244,6 +247,9 @@ describe('token config menu contract', () => {
     expect(fragment).toContain('maxlength="4096"');
     expect(fragment).toContain('maxlength="256"');
     expect(fragment).toContain('不完整');
+    expect(fragment).toContain('仍可保存草稿，但无法生成周报');
+    expect(fragment).toContain('AI 请求失败不会改用本地摘要');
+    expect(fragment).not.toContain('全部留空时使用本地规则摘要');
     expect(script).toContain('nestcloud:release-tokens:v1');
     expect(script).toContain('value.ai');
     expect(script).toContain('const ai = {');
