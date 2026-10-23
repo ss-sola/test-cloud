@@ -82,8 +82,14 @@ function definition(type: string, category?: string): Definition {
 }
 
 describe('workflow palette folders and local search', () => {
+  it('keeps canvas annotations such as regions out of the node library and its search', () => {
+    expect(definitions.some((node) => node.type === 'region')).toBe(true);
+    expect(items(createPaletteTree(definitions)).map((node) => node.type)).not.toContain('region');
+    expect(createPaletteTree(definitions, '区域').count).toBe(0);
+  });
+
   it('derives category folders from the real registry without special-casing node types', () => {
-    expect(definitions).toHaveLength(16);
+    expect(definitions).toHaveLength(17);
     expect(definitions.slice(0, 5).map((node) => node.type)).toEqual([
       'start',
       'text',
@@ -92,7 +98,7 @@ describe('workflow palette folders and local search', () => {
       'diff-result',
     ]);
     const tree = createPaletteTree(definitions);
-    expect(tree.count).toBe(definitions.length);
+    expect(tree.count).toBe(definitions.length - 1); // 区域由工具栏添加，不进入节点库
     expect(items(tree).map((node) => node.type)).toEqual(allByFolder);
     expect(tree.folders.map((folder) => [folder.name, folder.count])).toEqual([
       ['流程控制', 1],

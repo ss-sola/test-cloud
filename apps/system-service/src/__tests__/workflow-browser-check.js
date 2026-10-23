@@ -10,8 +10,14 @@ window.__workflowBrowserCheck = (async () => {
   const requests = []
   const entryStatuses = []
   const addedDefinitions = []
-  const originalQuery = root.querySelector('[data-wf="palette-search"]').value
-  const originalFolders = new Map([...root.querySelectorAll('.wf-folder')].map((folder) => [folder.dataset.folderPath, folder.open]))
+  const sidebarHost = document.querySelector('#workflow-sidebar-host')
+  /** 工作流导航与面板已移入系统侧栏宿主，联合在工作流 root 与宿主内查询，不扫描其他页面。 */
+  const side = (selector) => root.querySelector(selector) ?? sidebarHost.querySelector(selector)
+  const sideAll = (selector) => [...root.querySelectorAll(selector), ...sidebarHost.querySelectorAll(selector)]
+  const originalQuery = side('[data-wf="palette-search"]').value
+  const originalPanel = ['directory', 'palette'].find((key) => !side(`[data-wf="${key}-panel"]`).hidden) ?? null
+  if (originalPanel !== 'palette') side('[data-wf="nav-palette"]').click()
+  const originalFolders = new Map(sideAll('.wf-folder[data-folder-path]').map((folder) => [folder.dataset.folderPath, folder.open]))
   let holdNext = false
   let release = null
   /** 请求发出瞬间记录每个运行中流程的开始节点状态，用于证明业务请求晚于开始节点成功。 */
@@ -30,7 +36,7 @@ window.__workflowBrowserCheck = (async () => {
     }
     return originalCompare(options)
   }
-  const control = (name) => root.querySelector(`[data-wf="${name}"]`)
+  const control = (name) => side(`[data-wf="${name}"]`)
   const click = (name) => control(name).click()
   const pause = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
   function assert(condition, message) { if (!condition) throw new Error(message) }
@@ -115,10 +121,16 @@ window.__workflowBrowserCheck = (async () => {
     graph.cleanSelection()
     report.push('所有已载入节点仅类型标签点击选中，正文/输入/结果点击和聚焦不改选；窄节点入口可见、Enter/Space、Ctrl/Meta 单次切换与 aria-pressed 同步通过')
   }
-  function selectFlow(id) {
-    control('doc-select').value = id
-    control('doc-select').dispatchEvent(new Event('change', { bubbles: true }))
+  /** 流程切换、副本等已无工具栏入口，直接使用工作区 API。 */
+  const selectFlow = (id) => workspace.select(id)
+  /** 撤销/重做/复制/删除只保留画布快捷键入口，向 stage 派发真实键盘事件。 */
+  function stageKey(key, options = {}) {
+    control('stage').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }))
   }
+  const undoByKey = () => stageKey('z', { ctrlKey: true })
+  const redoByKey = () => stageKey('z', { ctrlKey: true, shiftKey: true })
+  const copySelection = () => stageKey('d', { ctrlKey: true })
+  const deleteSelection = () => stageKey('Delete')
   async function upload(text) {
     const transfer = new DataTransfer()
     transfer.items.add(new File([text], 'workflow.json', { type: 'application/json' }))
@@ -151,7 +163,7 @@ window.__workflowBrowserCheck = (async () => {
     assert(workspace.canUndo() === undo, '平移改变了撤销可用性')
     assert(!root.classList.contains('wf-panning'), '鼠标释放后平移状态未清理')
   }
-  /** 普通滚轮、触控板和方向键不能平移画布；鼠标拖动与工具栏缩放仍可用。 */
+  /** 普通滚轮、触控板和方向键不能平移画布；鼠标拖动与 graph.zoom 仍可用。 */
   async function verifyDragOnlyViewport() {
     await pause(80)
     const svg = root.querySelector('.x6-graph-svg')
@@ -189,10 +201,10 @@ window.__workflowBrowserCheck = (async () => {
     await panBlank(true)
     await panBlank(false, 2)
     await panBlank(false, 1)
-    click('zoom-in')
-    assert(graph.zoom() > before.zoom, '工具栏放大失效')
-    click('zoom-out')
-    assert(Math.abs(graph.zoom() - before.zoom) < 0.001, '工具栏缩小没有恢复原比例')
+    graph.zoom(0.1)
+    assert(graph.zoom() > before.zoom, 'graph.zoom 放大失效')
+    graph.zoom(-0.1)
+    assert(Math.abs(graph.zoom() - before.zoom) < 0.001, 'graph.zoom 缩小没有恢复原比例')
     graph.translate(before.tx, before.ty)
     assert(JSON.stringify(workspace.getDocument().nodes) === nodes && workspace.canUndo() === undo, '视口操作污染了节点或编辑历史')
   }
@@ -225,15 +237,18 @@ window.__workflowBrowserCheck = (async () => {
             graph.scale(1, 1)
             const changed = await wheel(target, { deltaY, [modifier]: true })
             assert(deltaY < 0 ? changed.after > changed.scale : changed.after < changed.scale, `${modifier}+滚轮未按方向缩放画布`)
-            assert(control('zoom-label').textContent === `${Math.round(graph.zoom() * 100)}%`, '滚轮缩放后比例标签没有同步')
+            assert(graph.zoom() > 0 && graph.zoom() <= 2, '滚轮缩放后比例越过上限或不是正数')
           }
         }
       }
-      for (const [limit, deltaY] of [[0.2, 120], [2, -120]]) {
-        graph.scale(limit, limit)
-        const changed = await wheel(targets[0], { deltaY, ctrlKey: true })
-        assert(Math.abs(changed.after - limit) < 0.001, '滚轮缩放越过 20%～200% 边界')
+      for (const start of [0.01, 0.001]) {
+        graph.scale(start, start)
+        const changed = await wheel(targets[0], { deltaY: 120, ctrlKey: true })
+        assert(changed.after > 0 && changed.after < start, `滚轮在 ${start} 比例下应继续缩小且保持为正数，实际 ${changed.after}`)
       }
+      graph.scale(2, 2)
+      const capped = await wheel(targets[0], { deltaY: -120, ctrlKey: true })
+      assert(Math.abs(capped.after - 2) < 0.001, '滚轮缩放越过 200% 上限')
       assert(window.scrollX === page.x && window.scrollY === page.y, '修饰键滚轮带动了外层页面')
       assert(JSON.stringify(workspace.getDocument().nodes) === nodes && workspace.canUndo() === undo, '滚轮缩放污染了节点或编辑历史')
       assert(JSON.stringify(graph.getSelectedCells().map((cell) => cell.id).sort()) === selection, '滚轮缩放丢失了原选择')
@@ -618,7 +633,7 @@ window.__workflowBrowserCheck = (async () => {
     await clickEdge(a)
     await assertSelectedEdges([a], '真实点击命中路径没有选中连线')
     await waitFor(() => widths(a).line > idle.line + 0.5 && widths(a).glow > idle.glow, '选中连线的线宽/光晕没有增强')
-    assert(widths(b).line < widths(a).line && !control('delete-selection').disabled, '选中反馈影响了其他连线或工具栏删除不可用')
+    assert(widths(b).line < widths(a).line && graph.getSelectedCells().length === 1, '选中反馈影响了其他连线或选择状态不符')
     await clickEdge(b, true)
     await assertSelectedEdges([a, b], 'Ctrl 点击没有多选第二条连线')
     await clickEdge(b, true)
@@ -681,7 +696,7 @@ window.__workflowBrowserCheck = (async () => {
     assertNoVisualState()
     return !natural
   }
-  /** 沿用上一步的 Ctrl 多选状态：Delete 与工具栏删除只删线，撤销/重做精确恢复。 */
+  /** 沿用上一步的 Ctrl 多选状态：Delete 快捷键只删线，撤销/重做精确恢复。 */
   async function verifyEdgeDeletion([a, b]) {
     const before = snapshot()
     const nodes = JSON.stringify(workspace.getDocument().nodes)
@@ -699,21 +714,21 @@ window.__workflowBrowserCheck = (async () => {
     assert(keydown(edgeParts(b).hit, 'Delete') === false, 'Delete 没有被连线焦点上的画布键盘处理')
     await pause()
     assertDeleted([a, b], 'Delete 删除两条连线')
-    click('undo')
+    undoByKey()
     await assertRestored('撤销 Delete')
-    click('redo')
+    redoByKey()
     await pause(30)
     assertDeleted([a, b], '重做 Delete')
-    click('undo')
+    undoByKey()
     await assertRestored('再次撤销 Delete')
     graph.cleanSelection()
     await clickEdge(a)
-    click('delete-selection')
+    deleteSelection()
     await pause()
-    assertDeleted([a], '工具栏删除所选')
-    assert(edgeElement(b), '工具栏删除误删了未选中的连线')
-    click('undo')
-    await assertRestored('撤销工具栏删除')
+    assertDeleted([a], '快捷键删除所选')
+    assert(edgeElement(b), '快捷键删除误删了未选中的连线')
+    undoByKey()
+    await assertRestored('撤销快捷键删除')
   }
   async function verifyEdgeKeyboard([a, b]) {
     const focusByKeyboard = async (id) => {
@@ -744,7 +759,7 @@ window.__workflowBrowserCheck = (async () => {
     keydown(edgeParts(a).hit, 'Delete')
     await pause()
     assert(!edgeElement(a) && edgeElement(b) && documentEdges().length === JSON.parse(before).edges.length - 1, '键盘 Delete 没有只删除聚焦选中的连线')
-    click('undo')
+    undoByKey()
     await pause(30)
     assert(snapshot() === before, '撤销键盘 Delete 后结构没有精确恢复')
     graph.cleanSelection()
@@ -760,12 +775,12 @@ window.__workflowBrowserCheck = (async () => {
     assertEdgeAppearance(edge.id)
     assertAllEdgeEndpoints('节点移动后')
     await verifyFlowMotion([edge.id])
-    click('undo')
+    undoByKey()
     await pause(30)
     assert(edgeParts(edge.id).line.getAttribute('d') === original, '撤销节点移动后连线路径没有恢复')
     assertAllEdgeEndpoints('撤销节点移动后')
   }
-  /** 运行锁：仍可选中查看连线，但删除按钮禁用、Delete 无效；Ctrl 平移保留选择，节点不可被拖动。 */
+  /** 运行锁：仍可选中查看连线，但删除快捷键无效；Ctrl 平移保留选择，节点不可被拖动。 */
   async function verifyRunLockedEdges() {
     const [edge] = documentEdges()
     graph.cleanSelection()
@@ -776,11 +791,10 @@ window.__workflowBrowserCheck = (async () => {
     await pause(50)
     await assertMotionState(naturalPaused(), '运行中选中连线后')
     await verifyFlowMotion(documentEdges().map((item) => item.id)) // 运行锁下选中的连线光点仍原地冻结，其余继续
-    assert(control('delete-selection').disabled, '运行中删除所选没有禁用')
     keydown(edgeParts(edge.id).hit, 'Delete')
-    control('delete-selection').click()
+    deleteSelection()
     await pause()
-    assert(snapshot() === before && graph.getCellById(edge.id), '运行中 Delete 或工具栏删除了连线')
+    assert(snapshot() === before && graph.getCellById(edge.id), '运行中 Delete 快捷键删除了连线')
     await assertMotionState(naturalPaused(), '运行中尝试删除被拒绝后')
     await panBlank(true)
     await assertSelectedEdges([edge.id], '运行中 Ctrl 平移丢失了连线选择')
@@ -856,7 +870,7 @@ window.__workflowBrowserCheck = (async () => {
   /* ---------------- 开始节点入口专项辅助 ---------------- */
   const typeNodes = (type) => workspace.getDocument().nodes.filter((node) => node.type === type)
   const errorText = () => (control('error').hidden ? '' : control('error').textContent)
-  const startItem = () => root.querySelector('.wf-palette__item[data-type="start"]')
+  const startItem = () => side('.wf-palette__item[data-type="start"]')
   /** 所有请求发出时，其所属运行流程的开始节点必须已经成功；失败时给出实际状态。 */
   function assertEntryBeforeRequests(from, message) {
     const recent = entryStatuses.slice(from)
@@ -922,8 +936,8 @@ window.__workflowBrowserCheck = (async () => {
     expectEditRejected(() => startItem().click(), '已有开始节点时再次从节点库添加')
     graph.resetSelection(typeNodes('start')[0].id)
     await pause(30)
-    assert(!control('copy-selection').disabled, '选中开始节点后复制按钮不可用，无法验证复制拒绝')
-    expectEditRejected(() => click('copy-selection'), '复制已有开始节点')
+    assert(graph.getSelectedCells().length === 1, '选中开始节点后选择状态不符，无法验证复制拒绝')
+    expectEditRejected(() => copySelection(), '复制已有开始节点')
     graph.cleanSelection()
     const multiple = JSON.parse(workspace.exportDocument())
     multiple.nodes.push({ ...structuredClone(multiple.nodes.find((node) => node.type === 'start')), id: 'qa-second-start' })
@@ -940,7 +954,7 @@ window.__workflowBrowserCheck = (async () => {
     assert(requests.length === requestsBefore + 1 && workspace.getRuntime().states.get(typeNodes('start')[0].id).status === 'succeeded', '补充开始节点后应恰好发出 1 个请求且开始节点成功')
     assertEntryBeforeRequests(entriesBefore, '补充开始节点后的运行')
     const copiedFlows = workspace.documents.length
-    click('doc-duplicate')
+    workspace.duplicate(workspace.activeId)
     assert(workspace.documents.length === copiedFlows + 1, `复制整份工作流失败：${errorText()}`)
     created.push(workspace.activeId)
     assert(typeNodes('start').length === 1, '复制整份工作流后开始节点数量不是 1')
@@ -991,49 +1005,49 @@ window.__workflowBrowserCheck = (async () => {
   try {
     await document.fonts?.ready // 字体加载会整体移动屏幕坐标，先等布局稳定再采样
     const jsonId = create('浏览器验收 JSON')
-    click('undo')
+    undoByKey()
     searchPalette('')
     const paletteDocument = workspace.exportDocument()
-    const processing = [...root.querySelectorAll('.wf-folder')].find((folder) => folder.dataset.folderPath === '内容处理')
+    const processing = sideAll('.wf-folder[data-folder-path]').find((folder) => folder.dataset.folderPath === '内容处理')
     assert(processing, '注册分类没有生成文件夹')
     processing.open = false
     await pause()
     control('palette-search').focus()
     searchPalette('JSON')
-    const jsonMatches = [...root.querySelectorAll('.wf-palette__item')].map((item) => item.dataset.type)
+    const jsonMatches = sideAll('.wf-palette__item').map((item) => item.dataset.type)
     assert(['json-compare', 'json-input', 'json-parse'].every((type) => jsonMatches.includes(type)), '搜索未同时覆盖对比与通用 JSON 节点')
     searchPalette('json-compare')
-    assert(root.querySelectorAll('.wf-palette__item').length === 1 && root.querySelector('.wf-palette__item').dataset.type === 'json-compare', '类型搜索没有精确过滤节点')
-    assert(root.querySelector('.wf-folder').open, '搜索没有展开匹配文件夹')
+    assert(sideAll('.wf-palette__item').length === 1 && side('.wf-palette__item').dataset.type === 'json-compare', '类型搜索没有精确过滤节点')
+    assert(side('.wf-folder[data-folder-path]').open, '搜索没有展开匹配文件夹')
     assert(document.activeElement === control('palette-search'), '搜索重绘丢失了输入焦点')
-    click('palette-clear')
-    assert(![...root.querySelectorAll('.wf-folder')].find((folder) => folder.dataset.folderPath === '内容处理').open, '清除搜索后未恢复文件夹折叠')
+    searchPalette('')
+    assert(!sideAll('.wf-folder[data-folder-path]').find((folder) => folder.dataset.folderPath === '内容处理').open, '清除搜索后未恢复文件夹折叠')
     const triggerTypes = workspace.registry.list().filter((definition) => [...definition.inputs, ...definition.outputs].some((port) => port.dataType === 'trigger')).map((definition) => definition.type).join()
     for (const [query, expected] of [['trigger', triggerTypes], ['开始', 'start']]) {
       searchPalette(query)
-      const found = [...root.querySelectorAll('.wf-palette__item')].map((item) => item.dataset.type).join()
+      const found = sideAll('.wf-palette__item').map((item) => item.dataset.type).join()
       assert(found.split(',').sort().join() === expected.split(',').sort().join(), `搜索“${query}”应匹配 ${expected}，实际为 ${found}`)
     }
     searchPalette('没有任何匹配的节点')
-    assert(root.querySelectorAll('.wf-palette__item').length === 0 && !control('palette-empty').hidden, '无匹配提示不正确')
+    assert(sideAll('.wf-palette__item').length === 0 && sideAll('.wf-folder[data-folder-path]').length === 0 && !control('palette-panel').hidden, '无匹配时节点库不应保留叶子或分类')
     control('palette-search').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    assert(control('palette-search').value === '' && root.querySelectorAll('.wf-palette__item').length === workspace.registry.list().length, 'Escape 没有清空搜索并恢复完整节点库')
+    assert(control('palette-search').value === '' && sideAll('.wf-palette__item').length === workspace.registry.list().length, 'Escape 没有清空搜索并恢复完整节点库')
     assert(workspace.exportDocument() === paletteDocument && !workspace.canUndo() && requests.length === 0, '搜索或折叠修改了流程/历史或发起请求')
     const literalType = 'qa-palette-literal'
     workspace.registry.register({ type: literalType, version: 1, label: '<img data-wf-palette-injected src=x onerror="window.__wfPaletteInjected=1">', category: '扩展测试/转换', inputs: [], outputs: [], defaults: {}, size: { width: 280, height: 180 }, execute: () => ({}) })
     addedDefinitions.push(`${literalType}@1`)
     searchPalette(literalType)
-    assert(root.querySelectorAll('.wf-folder').length === 2 && [...root.querySelectorAll('.wf-folder')].every((folder) => folder.open), '多层分类没有展开完整路径')
-    assert(control('palette').textContent.includes('<img') && !root.querySelector('img[data-wf-palette-injected]') && window.__wfPaletteInjected !== 1, '目录标签被当作 HTML 执行')
+    assert(sideAll('.wf-folder[data-folder-path]').length === 2 && sideAll('.wf-folder[data-folder-path]').every((folder) => folder.open) && control('palette-folder').open, '多层分类没有展开完整路径')
+    assert(control('palette').textContent.includes('<img') && !document.querySelector('img[data-wf-palette-injected]') && window.__wfPaletteInjected !== 1, '目录标签被当作 HTML 执行')
     workspace.registry.definitions.delete(addedDefinitions.pop())
     searchPalette('json-compare')
-    root.querySelector('.wf-palette__item').click()
+    side('.wf-palette__item').click()
     assert(workspace.getDocument().nodes[0]?.type === 'json-compare', '过滤后点击节点不能添加')
     assert(workspace.getDocument().nodes.length === 1 && !control('run').disabled && workspace.getRuntime().status === 'idle', '过滤后新增的比较节点应可编辑且可点击运行')
     await expectRunRejected(/开始节点/, '只有比较节点、没有开始节点的流程运行')
-    click('undo')
+    undoByKey()
     assert(workspace.getDocument().nodes.length === 0, '过滤后添加节点不能撤销')
-    click('palette-clear')
+    searchPalette('')
     await panBlank(true)
     assert(!workspace.canUndo(), 'Ctrl 平移进入了编辑历史')
     report.push('分类文件夹、多层搜索、折叠恢复、空态、焦点、安全文本和过滤后添加通过')
@@ -1044,10 +1058,10 @@ window.__workflowBrowserCheck = (async () => {
     assertSampleLayout('json')
     await verifyDragOnlyViewport()
     verifyNodeScrollBoundary()
-    report.push('普通/横向/Shift 滚轮与无修饰键触控板不改变视口，节点内部滚动及边缘隔离、方向键不平移、Ctrl/右键/中键拖动与工具栏缩放通过')
-    click('undo')
+    report.push('普通/横向/Shift 滚轮与无修饰键触控板不改变视口，节点内部滚动及边缘隔离、方向键不平移、Ctrl/右键/中键拖动与graph 缩放通过')
+    undoByKey()
     assert(workspace.getDocument().nodes.length === 0, '样例载入不是单次撤销')
-    click('redo')
+    redoByKey()
     assert(workspace.getDocument().nodes.length === 5, '样例重做失败')
     assert(requests.length === 0, '编辑或样例载入自动发出了请求')
     click('run')
@@ -1065,7 +1079,7 @@ window.__workflowBrowserCheck = (async () => {
     resultHost.querySelector('[data-tab="pairs"]').click()
     assert(resultHost.querySelectorAll('.wf-pane__markers').length === 2 && resultHost.querySelectorAll('.wf-pane__marker').length > 0, '真实 JSON 对比结果未显示两侧差异位置轨道')
     await verifyWheelZoom()
-    report.push('Ctrl/Command+滚轮在空白、节点、文本和结果区域按鼠标锚点放大缩小，20%～200% 上下限、比例标签、选择保持与历史隔离通过')
+    report.push('Ctrl/Command+滚轮在空白、节点、文本和结果区域按鼠标锚点放大缩小，0.01/0.001 继续缩小且保持正数、200% 上限、选择保持与历史隔离通过')
     await verifyResultMarkers()
     report.push('结果滚动条差异概览：真实 JSON 标记、三类语义色、CR/LF/跨片段 CRLF、连续行合并、长文本位置、A/B 同步、节点尺寸变化、标签缓存和重跑/失败/取消清除通过')
     report.push('真实 JSON 接口、单步模板撤销重做、A/B 高亮、差异树和结构化输出通过')
@@ -1112,16 +1126,16 @@ window.__workflowBrowserCheck = (async () => {
     await drag(firstHost.querySelector('.wf-node__kind'), { x: 48, y: 24 })
     assert(nodePosition().x !== initialPosition.x, '真实鼠标拖动没有写回节点位置')
     assertAllEdgeEndpoints('节点拖动后')
-    click('undo')
+    undoByKey()
     assert(nodePosition().x === initialPosition.x, '节点移动撤销失败')
     assert(workspace.getRuntime().status === 'succeeded', '布局撤销错误清除了结果')
     await pause(30)
     assertAllEdgeEndpoints('撤销节点拖动后')
-    click('redo')
+    redoByKey()
     await pause(30)
     assert(nodePosition().x !== initialPosition.x, '节点移动重做失败')
     assertAllEdgeEndpoints('重做节点拖动后')
-    click('undo')
+    undoByKey()
     await pause(30)
     assert(nodePosition().x === initialPosition.x, '重做后再次撤销节点移动失败')
     assertAllEdgeEndpoints('再次撤销节点拖动后')
@@ -1131,7 +1145,7 @@ window.__workflowBrowserCheck = (async () => {
     await drag(handle, { x: 40, y: 30 })
     assert(workspace.getDocument().nodes.find((node) => node.id === first.id).size.width > first.size.width, '尺寸手柄没有写回节点尺寸')
     assertAllEdgeEndpoints('调整节点尺寸后')
-    click('undo')
+    undoByKey()
     await pause(30)
     assertAllEdgeEndpoints('撤销调整尺寸后')
     report.push('SVG/body 样式隔离、鼠标拖动、尺寸手柄及布局撤销保留结果通过；拖动/调整尺寸/撤销/重做后连线端点与端口圆心重合（误差 <= 0.75px）')
@@ -1140,9 +1154,12 @@ window.__workflowBrowserCheck = (async () => {
     workspace.disconnect(sourceEdge.id)
     const sourcePort = root.querySelector(`[data-cell-id="${first.id}"] [port="out:text"]`)
     const targetPort = root.querySelector(`[data-cell-id="${sourceEdge.target.nodeId}"] [port="in:${sourceEdge.target.port}"]`)
+    control('hint').textContent = '正在连接'
+    const stageTopBeforeConnect = control('stage').getBoundingClientRect().top
     const s = sourcePort.getBoundingClientRect(), t = targetPort.getBoundingClientRect()
     mouse(sourcePort, 'mousedown', { x: s.x + s.width / 2, y: s.y + s.height / 2 })
     mouse(document, 'mousemove', { x: t.x + t.width / 2, y: t.y + t.height / 2 })
+    assert(Math.abs(control('stage').getBoundingClientRect().top - stageTopBeforeConnect) < 0.75, '连线提示变化改变了画布位置，导致端口错位')
     mouse(targetPort, 'mousemove', { x: t.x + t.width / 2, y: t.y + t.height / 2 })
     mouse(targetPort, 'mouseup', { x: t.x + t.width / 2, y: t.y + t.height / 2 })
     await waitFor(() => workspace.getDocument().edges.length === 4, '拖线没有创建正式连接')
@@ -1163,7 +1180,7 @@ window.__workflowBrowserCheck = (async () => {
     await verifyEdgeFollowsNode(interactionEdges.find((edge) => edge.source.nodeId === first.id), first.id)
     graph.cleanSelection()
     assertNoVisualState()
-    report.push('真实屏幕点命中连线、选中类/aria-pressed/线宽、Ctrl 单次切换多选、Delete/工具栏仅删线与撤销重做通过；撤销/重做后端点仍与端口圆心重合')
+    report.push('真实屏幕点命中连线、选中类/aria-pressed/线宽、Ctrl 单次切换多选、Delete 快捷键仅删线与撤销重做通过；撤销/重做后端点仍与端口圆心重合')
     report.push(`选中连线停止流向：单选冻结且其他线继续、Ctrl 多选同时冻结、Ctrl 取消后仅该线恢复、清空选择全部恢复，恢复沿用原 CSSAnimation 时间通过；${selectionMoved ? '位置冻结/继续已按屏幕实际位移验证' : '当前原生减少动效或页面隐藏，仅验证暂停状态与动画时间'}`)
     report.push('缩放 0.35/1/1.6 与平移后端点与端口圆心重合、光点贴合曲线，恢复原视口且不污染业务历史通过')
     report.push(`键盘 Tab 聚焦选中、Enter/Space/Ctrl 切换、Delete 通过${focusFallbacks ? `（页面无系统焦点，${focusFallbacks} 次补发 focusin）` : ''}；节点移动后连线与光点跟随并可撤销通过`)
@@ -1192,7 +1209,7 @@ window.__workflowBrowserCheck = (async () => {
     graph.resetSelection(textNodes.map((node) => node.id))
     await drag(root.querySelector(`[data-node-id="${first.id}"] .wf-node__kind`), { x: 40, y: 20 })
     assert(positions.every((position) => workspace.getDocument().nodes.find((node) => node.id === position.id).position.x !== position.x), '多选拖动未同时移动节点')
-    click('undo')
+    undoByKey()
     assert(positions.every((position) => workspace.getDocument().nodes.find((node) => node.id === position.id).position.x === position.x), '多选拖动不是单次撤销')
     graph.cleanSelection()
     const boxes = textNodes.map((node) => root.querySelector(`[data-node-id="${node.id}"]`).getBoundingClientRect())
@@ -1226,20 +1243,22 @@ window.__workflowBrowserCheck = (async () => {
     await waitFor(() => typeof release === 'function', '运行前未刷新待保存输入或处理节点未启动')
     assert(workspace.getDocument().nodes.find((node) => node.id === first.id).config.text === '{"edited":true}', '立即点击运行遗漏防抖输入')
     assert([...root.querySelectorAll('.wf-text')].every((element) => element.readOnly), '运行期间文本未锁定')
-    assert(control('doc-remove').disabled && control('doc-duplicate').disabled && control('undo').disabled, '运行期间结构操作未锁定')
+    assert(control('doc-name').readOnly && control('run').disabled && !workspace.canUndo(), '运行期间名称、运行或撤销未锁定')
+    undoByKey()
+    assert(workspace.getRuntime().running, '运行期间撤销快捷键应被忽略')
     await verifyWheelZoom()
     await panBlank(true)
     await panBlank(false, 2)
     searchPalette('JSON')
-    const lockedItem = root.querySelector('.wf-palette__item')
-    assert(lockedItem.disabled && !lockedItem.draggable && !control('palette-search').readOnly && !control('palette-clear').disabled, '运行锁错误影响搜索或没有锁定过滤结果')
+    const lockedItem = side('.wf-palette__item')
+    assert(lockedItem.disabled && !lockedItem.draggable && !control('palette-search').readOnly, '运行锁错误影响搜索或没有锁定过滤结果')
     const dragEvent = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() })
     lockedItem.dispatchEvent(dragEvent)
     assert(dragEvent.defaultPrevented, '运行中仍可拖出过滤后的节点')
-    click('palette-clear')
+    searchPalette('')
     await verifyRunLockedEdges()
     report.push('运行中 Ctrl/右键平移、搜索可用与节点拖入锁定通过')
-    report.push('运行锁期间可选中连线（光点仍冻结、其余线继续）、删除按钮禁用且 Delete 无效、Ctrl 平移保留选择、节点不可拖动通过')
+    report.push('运行锁期间可选中连线（光点仍冻结、其余线继续）、运行锁保持且 Delete 无效、Ctrl 平移保留选择、节点不可拖动通过')
     const envId = create('浏览器验收 ENV')
     assert(workspace.getRuntime(jsonId).running, '切换工作流取消了旧流程')
     click('template-env')
@@ -1325,8 +1344,13 @@ window.__workflowBrowserCheck = (async () => {
     workspace.select(initialId)
     for (const key of addedDefinitions) workspace.registry.definitions.delete(key)
     searchPalette(originalQuery)
-    for (const folder of root.querySelectorAll('.wf-folder')) {
+    for (const folder of sideAll('.wf-folder[data-folder-path]')) {
       if (originalFolders.has(folder.dataset.folderPath)) folder.open = originalFolders.get(folder.dataset.folderPath)
+    }
+    const currentPanel = ['directory', 'palette'].find((key) => !control(`${key}-panel`).hidden) ?? null
+    if (originalPanel !== currentPanel) {
+      if (originalPanel) click(`nav-${originalPanel}`)
+      else if (currentPanel) click(`nav-${currentPanel}`)
     }
   }
 })().then((result) => {

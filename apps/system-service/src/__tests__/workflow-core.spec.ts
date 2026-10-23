@@ -56,6 +56,7 @@ interface NodeDefinition {
   outputs: Port[];
   defaults: Record<string, unknown>;
   size?: { width: number; height: number };
+  localConfig?: boolean;
   validateConfig?(config: Record<string, unknown>): string | null | undefined;
   migrate?(config: Record<string, unknown>): Record<string, unknown>;
   execute(context: ExecuteContext): unknown;
@@ -104,7 +105,7 @@ interface WorkspaceApi {
   rename(id: string, name: string): WorkflowDocument;
   duplicate(id: string): WorkflowDocument;
   remove(id: string): void;
-  importDocument(raw: unknown): WorkflowDocument;
+  importDocument(raw: unknown, options?: { preserveName?: boolean }): WorkflowDocument;
   exportDocument(id?: string): string;
   addNode(type: string, position: { x: number; y: number }): WorkflowNode;
   updateNode(nodeId: string, patch: Partial<WorkflowNode>, documentId?: string): WorkflowDocument;
@@ -813,6 +814,14 @@ describe('存储：结果只在内存，草稿保护', () => {
       () => JSON.stringify({ version: 1, documents: [docOf('A', []), docOf('A', [])] }),
     ],
     ['超过工作区体积上限', () => 'x'.repeat(LIMITS.workspaceBytes + 1)],
+    [
+      '视口缩放为 0',
+      () =>
+        JSON.stringify({
+          version: 1,
+          documents: [{ ...docOf('A', []), viewport: { x: 0, y: 0, zoom: 0 } }],
+        }),
+    ],
   ];
 
   it.each(corrupt)('草稿%s时进入保护模式：提示一次、编辑不覆盖原草稿', (_name, build) => {
@@ -908,6 +917,26 @@ describe('导入', () => {
     expect(workspace.canUndo()).toBe(false);
   });
 
+  it('视口缩放无下限：任意有限正数可校验、保存恢复、导出导入，非正数被原子拒绝', () => {
+    for (const zoom of [0.1, 0.01, 1e-8, LIMITS.maxZoom]) {
+      const viewport = { x: 0, y: 0, zoom };
+      expect(parseDocument({ ...docOf('X', []), viewport }, lab.registry).viewport).toEqual(
+        viewport,
+      );
+    }
+    const workspace = lab.open([docOf('A', [src('s')])]);
+    workspace.setViewport({ x: 1, y: 2, zoom: 1e-8 });
+    expect(lab.reopen().getDocument().viewport.zoom).toBe(1e-8);
+    expect(JSON.parse(workspace.exportDocument()).viewport.zoom).toBe(1e-8);
+    expect(workspace.importDocument(workspace.exportDocument()).viewport.zoom).toBe(1e-8);
+
+    const before = lab.snapshot(workspace);
+    for (const zoom of [0, -0.5, Number.NaN, Number.POSITIVE_INFINITY, LIMITS.maxZoom + 0.01]) {
+      expect(() => workspace.setViewport({ x: 0, y: 0, zoom })).toThrow(Error);
+    }
+    expect(lab.snapshot(workspace)).toEqual(before);
+  });
+
   const tooMany = (count: number): WorkflowNode[] =>
     Array.from({ length: count }, (_, i) => src(`n${i}`));
   const rejected: Array<[string, () => unknown]> = [
@@ -938,6 +967,10 @@ describe('导入', () => {
       () => docOf('X', [{ ...src('s'), size: { width: 200, height: LIMITS.maxSize + 1 } }]),
     ],
     ['缩放越界', () => ({ ...docOf('X', []), viewport: { x: 0, y: 0, zoom: LIMITS.maxZoom + 1 } })],
+    ...[0, -0.5, Number.NaN, Number.POSITIVE_INFINITY].map((zoom): [string, () => unknown] => [
+      `缩放为 ${zoom}`,
+      () => ({ ...docOf('X', []), viewport: { x: 0, y: 0, zoom } }),
+    ]),
     ['配置嵌套过深', () => docOf('X', [nodeOf('g', 'ghost', nested(LIMITS.configDepth + 1))])],
     [
       '配置含超出范围的数值',
@@ -980,7 +1013,7 @@ describe('导入', () => {
       size: { width: LIMITS.minSize, height: LIMITS.maxSize },
     };
     nodes[1] = nodeOf('deep', 'ghost', nested(LIMITS.configDepth));
-    for (const zoom of [LIMITS.minZoom, LIMITS.maxZoom]) {
+    for (const zoom of [1e-8, LIMITS.maxZoom]) {
       const document = { ...docOf('X', nodes), viewport: { x: 0, y: 0, zoom } };
       expect(() => parseDocument(document, lab.registry)).not.toThrow(Error);
     }
@@ -1173,6 +1206,61 @@ describe('流程管理与子图复制', () => {
     const before = lab.snapshot(bulky);
     expect(() => bulky.importDocument(blob())).toThrow(Error);
     expect(lab.snapshot(bulky)).toEqual(before);
+  });
+
+  it('导入默认追加“副本”；preserveName 保留原名，但仍新标识、清本地配置、无历史与结果', () => {
+    lab.registry.register({
+      type: 'secret',
+      version: 1,
+      label: 'secret',
+      category: 'test',
+      execution: 'data',
+      inputs: [],
+      outputs: [text('out')],
+      defaults: { token: '' },
+      localConfig: true,
+      execute: ({ node }) => ({ out: String(node.config.token) }),
+    });
+    const raw = JSON.stringify({
+      ...docOf('X', [nodeOf('k', 'secret', { token: 'abc' }), src('s')]),
+      name: '周报',
+    });
+    const workspace = lab.open([docOf('A', [src('a')])]);
+    workspace.updateNode('a', { position: { x: 1, y: 1 } });
+
+    const copied = workspace.importDocument(raw);
+    const kept = workspace.importDocument(raw, { preserveName: true });
+    expect(copied.name).toBe('周报 副本');
+    expect(kept.name).toBe('周报');
+    expect(new Set(['X', 'A', copied.id, kept.id]).size).toBe(4);
+    expect(kept.nodes.find((node) => node.id === 'k')?.config).toEqual({ token: '' });
+    expect(workspace.activeId).toBe(kept.id);
+    expect(workspace.canUndo(kept.id)).toBe(false);
+    expect(workspace.getRuntime(kept.id).states.size).toBe(0);
+    expect(workspace.getDocument('A').name).toBe('A');
+    expect(lab.reopen().getDocument(kept.id).name).toBe('周报');
+  });
+
+  it('preserveName 导入保持原子：无效内容或超出体积预算时不改变工作区', () => {
+    const workspace = lab.open([docOf('A', [src('s')])]);
+    const before = lab.snapshot(workspace);
+    expect(() => workspace.importDocument('{bad', { preserveName: true })).toThrow(Error);
+    expect(() =>
+      workspace.importDocument(docOf('X', [nodeOf('s', 'src', { value: 1 })]), {
+        preserveName: true,
+      }),
+    ).toThrow(Error);
+    expect(lab.snapshot(workspace)).toEqual(before);
+
+    lab.storage = new MemoryStorage();
+    const bulky = lab.reopen();
+    const blob = (): WorkflowDocument =>
+      docOf('X', [nodeOf('g', 'ghost', { blob: 'a'.repeat(3 * 1024 * 1024) })]);
+    bulky.importDocument(blob(), { preserveName: true });
+    bulky.importDocument(blob(), { preserveName: true });
+    const full = lab.snapshot(bulky);
+    expect(() => bulky.importDocument(blob(), { preserveName: true })).toThrow(Error);
+    expect(lab.snapshot(bulky)).toEqual(full);
   });
 });
 

@@ -23,7 +23,7 @@
     feedbackMs: 3000,
     revokeMs: 1000,
   })
-  const FIELD_TYPES = Object.freeze(['text', 'textarea', 'number', 'select', 'checkbox', 'date'])
+  const FIELD_TYPES = Object.freeze(['text', 'textarea', 'number', 'select', 'checkbox', 'date', 'password'])
   const CALENDAR_ICON_PATH = 'M7 2v3M17 2v3M3 9h18M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z'
   const CHEVRON_PATHS = Object.freeze({ previous: 'm15 6-6 6 6 6', next: 'm9 6 6 6-6 6' })
   const DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/
@@ -69,15 +69,19 @@
     return words.some((word) => SECRET_WORDS.includes(word)) || /api key/.test(words.join(' '))
   }
 
-  /** 把声明式字段整理为可渲染集合：丢弃重复键、原型键、凭据键和未知类型，不信任注册元数据。 */
-  function normalizeFields(fields) {
+  /**
+   * 把声明式字段整理为可渲染集合：丢弃重复键、原型键、凭据键和未知类型，不信任注册元数据。
+   * 只有 localConfig 节点（配置不随导入导出）可渲染 password 字段，且凭据键必须使用 password。
+   */
+  function normalizeFields(fields, allowSecrets = false) {
     if (!Array.isArray(fields)) return []
     const seen = new Set()
     const result = []
     for (const field of fields) {
       if (!field || typeof field !== 'object') continue
       const { key, type } = field
-      if (typeof key !== 'string' || !FIELD_KEY.test(key) || UNSAFE_KEYS.includes(key) || isSecretKey(key)
+      if (typeof key !== 'string' || !FIELD_KEY.test(key) || UNSAFE_KEYS.includes(key)
+        || (type === 'password' ? !allowSecrets : isSecretKey(key))
         || seen.has(key) || !FIELD_TYPES.includes(type)) continue
       let options = null
       if (type === 'select') {
@@ -100,6 +104,7 @@
         placeholder: typeof field.placeholder === 'string' ? field.placeholder : '',
         fill: type === 'textarea' && field.fill === true,
         counter: (type === 'textarea' || type === 'text') && field.counter === true,
+        ...(typeof field.group === 'string' && FIELD_KEY.test(field.group) ? { group: field.group } : {}), // 凭据分组，画布据此联动高亮
       })
     }
     return result
@@ -466,6 +471,7 @@
   function createFieldControl(field, id) {
     const wrapper = createElement('div', `wf-cap__field wf-cap__field--${field.type}${field.fill ? ' wf-cap__field--fill' : ''}`)
     wrapper.dataset.fieldKey = field.key
+    if (field.group) wrapper.dataset.credentialGroup = field.group
     const label = createElement('label', 'wf-cap__label', field.label)
     label.htmlFor = id
     let input
@@ -482,18 +488,18 @@
       }
     } else {
       input = createElement('input', field.type === 'checkbox' ? 'wf-cap__checkbox' : 'wf-cap__control')
-      input.type = field.type === 'number' || field.type === 'checkbox' ? field.type : 'text'
+      input.type = ['number', 'checkbox', 'password'].includes(field.type) ? field.type : 'text'
       if (field.type === 'number') {
         input.step = 'any'
         if (field.min !== null) input.min = String(field.min)
         if (field.max !== null) input.max = String(field.max)
-      } else if (field.type === 'text' || field.type === 'date') input.maxLength = LIMITS.fieldTextLength
+      } else if (field.type !== 'checkbox') input.maxLength = LIMITS.fieldTextLength
     }
     if (field.type === 'textarea' || field.type === 'text' || field.type === 'date') input.spellcheck = false
     if (field.placeholder && field.type !== 'select' && field.type !== 'checkbox') input.placeholder = field.placeholder
     input.id = id
     input.dataset.wfField = field.key
-    input.autocomplete = 'off'
+    input.autocomplete = field.type === 'password' ? 'new-password' : 'off' // 阻止浏览器把登录密码自动填入凭据框
     const error = createElement('p', 'wf-cap__field-error')
     error.id = `${id}-error`
     error.hidden = true
@@ -695,7 +701,7 @@
   function capability({ node, body, workspace, documentId }) {
     assertBrowser()
     const definition = workspace.registry.get(node.type, node.version)
-    const fields = normalizeFields(definition?.fields)
+    const fields = normalizeFields(definition?.fields, definition?.localConfig === true)
     const lifecycle = new AbortController()
     const listenerOptions = { signal: lifecycle.signal }
     const controls = new Map()
@@ -714,7 +720,7 @@
 
     const remote = definition?.remote === true || node.config?.credentialRef !== undefined
     if (remote) {
-      const notice = createElement('p', 'wf-cap__notice', '此节点复用 Token 配置中的凭据；凭据不会写入节点配置、导出文件或运行结果。')
+      const notice = createElement('p', 'wf-cap__notice', '此节点优先使用开始节点填写的凭据，开始节点未填写的凭据组使用 Token 配置；凭据不会写入本节点配置、导出文件或运行结果。')
       notice.dataset.wfNotice = 'credentials'
       notice.append(' ', createTokenLink())
       view.append(notice)

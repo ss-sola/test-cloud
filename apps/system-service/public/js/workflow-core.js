@@ -3,11 +3,11 @@
     documents: 30, nodes: 100, edges: 300, textLength: 500_000,
     documentBytes: 4 * 1024 * 1024, workspaceBytes: 8 * 1024 * 1024,
     historyBytes: 8 * 1024 * 1024, historySteps: 30, configDepth: 16,
-    coordinate: 100_000, minSize: 160, maxSize: 2400, minZoom: 0.2, maxZoom: 2,
+    coordinate: 100_000, minSize: 160, maxSize: 2400, annotationMaxSize: 10_000, minZoom: 0, maxZoom: 2,
     concurrency: 3, resultDocuments: 10, resultBytes: 32 * 1024 * 1024, inputMergeMs: 600,
   })
   const STORAGE_KEY = 'nestcloud:workflows:v1'
-  const NODE_EXECUTION = Object.freeze({ entry: 'entry', data: 'data', task: 'task' })
+  const NODE_EXECUTION = Object.freeze({ entry: 'entry', data: 'data', task: 'task', annotation: 'annotation' })
   const PORT_KIND = Object.freeze({ data: 'data', control: 'control' })
   const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
   const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -67,8 +67,9 @@
       const { type, version, inputs = [], outputs = [], execution = NODE_EXECUTION.task } = definition
       const key = `${type}@${version}`
       if (!idValid(type) || !Number.isSafeInteger(version) || version < 1 || this.definitions.has(key)
-        || typeof definition.execute !== 'function') throw new Error('节点定义无效或重复。')
+        || (execution !== NODE_EXECUTION.annotation && typeof definition.execute !== 'function')) throw new Error('节点定义无效或重复。')
       if (!Object.values(NODE_EXECUTION).includes(execution)) throw new Error('节点执行角色无效。')
+      if (execution === NODE_EXECUTION.annotation && (inputs.length || outputs.length)) throw new Error('画布标注节点不能声明连接点。')
       if ((execution === NODE_EXECUTION.entry || execution === NODE_EXECUTION.data) && inputs.length) throw new Error('开始节点和被动数据节点不能声明输入。')
       if (execution === NODE_EXECUTION.entry && !outputs.length) throw new Error('开始节点至少需要一个输出连接点。')
       for (const ports of [inputs, outputs]) {
@@ -76,6 +77,8 @@
         for (const port of ports) {
           if (!idValid(port.id) || ids.has(port.id) || !this.dataTypes.has(port.dataType)
             || !Object.values(PORT_KIND).includes(port.kind ?? PORT_KIND.data)) throw new Error('节点端口定义无效。')
+          // 只有数据输入可接多个来源，输出天然可分发，控制输入只需一次触发
+          if (port.multiple && (ports === outputs || (port.kind ?? PORT_KIND.data) !== PORT_KIND.data)) throw new Error('只有数据输入连接点可以接入多个来源。')
           ids.add(port.id)
         }
       }
@@ -98,6 +101,11 @@
     }
   }
 
+  /** 节点允许的最大宽高：画布标注要圈住多个节点，其余节点沿用通用上限。 */
+  function maxSizeOf(definition) {
+    return definition?.execution === NODE_EXECUTION.annotation ? LIMITS.annotationMaxSize : LIMITS.maxSize
+  }
+
   /** 只读连线预检，不创建边、不修改历史。 */
   function validateConnection(document, registry, connection) {
     const { source, target } = connection
@@ -114,7 +122,9 @@
     if ((fromDef && !outPort) || (toDef && !inPort)) return '请选择输出连接点连接到输入连接点。'
     if (outPort && inPort && !registry.compatible(outPort.dataType, inPort.dataType)) return '连接点的数据类型不兼容。'
     if (outPort && inPort && (outPort.kind ?? PORT_KIND.data) !== (inPort.kind ?? PORT_KIND.data)) return '控制连接点与数据连接点不能混接。'
-    if (document.edges.some((edge) => edge.id !== connection.id && edge.target.nodeId === to.id && edge.target.port === target.port)) return '每个输入连接点只能接入一个来源。'
+    const linked = document.edges.filter((edge) => edge.id !== connection.id && edge.target.nodeId === to.id && edge.target.port === target.port)
+    if (!inPort?.multiple && linked.length) return '每个输入连接点只能接入一个来源。'
+    if (linked.some((edge) => edge.source.nodeId === from.id && edge.source.port === source.port)) return '该来源已接入此输入连接点。'
     const pending = [to.id]
     const visited = new Set()
     while (pending.length) {
@@ -141,10 +151,11 @@
         || !Number.isSafeInteger(node.version) || node.version < 1 || typeof node.name !== 'string' || node.name.length > 120) throw new Error('节点标识、名称或版本无效。')
       ids.add(node.id)
       if (!isObject(node.position) || !finite(node.position.x, LIMITS.coordinate) || !finite(node.position.y, LIMITS.coordinate)) throw new Error('节点坐标超出限制。')
-      if (!isObject(node.size) || !['width', 'height'].every((key) => Number.isFinite(node.size[key]) && node.size[key] >= LIMITS.minSize && node.size[key] <= LIMITS.maxSize)) throw new Error('节点尺寸须在 160–2400 之间。')
+      const definition = registry.get(node.type, node.version)
+      const maxSize = maxSizeOf(definition) // 区域等标注需圈住成片节点，尺寸上限更大
+      if (!isObject(node.size) || !['width', 'height'].every((key) => Number.isFinite(node.size[key]) && node.size[key] >= LIMITS.minSize && node.size[key] <= maxSize)) throw new Error(`节点尺寸须在 ${LIMITS.minSize}–${maxSize} 之间。`)
       if (!isObject(node.config)) throw new Error('节点配置必须是对象。')
       inspectJson(node.config)
-      const definition = registry.get(node.type, node.version)
       const error = definition?.validateConfig?.(node.config)
       if (error) throw new Error(error)
       return { id: node.id, type: node.type, version: node.version, name: node.name, position: { x: node.position.x, y: node.position.y }, size: { width: node.size.width, height: node.size.height }, config: node.config }
@@ -159,7 +170,7 @@
     })
     const viewport = value.viewport
     if (!isObject(viewport) || !finite(viewport.x, LIMITS.coordinate) || !finite(viewport.y, LIMITS.coordinate)
-      || !Number.isFinite(viewport.zoom) || viewport.zoom < LIMITS.minZoom || viewport.zoom > LIMITS.maxZoom) throw new Error('画布视口无效。')
+      || !Number.isFinite(viewport.zoom) || viewport.zoom <= LIMITS.minZoom || viewport.zoom > LIMITS.maxZoom) throw new Error('画布视口无效。')
     const document = { version: 1, id: value.id, name: value.name.trim(), nodes, edges, viewport: { x: viewport.x, y: viewport.y, zoom: viewport.zoom } }
     for (const edge of edges) {
       const error = validateConnection(document, registry, { ...edge, allowUnknown: true })
@@ -391,7 +402,9 @@
     _invalidate(session, previous, next) {
       const runtime = session.runtime
       if (!runtime.states.size) return
-      const affected = affectedNodes(previous, next)
+      const nodes = new Map([...previous.nodes, ...next.nodes].map((node) => [node.id, node]))
+      const annotation = (nodeId) => this.registry.get(nodes.get(nodeId).type, nodes.get(nodeId).version)?.execution === NODE_EXECUTION.annotation
+      const affected = new Set([...affectedNodes(previous, next)].filter((nodeId) => !annotation(nodeId))) // 只改动区域等标注时结果仍有效
       if (!affected.size) return
       const states = new Map([...runtime.states].filter(([nodeId]) => !affected.has(nodeId)))
       session.runtime = states.size ? { ...runtime, status: 'stale', states } : idleRuntime()
@@ -464,10 +477,10 @@
       return this._commit(id, (draft) => { draft.name = name }, { kind: 'content' })
     }
 
-    /** 复制完整流程与连接关系，但不复制结果或历史。 */
+    /** 复制完整流程与连接关系，但不复制结果或历史；本地配置（如开始节点凭据）仍留在当前浏览器内。 */
     duplicate(id) {
       this._assertEditable(id)
-      return this.importDocument(this.getDocument(id))
+      return this._addCopy(this.getDocument(id))
     }
 
     /** 删除非运行中的流程，至少保留一个空工作流。 */
@@ -481,10 +494,15 @@
       this._notify(this._activeId, { kind: 'workspace' })
     }
 
-    /** 校验成功后作为新流程导入，不覆盖同标识已有流程。 */
-    importDocument(raw) {
-      const original = parseDocument(raw, this.registry)
-      const document = parseDocument({ ...clone(original), id: makeId(), name: `${original.name.slice(0, 115)} 副本` }, this.registry)
+    /** 校验成功后作为新流程导入，不覆盖同标识已有流程；导入文件中的本地配置不予采用。preserveName 为 true 时保留原名称，否则追加“副本”。 */
+    importDocument(raw, { preserveName = false } = {}) {
+      return this._addCopy(this._withoutLocalConfig(parseDocument(raw, this.registry)), { preserveName })
+    }
+
+    /** 以新标识加入工作区并切换到该流程；名称默认追加“副本”，preserveName 为 true 时保留原名称。 */
+    _addCopy(original, { preserveName = false } = {}) {
+      const name = preserveName ? original.name : `${original.name.slice(0, 115)} 副本`
+      const document = parseDocument({ ...clone(original), id: makeId(), name }, this.registry)
       this._checkBudget([...this._documents, document], document.id)
       this._documents.push(document)
       this._activeId = document.id
@@ -494,16 +512,26 @@
       return document
     }
 
-    /** 仅导出定义和用户输入，原文可能含敏感值。 */
-    exportDocument(id = this._activeId) {
-      return JSON.stringify(this.getDocument(id))
+    /** 把声明 localConfig 的节点配置重置为默认值，使其只保存在本浏览器，不随文件导入导出。 */
+    _withoutLocalConfig(document) {
+      const nodes = document.nodes.map((node) => {
+        const definition = this.registry.get(node.type, node.version)
+        return definition?.localConfig ? { ...node, config: clone(definition.defaults) } : node
+      })
+      return { ...document, nodes }
     }
 
-    /** 使用注册定义的默认参数创建节点。 */
+    /** 仅导出定义和用户输入，原文可能含敏感值；本地配置不导出。 */
+    exportDocument(id = this._activeId) {
+      return JSON.stringify(this._withoutLocalConfig(this.getDocument(id)))
+    }
+
+    /** 使用注册定义的默认参数创建节点；定义声明 initConfig 时按当前流程生成实例配置（如区域避开已用颜色）。 */
     addNode(type, position) {
       const definition = this.registry.list().find((item) => item.type === type)
       if (!definition) throw new Error('未注册的节点类型。')
-      const node = { id: makeId(), type, version: definition.version, name: definition.label, position, size: clone(definition.size || { width: 300, height: 220 }), config: clone(definition.defaults) }
+      const config = definition.initConfig ? definition.initConfig(clone(definition.defaults), this.getDocument()) : clone(definition.defaults)
+      const node = { id: makeId(), type, version: definition.version, name: definition.label, position, size: clone(definition.size || { width: 300, height: 220 }), config }
       this._commit(this._activeId, (draft) => { draft.nodes.push(node) }, { nodeIds: [node.id] })
       return this.getDocument().nodes.find((item) => item.id === node.id)
     }
@@ -551,11 +579,18 @@
       })
     }
 
-    /** 复制选中子图，重建节点及内部连线标识。 */
+    /** 复制选中子图，重建节点及内部连线标识；声明 initConfig 的节点按复制后的流程重新生成实例配置。 */
     copySelection(nodeIds, id = this._activeId) {
       const document = this.getDocument(id)
       const map = new Map(document.nodes.filter((node) => nodeIds.includes(node.id)).map((node) => [node.id, makeId()]))
-      const nodes = document.nodes.filter((node) => map.has(node.id)).map((node) => ({ ...clone(node), id: map.get(node.id), position: { x: node.position.x + 32, y: node.position.y + 32 } }))
+      const existing = [...document.nodes]
+      const nodes = document.nodes.filter((node) => map.has(node.id)).map((node) => {
+        const initConfig = this.registry.get(node.type, node.version)?.initConfig
+        const config = initConfig ? initConfig(clone(node.config), { ...document, nodes: existing }) : clone(node.config)
+        const copy = { ...clone(node), id: map.get(node.id), position: { x: node.position.x + 32, y: node.position.y + 32 }, config }
+        existing.push(copy) // 同批复制的区域之间也互不撞色
+        return copy
+      })
       const edges = document.edges.filter((edge) => map.has(edge.source.nodeId) && map.has(edge.target.nodeId)).map((edge) => ({ id: makeId(), source: { nodeId: map.get(edge.source.nodeId), port: edge.source.port }, target: { nodeId: map.get(edge.target.nodeId), port: edge.target.port } }))
       this._commit(id, (draft) => { draft.nodes.push(...nodes); draft.edges.push(...edges) })
       return nodes
@@ -687,7 +722,8 @@
       const document = parseDocument(this.getDocument(id), this.registry)
       const plan = createExecutionPlan(document, this.registry)
       const unreachable = Object.freeze({ status: 'skipped', message: '未连接开始节点，本次未执行。', outputs: null })
-      const states = new Map(document.nodes.map((node) => [node.id, plan.active.has(node.id) ? QUEUED : unreachable]))
+      const runnable = document.nodes.filter((node) => plan.definitions.get(node.id).execution !== NODE_EXECUTION.annotation)
+      const states = new Map(runnable.map((node) => [node.id, plan.active.has(node.id) ? QUEUED : unreachable]))
       return this._execute(id, { document, plan, scope: plan.active, states })
     }
 
@@ -751,7 +787,15 @@
               setState(node.id, { status: 'failed', message: `输入“${port.label}”不符合 ${port.dataType} 数据类型。`, outputs: null })
               return
             }
-            values[edge.target.port] = outputs[edge.source.port]
+            if (port.multiple) (values[edge.target.port] ??= []).push({ node: nodes.get(edge.source.nodeId), value: outputs[edge.source.port] })
+            else values[edge.target.port] = outputs[edge.source.port]
+          }
+          // 多来源输入按上游节点画布位置（上→下、左→右）排序，顺序在画布上可见
+          for (const port of definition.inputs) {
+            if (!port.multiple || !has(values, port.id)) continue
+            values[port.id] = values[port.id]
+              .sort((a, b) => a.node.position.y - b.node.position.y || a.node.position.x - b.node.position.x)
+              .map((item) => ({ name: item.node.name, value: item.value }))
           }
           const missing = definition.inputs.filter((port) => port.required && !has(values, port.id))
           if (missing.length) {
@@ -779,7 +823,7 @@
             }
             const execution = Promise.resolve().then(() => {
               if (!current()) throw abortError()
-              return definition.execute({ node, inputs: freeze(inputs), controls: freeze(controls), services: this.services, signal: controller.signal, suspend })
+              return definition.execute({ node, entry, inputs: freeze(inputs), controls: freeze(controls), services: this.services, signal: controller.signal, suspend })
             }).finally(() => slot())
             const result = await withAbort(execution, controller.signal)
             if (!current()) return
@@ -833,7 +877,7 @@
     }
   }
 
-  const api = Object.freeze({ LIMITS, STORAGE_KEY, NODE_EXECUTION, PORT_KIND, NodeRegistry, Workspace, parseDocument, validateConnection, withAbort })
+  const api = Object.freeze({ LIMITS, STORAGE_KEY, NODE_EXECUTION, PORT_KIND, NodeRegistry, Workspace, parseDocument, validateConnection, withAbort, maxSizeOf })
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.NestCloudWorkflowCore = api
 })(typeof window === 'undefined' ? globalThis : window)

@@ -3,10 +3,10 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const loadScript = createRequire(resolve(process.cwd(), 'package.json'));
-const { Workspace, STORAGE_KEY, NODE_EXECUTION, PORT_KIND } = loadScript(
+const { Workspace, STORAGE_KEY, NODE_EXECUTION, PORT_KIND, NodeRegistry } = loadScript(
   resolve(process.cwd(), 'public/js/workflow-core.js'),
 );
-const { createRegistry, createServices, isDiffResult } = loadScript(
+const { createRegistry, createServices, isDiffResult, REGION_COLORS } = loadScript(
   resolve(process.cwd(), 'public/js/workflow-nodes.js'),
 );
 
@@ -324,6 +324,7 @@ describe('workflow built-in nodes and comparison boundary', () => {
       ['text-result', NODE_EXECUTION.task],
       ['feishu-find-row', NODE_EXECUTION.task],
       ['feishu-write-cells', NODE_EXECUTION.task],
+      ['region', NODE_EXECUTION.annotation],
     ]);
     expect(definitions[0]).toMatchObject({
       category: '流程控制',
@@ -506,5 +507,106 @@ describe('workflow built-in nodes and comparison boundary', () => {
     const copy = workspace.duplicate(workspace.activeId);
     expect(copy.nodes.filter((node: { type: string }) => node.type === 'start')).toHaveLength(1);
     expect(workspace.documents).toHaveLength(count + 1);
+  });
+});
+
+describe('workflow region annotations', () => {
+  /** 当前流程中所有区域的颜色，按添加顺序。 */
+  function regionColors(workspace: InstanceType<typeof Workspace>) {
+    return workspace
+      .getDocument()
+      .nodes.filter((node: { type: string }) => node.type === 'region')
+      .map((node: { config: { color: string } }) => node.config.color);
+  }
+
+  it('gives every new region an unused color and reuses the least used color once all are taken', () => {
+    const workspace = new Workspace({ registry: createRegistry() });
+    const regions = REGION_COLORS.map((_: string, index: number) =>
+      workspace.addNode('region', { x: index * 500, y: 0 }),
+    );
+    expect(regionColors(workspace)).toEqual(REGION_COLORS);
+    expect(regions[0]).toMatchObject({
+      name: '区域',
+      version: 1,
+      config: { color: REGION_COLORS[0] },
+    });
+    expect(Object.keys(regions[0].config)).toEqual(['color']);
+    workspace.deleteSelection({ nodeIds: [regions[3].id] });
+    expect(workspace.addNode('region', { x: 0, y: 600 }).config.color).toBe(REGION_COLORS[3]);
+    expect(workspace.addNode('region', { x: 0, y: 1200 }).config.color).toBe(REGION_COLORS[0]);
+  });
+
+  it('recolors copied regions so a copy never shares a color with the original or its batch', () => {
+    const workspace = new Workspace({ registry: createRegistry() });
+    const first = workspace.addNode('region', { x: 0, y: 0 });
+    const second = workspace.addNode('region', { x: 600, y: 0 });
+    workspace.updateNode(first.id, { name: '数据准备' });
+    const copies = workspace.copySelection([first.id, second.id]);
+    expect(copies[0]).toMatchObject({ name: '数据准备' });
+    expect(new Set(regionColors(workspace)).size).toBe(4);
+  });
+
+  it('keeps regions out of runs and does not mark results stale when only a region changes', async () => {
+    const workspace = new Workspace({
+      registry: createRegistry(),
+      services: { compare: vi.fn(async () => result()) },
+    });
+    const start = workspace.addNode('start', { x: 0, y: 0 });
+    const left = workspace.addNode('text', { x: 0, y: 300 });
+    const right = workspace.addNode('text', { x: 0, y: 700 });
+    const compare = workspace.addNode('json-compare', { x: 400, y: 0 });
+    const region = workspace.addNode('region', { x: -40, y: -40 });
+    for (const [source, port, target, input] of [
+      [start, 'trigger', compare, 'trigger'],
+      [left, 'text', compare, 'a'],
+      [right, 'text', compare, 'b'],
+    ] as const)
+      workspace.connect({
+        source: { nodeId: source.id, port },
+        target: { nodeId: target.id, port: input },
+      });
+    await expect(workspace.run()).resolves.toMatchObject({ status: 'succeeded' });
+    expect(workspace.getRuntime().states.has(region.id)).toBe(false);
+    workspace.updateNode(region.id, { name: '对比范围' });
+    expect(workspace.getRuntime().status).toBe('succeeded');
+    expect(workspace.exportDocument()).toContain('对比范围');
+  });
+
+  it('rejects ports on annotations, unknown region keys and foreign colors', () => {
+    expect(() =>
+      new NodeRegistry().register({
+        type: 'note',
+        version: 1,
+        execution: NODE_EXECUTION.annotation,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      new NodeRegistry().register({
+        type: 'note',
+        version: 1,
+        execution: NODE_EXECUTION.annotation,
+        outputs: [{ id: 'out', dataType: 'text' }],
+      }),
+    ).toThrow('画布标注节点不能声明连接点');
+    const validate = createRegistry().get('region', 1).validateConfig;
+    expect(validate({ color: REGION_COLORS[2] })).toBeNull();
+    for (const config of [{ color: '#000000' }, { color: REGION_COLORS[0], description: '旧描述' }])
+      expect(validate(config)).toBe('区域只能配置调色板内的颜色。');
+  });
+});
+
+describe('workflow annotation size limit', () => {
+  it('lets regions span far wider than ordinary nodes while keeping the ordinary node limit', () => {
+    const workspace = new Workspace({ registry: createRegistry() });
+    const region = workspace.addNode('region', { x: 0, y: 0 });
+    const text = workspace.addNode('text', { x: 0, y: 0 });
+    workspace.updateNode(region.id, { size: { width: 3600, height: 720 } });
+    expect(workspace.getDocument().nodes[0].size).toEqual({ width: 3600, height: 720 });
+    expect(() => workspace.updateNode(text.id, { size: { width: 3600, height: 720 } })).toThrow(
+      '节点尺寸须在 160–2400 之间。',
+    );
+    expect(() => workspace.updateNode(region.id, { size: { width: 10_001, height: 720 } })).toThrow(
+      '节点尺寸须在 160–10000 之间。',
+    );
   });
 });

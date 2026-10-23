@@ -34,7 +34,7 @@ interface MatrixInfo {
 }
 interface CapabilityView {
   LIMITS: Record<string, number>;
-  normalizeFields(fields: unknown): Field[];
+  normalizeFields(fields: unknown, allowSecrets?: boolean): Array<Field & { group?: string }>;
   readFieldInput(
     field: Partial<Field>,
     raw: string | boolean,
@@ -132,6 +132,21 @@ describe('workflow-capability-view 字段规范化', () => {
     ]);
     expect(fields.map((field) => field.key)).toEqual(['maxTokens', 'branch']);
     expect(fields[1].label).toBe('branch');
+  });
+
+  it('只在本地配置节点渲染 password 凭据字段，凭据键仍不能以明文类型出现', () => {
+    const declared = [
+      { key: 'githubToken', type: 'password', label: 'GitHub Token', group: 'github' },
+      { key: 'appSecret', type: 'text', label: '明文密钥' },
+      { key: 'aiModel', type: 'text', label: 'AI 模型' },
+    ];
+    expect(view.normalizeFields(declared).map((field) => field.key)).toEqual(['aiModel']);
+    expect(
+      view.normalizeFields(declared, true).map((field) => [field.key, field.type, field.group]),
+    ).toEqual([
+      ['githubToken', 'password', 'github'],
+      ['aiModel', 'text', undefined],
+    ]);
   });
 
   it('builds a Monday-first six-week calendar and reads only real dates from manual input', () => {

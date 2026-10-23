@@ -108,6 +108,7 @@ describe('workflow atomic registration and metadata', () => {
       'env-compare',
       'diff-result',
       ...TYPES,
+      'region',
     ]);
     for (const type of TYPES) {
       const definition = definitions.find((item: { type: string }) => item.type === type);
@@ -139,7 +140,7 @@ describe('workflow atomic registration and metadata', () => {
       definitions
         .filter((definition: { version: number }) => definition.version > 1)
         .map((definition: { type: string }) => definition.type),
-    ).toEqual(['json-pick', 'text-template', 'ai-text', 'feishu-write-cells']);
+    ).toEqual(['json-pick', 'json-merge', 'text-template', 'ai-text', 'feishu-write-cells']);
     for (const type of ['date-range', 'json-input']) expect(installed.get(type).inputs).toEqual([]);
     for (const type of TYPES.filter((item) => !['date-range', 'json-input'].includes(item))) {
       expect(latest(type).inputs[0]).toMatchObject({
@@ -315,10 +316,27 @@ describe('workflow atomic registration and metadata', () => {
     [
       'json-merge',
       { mode: 'object' },
-      { a: [1], b: { x: 2 }, d: 'tail' },
-      { data: { a: [1], b: { x: 2 }, d: 'tail' } },
+      {
+        items: [
+          { name: '提交记录', value: [1] },
+          { name: ' 周报时间范围 ', value: { x: 2 } },
+          { name: '__proto__', value: 'tail' },
+        ],
+      },
+      { data: { 提交记录: [1], 周报时间范围: { x: 2 }, ['__proto__']: 'tail' } },
     ],
-    ['json-merge', { mode: 'concat' }, { a: [1, [2]], b: [], c: [3] }, { data: [1, [2], 3] }],
+    [
+      'json-merge',
+      { mode: 'concat' },
+      {
+        items: [
+          { name: 'A', value: [1, [2]] },
+          { name: 'A', value: [] },
+          { name: 'C', value: [3] },
+        ],
+      },
+      { data: [1, [2], 3] },
+    ],
     [
       'text-template',
       { template: '{{text}} / {{context.name}} / {{context.list[0]}} / {{json:context.name}}' },
@@ -422,7 +440,34 @@ describe('workflow atomic registration and metadata', () => {
       { context: {} },
       '模板只支持 context、text 字段引用',
     ],
-    ['json-merge', { mode: 'concat' }, { a: [1], b: { not: 'array' } }, '每个输入都是数组'],
+    [
+      'json-merge',
+      { mode: 'concat' },
+      {
+        items: [
+          { name: 'A', value: [1] },
+          { name: 'B', value: { not: 'array' } },
+        ],
+      },
+      '每个输入都是数组',
+    ],
+    [
+      'json-merge',
+      { mode: 'object' },
+      {
+        items: [
+          { name: '提交记录', value: [] },
+          { name: '提交记录 ', value: [] },
+        ],
+      },
+      '上游节点名称“提交记录”重复',
+    ],
+    [
+      'json-merge',
+      { mode: 'object' },
+      { items: [{ name: '  ', value: 1 }] },
+      '每个上游节点都有名称',
+    ],
     ['text-result', { format: 'json' }, {}, '只连接文本或 JSON 数据其中一个输入'],
     [
       'text-result',
@@ -592,6 +637,144 @@ describe('workflow atomic registration and metadata', () => {
     const before = workspace.exportDocument();
     expect(() => workspace.upgradeNode(imported.nodes[0].id)).toThrow('JSON 合并');
     expect(workspace.exportDocument()).toBe(before);
+  });
+
+  it('upgrades a legacy four-slot JSON merge by moving every slot edge onto the multi-source input', () => {
+    const workspace = new Core.Workspace({ registry: createRegistry() });
+    const first = workspace.addNode('json-input', { x: 0, y: 0 });
+    const second = workspace.addNode('json-input', { x: 0, y: 300 });
+    workspace.addNode('json-merge', { x: 400, y: 0 });
+    const document = JSON.parse(workspace.exportDocument());
+    Object.assign(document.nodes[2], { version: 1, config: { mode: 'concat' } });
+    document.edges = [
+      {
+        id: 'to-a',
+        source: { nodeId: first.id, port: 'data' },
+        target: { nodeId: document.nodes[2].id, port: 'a' },
+      },
+      {
+        id: 'to-c',
+        source: { nodeId: second.id, port: 'data' },
+        target: { nodeId: document.nodes[2].id, port: 'c' },
+      },
+    ];
+    const imported = workspace.importDocument(document);
+    workspace.upgradeNode(imported.nodes[2].id);
+    const upgraded = workspace.getDocument();
+    expect(upgraded.nodes[2]).toMatchObject({ version: 2, config: { mode: 'concat' } });
+    expect(upgraded.edges.map((edge: { target: { port: string } }) => edge.target.port)).toEqual([
+      'items',
+      'items',
+    ]);
+  });
+});
+
+describe('workflow multi-source input ports', () => {
+  /** 搭建开始节点触发的 JSON 合并，按给定位置添加若干 JSON 输入来源。 */
+  function mergeFlow(
+    sources: Array<{ name: string; text: string; position: { x: number; y: number } }>,
+    mode = 'object',
+  ) {
+    const workspace = new Core.Workspace({ registry: createRegistry() });
+    const start = workspace.addNode('start', { x: 0, y: -400 });
+    const merge = workspace.addNode('json-merge', { x: 800, y: 0 });
+    workspace.updateNode(merge.id, { config: { mode } });
+    connect(workspace, [start, 'trigger', merge, 'trigger']);
+    const nodes = sources.map((source) => {
+      const node = workspace.addNode('json-input', source.position);
+      workspace.updateNode(node.id, { name: source.name, config: { text: source.text } });
+      connect(workspace, [node, 'data', merge, 'items']);
+      return node;
+    });
+    return { workspace, merge, nodes };
+  }
+
+  it('accepts any number of sources and orders them by canvas position, not connection order', async () => {
+    const { workspace, merge } = mergeFlow(
+      [
+        { name: '底部', text: '[5]', position: { x: 0, y: 900 } },
+        { name: '顶部右', text: '[2]', position: { x: 300, y: 0 } },
+        { name: '中部', text: '[3, 4]', position: { x: 0, y: 450 } },
+        { name: '顶部左', text: '[1]', position: { x: 0, y: 0 } },
+        { name: '最底部', text: '[]', position: { x: 0, y: 1300 } },
+      ],
+      'concat',
+    );
+    await expect(workspace.run()).resolves.toMatchObject({ status: 'succeeded' });
+    expect(workspace.getRuntime().states.get(merge.id).outputs.data).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('keys the object mode by upstream node names so templates can reference each source', async () => {
+    const { workspace, merge } = mergeFlow([
+      { name: '提交记录', text: '[{"hash":"a1"}]', position: { x: 0, y: 0 } },
+      { name: '周报时间范围', text: '{"startDate":"2026-10-12"}', position: { x: 0, y: 300 } },
+      { name: '仓库B', text: '[]', position: { x: 0, y: 600 } },
+    ]);
+    await expect(workspace.run()).resolves.toMatchObject({ status: 'succeeded' });
+    expect(workspace.getRuntime().states.get(merge.id).outputs.data).toEqual({
+      提交记录: [{ hash: 'a1' }],
+      周报时间范围: { startDate: '2026-10-12' },
+      仓库B: [],
+    });
+  });
+
+  it('fails the merge instead of overwriting when two upstream nodes share a name', async () => {
+    const { workspace, merge } = mergeFlow([
+      { name: '提交记录', text: '[1]', position: { x: 0, y: 0 } },
+      { name: '提交记录', text: '[2]', position: { x: 0, y: 300 } },
+    ]);
+    await workspace.run();
+    expect(workspace.getRuntime().states.get(merge.id)).toMatchObject({
+      status: 'failed',
+      message: '上游节点名称“提交记录”重复，对象方式要求名称唯一。',
+    });
+  });
+
+  it('rejects connecting the same source twice and keeps single-source ports exclusive', () => {
+    const { workspace, merge, nodes } = mergeFlow([
+      { name: 'A', text: '[]', position: { x: 0, y: 0 } },
+    ]);
+    const before = workspace.exportDocument();
+    expect(() => connect(workspace, [nodes[0], 'data', merge, 'items'])).toThrow(
+      '该来源已接入此输入连接点',
+    );
+    const pick = workspace.addNode('json-pick', { x: 400, y: 600 });
+    connect(workspace, [nodes[0], 'data', pick, 'context']);
+    expect(() => connect(workspace, [merge, 'data', pick, 'context'])).toThrow('只能接入一个来源');
+    expect(JSON.parse(workspace.exportDocument()).edges).toHaveLength(
+      JSON.parse(before).edges.length + 1,
+    );
+  });
+
+  it('requires at least one source on a required multi-source input', async () => {
+    const { workspace, merge } = mergeFlow([]);
+    await workspace.run();
+    expect(workspace.getRuntime().states.get(merge.id)).toMatchObject({
+      status: 'failed',
+      message: '缺少输入：输入。',
+    });
+  });
+
+  it('only allows data inputs to declare multiple sources', () => {
+    const execute = () => ({});
+    for (const definition of [
+      {
+        type: 'bad-output',
+        version: 1,
+        execute,
+        outputs: [{ id: 'out', dataType: 'text', multiple: true }],
+      },
+      {
+        type: 'bad-control',
+        version: 1,
+        execute,
+        inputs: [{ id: 'go', dataType: 'text', kind: 'control', multiple: true }],
+      },
+    ]) {
+      expect(() => new Core.NodeRegistry().register(definition)).toThrow(
+        '只有数据输入连接点可以接入多个来源',
+      );
+    }
   });
 });
 
@@ -1764,23 +1947,25 @@ describe('workflow atomic real entry-to-result data flow', () => {
     const start = workspace.addNode('start', { x: 0, y: 0 });
     const dates = workspace.addNode('date-range', { x: 0, y: 300 });
     workspace.updateNode(dates.id, {
+      name: '周报时间范围',
       config: { period: 'custom', since: '2026-10-12', until: '2026-10-18' },
     });
     const github = workspace.addNode('github-commits', { x: 350, y: 0 });
     workspace.updateNode(github.id, {
+      name: '提交记录',
       config: config('github-commits', { repository: 'owner/repo' }),
     });
     const template = workspace.addNode('text-template', { x: 1050, y: 0 });
     workspace.updateNode(template.id, {
-      config: { template: 'Date {{context.b.startDate}}: {{context.a}}' },
+      config: { template: 'Date {{context.周报时间范围.startDate}}: {{context.提交记录}}' },
     });
     const merge = workspace.addNode('json-merge', { x: 700, y: 0 });
     const ai = workspace.addNode('ai-text', { x: 1400, y: 0 });
     const output = workspace.addNode('text-result', { x: 1750, y: 0 });
     connect(workspace, [start, 'trigger', github, 'trigger']);
     connect(workspace, [dates, 'range', github, 'range']);
-    connect(workspace, [github, 'data', merge, 'a']);
-    connect(workspace, [dates, 'range', merge, 'b']);
+    connect(workspace, [github, 'data', merge, 'items']);
+    connect(workspace, [dates, 'range', merge, 'items']);
     connect(workspace, [merge, 'data', template, 'context']);
     connect(workspace, [template, 'text', ai, 'prompt']);
     connect(workspace, [ai, 'text', output, 'text']);
@@ -1792,6 +1977,7 @@ describe('workflow atomic real entry-to-result data flow', () => {
     expect(states.get(template.id).outputs.text).toContain(
       JSON.stringify([COMMIT, { ...COMMIT, author: 'Bob' }]),
     );
+    expect(states.get(template.id).outputs.text).toContain('Date 2026-10-12:');
     expect(states.get(output.id).outputs).toEqual({ text: 'generated report text' });
     expect(request).toHaveBeenCalledTimes(2);
     expect(workspace.exportDocument()).toBe(before);
@@ -1969,5 +2155,146 @@ describe('workflow atomic real entry-to-result data flow', () => {
       outputs: { text: 'independent' },
     });
     expect(states.get(invalid.id).message).not.toContain('invalid-secret-draft');
+  });
+});
+
+describe('workflow start-node credentials', () => {
+  /** 构造本次运行的开始节点快照，只覆盖需要的凭据字段。 */
+  function startNode(patch: Record<string, unknown> = {}) {
+    return { type: 'start', config: { ...Capabilities.CREDENTIAL_DEFAULTS, ...patch } };
+  }
+
+  /** 读取第 index 次能力请求提交的凭据。 */
+  function runtimeOf(request: ReturnType<typeof vi.fn>, index: number) {
+    return JSON.parse((request.mock.calls[index][1] as RequestInit).body as string).runtime;
+  }
+
+  it('prefers a credential group filled on the start node and falls back to Token 配置 for empty groups', async () => {
+    const request = vi.fn(async (path: string, _options: RequestInit) =>
+      response(path.endsWith('github-commits') ? [] : { text: 'generic text' }),
+    );
+    const readCredentials = vi.fn(() => CREDENTIALS);
+    const services = createServices({ request, readCredentials });
+    const entry = startNode({ githubToken: ' start-github-token ' });
+    await services.githubCommits({
+      config: config('github-commits', { repository: 'owner/repo' }),
+      range: RANGE,
+      entry,
+    });
+    expect(readCredentials).not.toHaveBeenCalled();
+    expect(runtimeOf(request, 0)).toEqual({ githubToken: 'start-github-token' });
+    await services.aiText({ config: config('ai-text'), prompt: 'prompt', entry });
+    expect(readCredentials).toHaveBeenCalledTimes(1);
+    expect(runtimeOf(request, 1)).toEqual({ ai: { ...CREDENTIALS.ai, enableThinking: false } });
+  });
+
+  it('uses the whole start-node AI group and fails instead of mixing it with Token 配置 when incomplete', async () => {
+    const request = vi.fn(async () => response({ text: 'generic text' }));
+    const readCredentials = vi.fn(() => CREDENTIALS);
+    const services = createServices({ request, readCredentials });
+    const complete = startNode({
+      aiBaseUrl: 'https://llm.example.com/v1',
+      aiApiKey: 'start-ai-key',
+      aiModel: 'start-model',
+      aiEnableThinking: true,
+    });
+    await services.aiText({ config: config('ai-text'), prompt: 'prompt', entry: complete });
+    expect(runtimeOf(request, 0)).toEqual({
+      ai: {
+        baseUrl: 'https://llm.example.com/v1',
+        apiKey: 'start-ai-key',
+        model: 'start-model',
+        enableThinking: true,
+      },
+    });
+    await expect(
+      services.aiText({
+        config: config('ai-text'),
+        prompt: 'prompt',
+        entry: startNode({ aiApiKey: 'only-key' }),
+      }),
+    ).rejects.toThrow('请在开始节点或 Token 配置中填写完整的 AI 地址、密钥和模型');
+    await expect(
+      services.feishuFindRow({
+        config: config('feishu-find-row', { wikiUrl: WIKI }),
+        matches: [{ column: 'A', value: 'Alice', mode: 'equals' }],
+        entry: startNode({ feishuAppId: 'start-app' }),
+      }),
+    ).rejects.toThrow('完整的飞书 App ID 和 App Secret');
+    expect(readCredentials).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the running start node to remote executors through the workspace', async () => {
+    const request = vi.fn(async (_path: string, _options: RequestInit) => response([COMMIT]));
+    const readCredentials = vi.fn(() => CREDENTIALS);
+    const workspace = new Core.Workspace({
+      registry: createRegistry(),
+      services: createServices({ request, readCredentials }),
+    });
+    const start = workspace.addNode('start', { x: 0, y: 0 });
+    workspace.updateNode(start.id, {
+      config: { ...start.config, githubToken: 'flow-github-token' },
+    });
+    const dates = workspace.addNode('date-range', { x: 0, y: 600 });
+    const github = workspace.addNode('github-commits', { x: 400, y: 0 });
+    workspace.updateNode(github.id, {
+      config: config('github-commits', { repository: 'owner/repo' }),
+    });
+    connect(workspace, [start, 'trigger', github, 'trigger']);
+    connect(workspace, [dates, 'range', github, 'range']);
+    await expect(workspace.run()).resolves.toMatchObject({ status: 'succeeded' });
+    expect(runtimeOf(request, 0)).toEqual({ githubToken: 'flow-github-token' });
+    expect(readCredentials).not.toHaveBeenCalled();
+  });
+
+  it('keeps start-node credentials in the local workspace and duplicates, never in exported or imported files', () => {
+    const saved = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => saved.get(key) || null,
+      setItem: (key: string, value: string) => saved.set(key, value),
+    };
+    const workspace = new Core.Workspace({ registry: createRegistry(), storage });
+    const start = workspace.addNode('start', { x: 0, y: 0 });
+    workspace.updateNode(start.id, {
+      config: { ...start.config, githubToken: 'private-start-token', aiEnableThinking: true },
+    });
+    expect(saved.get(Core.STORAGE_KEY)).toContain('private-start-token');
+    const exported = workspace.exportDocument();
+    expect(exported).not.toContain('private-start-token');
+    expect(JSON.parse(exported).nodes[0].config).toEqual(Capabilities.CREDENTIAL_DEFAULTS);
+
+    const copy = workspace.duplicate(workspace.activeId);
+    expect(copy.nodes[0].config.githubToken).toBe('private-start-token');
+
+    const file = JSON.parse(exported);
+    file.nodes[0].config = { ...file.nodes[0].config, feishuAppSecret: 'file-secret' };
+    const imported = workspace.importDocument(JSON.stringify(file));
+    expect(imported.nodes[0].config).toEqual(Capabilities.CREDENTIAL_DEFAULTS);
+  });
+
+  it('links every remote node version to a credential group shown on the start node', () => {
+    const groups = new Set(
+      Capabilities.CREDENTIAL_FIELDS.map((field: { group: string }) => field.group),
+    );
+    const remote = [...registry.definitions.values()].filter(
+      (definition: { remote?: boolean }) => definition.remote,
+    );
+    expect(remote.length).toBeGreaterThan(0);
+    for (const definition of remote) expect(groups.has(definition.credentialGroup)).toBe(true);
+    expect(registry.get('github-commits', 1).credentialGroup).toBe('github');
+    expect(registry.get('feishu-write-cells', 2).credentialGroup).toBe('feishu');
+  });
+
+  it('accepts legacy empty start configuration and rejects non-credential keys', () => {
+    const definition = registry.get('start', 1);
+    expect(definition.validateConfig({})).toBeNull();
+    expect(definition.validateConfig({ githubToken: 'x' })).toBeNull();
+    expect(definition.validateConfig({ apiUrl: 'https://evil.example.com' })).toBe(
+      '开始节点只能配置 GitHub、AI 和飞书凭据。',
+    );
+    expect(definition.validateConfig({ aiEnableThinking: 'yes' })).toBe(
+      '开始节点凭据格式或长度无效。',
+    );
   });
 });

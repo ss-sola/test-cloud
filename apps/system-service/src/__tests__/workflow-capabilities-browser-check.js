@@ -4,7 +4,8 @@ window.__workflowCapabilitiesBrowserCheck = (async () => {
   const { workspace } = window.NestCloudWorkflow.mount(root)
   const originalId = workspace.activeId
   const originalServices = { ...workspace.services }
-  const originalQuery = root.querySelector('[data-wf="palette-search"]').value
+  const sidebarHost = document.querySelector('#workflow-sidebar-host')
+  const originalQuery = sidebarHost.querySelector('[data-wf="palette-search"]').value
   const created = []
   const checks = []
   const calls = []
@@ -13,7 +14,9 @@ window.__workflowCapabilitiesBrowserCheck = (async () => {
   let releaseAi = null
   const RESULT_TEXT = '# 工作周报\n\n- 实现独立节点\n\nAI_RESULT_ONLY_69fa\n\n<img data-wf-unsafe src=x>\n\n[不安全链接](javascript:alert(1))'
   const pause = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms))
-  const control = (name) => root.querySelector(`[data-wf="${name}"]`)
+  const control = (name) => root.querySelector(`[data-wf="${name}"]`) ?? sidebarHost.querySelector(`[data-wf="${name}"]`)
+  /** 撤销/重做只保留 stage 快捷键入口，派发真实键盘事件。 */
+  const stageKey = (key, options = {}) => control('stage').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }))
   const nodeOf = (type) => workspace.getDocument().nodes.find((node) => node.type === type)
   const hostOf = (node) => root.querySelector(`[data-node-id="${node.id}"]`)
   function assert(condition, message) { if (!condition) throw new Error(message) }
@@ -99,9 +102,9 @@ window.__workflowCapabilitiesBrowserCheck = (async () => {
     assert(workspace.getDocument().nodes.length === 7 && workspace.getDocument().edges.length === 7, '周报样例不是七个独立能力节点（含 JSON 合并）的完整数据流')
     assert(!workspace.getDocument().nodes.some((node) => node.type.startsWith('feishu-')), '周报样例意外包含发布步骤')
     assert(calls.length === before && workspace.getRuntime().status === 'idle', '载入周报样例自动请求了远程服务')
-    control('undo').click()
+    stageKey('z', { ctrlKey: true })
     assert(workspace.getDocument().nodes.length === 0, '周报样例载入不是一次撤销')
-    control('redo').click()
+    stageKey('z', { ctrlKey: true, shiftKey: true })
     const github = nodeOf('github-commits')
     const aiNode = nodeOf('ai-text')
     assert(!Object.hasOwn(aiNode.config, 'maxTokens') && !hostOf(aiNode).querySelector('[data-wf-field="maxTokens"]'), '新 AI 节点仍显示或保存最大输出 Token')
@@ -246,7 +249,7 @@ window.__workflowCapabilitiesBrowserCheck = (async () => {
     const upgraded = workspace.getDocument().nodes.find((node) => node.id === legacyNode.id)
     assert(upgraded.version === 2 && !Object.hasOwn(upgraded.config, 'maxTokens') && upgraded.config.contextWindowTokens === 100000, '升级没有按迁移生成新版配置')
     assert(!hostOf(upgraded).querySelector('.wf-node__upgrade'), '升级后节点视图没有重建')
-    control('undo').click()
+    stageKey('z', { ctrlKey: true })
     assert(workspace.getDocument().nodes.find((node) => node.id === legacyNode.id).version === 1, '升级不能一步撤销')
     checks.push('旧版本节点显式升级、视图重建与一步撤销通过')
 

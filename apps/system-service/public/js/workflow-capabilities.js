@@ -11,6 +11,17 @@
     feishuWriteCells: '/api/workflow-capabilities/feishu-write-cells',
   })
   const CREDENTIAL_REF = 'token-config'
+  // 开始节点可填写的凭据，分组与 Token 配置一致；group 对应远程节点定义的 credentialGroup，limit 为字符上限，复选框无上限
+  const CREDENTIAL_FIELDS = Object.freeze([
+    { key: 'githubToken', group: 'github', label: 'GitHub Token', type: 'password', limit: 4096, help: '留空时使用 Token 配置中的 GitHub Token。' },
+    { key: 'aiBaseUrl', group: 'ai', label: 'AI 地址', type: 'text', limit: 2048, placeholder: 'https://api.openai.com/v1', help: 'AI 地址、密钥、模型任一项填写后整组使用此处的值，须填写完整；全部留空时使用 Token 配置。' },
+    { key: 'aiApiKey', group: 'ai', label: 'AI 密钥', type: 'password', limit: 4096 },
+    { key: 'aiModel', group: 'ai', label: 'AI 模型', type: 'text', limit: 256 },
+    { key: 'aiEnableThinking', group: 'ai', label: '启用 AI 思考', type: 'checkbox' },
+    { key: 'feishuAppId', group: 'feishu', label: '飞书 App ID', type: 'text', limit: 256, help: '飞书 App ID、App Secret 任一项填写后整组使用此处的值；全部留空时使用 Token 配置。' },
+    { key: 'feishuAppSecret', group: 'feishu', label: '飞书 App Secret', type: 'password', limit: 4096 },
+  ].map(Object.freeze))
+  const CREDENTIAL_DEFAULTS = Object.freeze(Object.fromEntries(CREDENTIAL_FIELDS.map((field) => [field.key, field.type === 'checkbox' ? false : ''])))
   const MERGE_PORTS = Object.freeze(['a', 'b', 'c', 'd'])
   const TEMPLATE_V2_ROOTS = Object.freeze(['context', 'text'])
   const has = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
@@ -49,7 +60,7 @@
   function checkConfig(definition, config) {
     try {
       const keys = [...definition.fields.map((field) => field.key), ...(definition.remote ? ['credentialRef'] : [])]
-      if (!object(config) || keys.some((key) => !has(config, key)) || Object.keys(config).some((key) => !keys.includes(key))) return '节点配置包含缺失或未允许的字段；凭据只能在 Token 配置中提供。'
+      if (!object(config) || keys.some((key) => !has(config, key)) || Object.keys(config).some((key) => !keys.includes(key))) return '节点配置包含缺失或未允许的字段；凭据只能在开始节点或 Token 配置中提供。'
       Data.assertJsonValue(config)
       if (definition.remote && config.credentialRef !== CREDENTIAL_REF) return '凭据引用只能是 token-config。'
       return definition.check(config) ? null : '节点配置字段格式或预算无效，请检查配置。'
@@ -105,19 +116,39 @@
     } catch { throw new CapabilityError('无法读取 Token 配置，请检查本浏览器配置。') }
   }
 
+  /** 校验开始节点凭据配置：只允许声明的凭据键，字段可缺省（兼容旧流程），文本受长度上限约束。 */
+  function checkCredentialConfig(config) {
+    if (!object(config) || Object.keys(config).some((key) => !CREDENTIAL_FIELDS.some((field) => field.key === key))) return '开始节点只能配置 GitHub、AI 和飞书凭据。'
+    const invalid = CREDENTIAL_FIELDS.some((field) => has(config, field.key)
+      && (field.type === 'checkbox' ? typeof config[field.key] !== 'boolean' : !text(config[field.key], field.limit)))
+    return invalid ? '开始节点凭据格式或长度无效。' : null
+  }
+
+  /** 开始节点填写了本次所需凭据组的任一项时整组采用其值，整组留空才回退 Token 配置，避免两处凭据混拼。 */
+  function startCredentials(kind, entry) {
+    const config = entry?.type === 'start' ? entry.config : {}
+    const value = (key) => (typeof config[key] === 'string' ? config[key].trim() : '')
+    if (kind === 'githubCommits') return value('githubToken') ? { githubToken: value('githubToken') } : null
+    if (kind === 'aiText') {
+      const ai = { baseUrl: value('aiBaseUrl'), apiKey: value('aiApiKey'), model: value('aiModel'), enableThinking: config.aiEnableThinking === true }
+      return ai.baseUrl || ai.apiKey || ai.model ? { ai } : null
+    }
+    return value('feishuAppId') || value('feishuAppSecret') ? { feishuAppId: value('feishuAppId'), feishuAppSecret: value('feishuAppSecret') } : null
+  }
+
   /** 验证本次完整凭据并仅提取目标接口所需字段。 */
   function runtimeCredentials(kind, credentials) {
-    if (!object(credentials)) throw new CapabilityError('请先在 Token 配置中填写本次调用所需的完整凭据。')
+    if (!object(credentials)) throw new CapabilityError('请在开始节点或 Token 配置中填写本次调用所需的完整凭据。')
     if (kind === 'githubCommits') {
-      if (!nonempty(credentials.githubToken, 4096)) throw new CapabilityError('请先在 Token 配置中填写 GitHub Token。')
+      if (!nonempty(credentials.githubToken, 4096)) throw new CapabilityError('请在开始节点或 Token 配置中填写 GitHub Token。')
       return { githubToken: credentials.githubToken }
     }
     if (kind === 'aiText') {
       const ai = credentials.ai
-      if (!object(ai) || !nonempty(ai.apiKey, 4096) || !nonempty(ai.model, 256) || !nonempty(ai.baseUrl, 2048)) throw new CapabilityError('请先在 Token 配置中填写完整的 AI 地址、密钥和模型。')
+      if (!object(ai) || !nonempty(ai.apiKey, 4096) || !nonempty(ai.model, 256) || !nonempty(ai.baseUrl, 2048)) throw new CapabilityError('请在开始节点或 Token 配置中填写完整的 AI 地址、密钥和模型。')
       return { ai: { baseUrl: ai.baseUrl, apiKey: ai.apiKey, model: ai.model, enableThinking: ai.enableThinking === true } }
     }
-    if (!nonempty(credentials.feishuAppId, 256) || !nonempty(credentials.feishuAppSecret, 4096)) throw new CapabilityError('请先在 Token 配置中填写完整的飞书 App ID 和 App Secret。')
+    if (!nonempty(credentials.feishuAppId, 256) || !nonempty(credentials.feishuAppSecret, 4096)) throw new CapabilityError('请在开始节点或 Token 配置中填写完整的飞书 App ID 和 App Secret。')
     return { appId: credentials.feishuAppId, appSecret: credentials.feishuAppSecret }
   }
 
@@ -239,9 +270,9 @@
     const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS
     if (!integer(timeoutMs, 2_147_483_647)) throw new CapabilityError('能力请求超时配置无效。')
 
-    /** 统一管理生命周期，忽略信号的外部回调也无法触发迟到请求或结果；lifecycle 含外部取消信号与可选的名额让出函数。 */
+    /** 统一管理生命周期，忽略信号的外部回调也无法触发迟到请求或结果；lifecycle 含外部取消信号、本次运行的开始节点与可选的名额让出函数。 */
     async function perform(kind, lifecycle, prepare) {
-      const { signal, suspend } = lifecycle
+      const { signal, suspend, entry } = lifecycle
       const controller = new AbortController()
       const abort = () => controller.abort()
       signal?.addEventListener('abort', abort, { once: true })
@@ -263,7 +294,7 @@
         if (typeof request !== 'function' || typeof readCredentials !== 'function') throw new CapabilityError('当前环境无法访问能力服务或 Token 配置。')
         const execution = Promise.resolve().then(async () => {
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
-          const credentials = await Core.withAbort(Promise.resolve().then(readCredentials), controller.signal)
+          const credentials = startCredentials(kind, entry) ?? await Core.withAbort(Promise.resolve().then(readCredentials), controller.signal) // 开始节点优先，整组留空才读 Token 配置
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
           const runtime = runtimeCredentials(kind, credentials)
           const { body, context } = await Core.withAbort(prepare(runtime, { signal: controller.signal, untimed }), controller.signal)
@@ -296,33 +327,33 @@
 
     return {
       /** 查询一个仓库的原始提交，不附带周报过滤或去重规则。 */
-      async githubCommits({ config, range, signal }) {
+      async githubCommits({ config, range, signal, entry }) {
         const current = executionConfig('github-commits', config)
         if (!current.repository) throw new CapabilityError('请填写 GitHub 仓库。')
         const dates = validateRange(snapshot(range))
-        return perform('githubCommits', { signal }, async (runtime) => ({
+        return perform('githubCommits', { signal, entry }, async (runtime) => ({
           body: { repository: current.repository, branch: current.branch, author: current.author, ...dates, maxCommits: current.maxCommits, runtime },
           context: current,
         }))
       },
       /** 仅以显式提示词调用通用文本生成，不内置业务提示词或降级规则。 */
-      async aiText({ config, prompt, signal }) {
+      async aiText({ config, prompt, signal, entry }) {
         const current = executionConfig('ai-text', config)
         if (!nonempty(prompt, LIMITS.promptChars)) throw new CapabilityError('AI 提示词必须是最多 200000 字符的非空文本。')
-        const result = await perform('aiText', { signal }, async (runtime) => ({ body: { prompt, systemPrompt: current.systemPrompt, contextWindowTokens: current.contextWindowTokens, runtime }, context: current }))
+        const result = await perform('aiText', { signal, entry }, async (runtime) => ({ body: { prompt, systemPrompt: current.systemPrompt, contextWindowTokens: current.contextWindowTokens, runtime }, context: current }))
         return result.text
       },
       /** 在显式范围内按明确条件查找唯一行，只返回非秘密坐标。 */
-      async feishuFindRow({ config, matches, signal }) {
+      async feishuFindRow({ config, matches, signal, entry }) {
         const current = executionConfig('feishu-find-row', config)
         if (!current.wikiUrl || !current.range) throw new CapabilityError('请填写飞书 Wiki 地址和明确的查找范围。')
         const conditions = validateMatches(matches, current.range)
-        return perform('feishuFindRow', { signal }, async (runtime) => ({
+        return perform('feishuFindRow', { signal, entry }, async (runtime) => ({
           body: { wikiUrl: current.wikiUrl, range: current.range, matches: conditions, runtime }, context: current,
         }))
       },
       /** 校验行列约束后，以不可变真实矩阵逐次确认才发送一次写入；确认仅存在本次调用内存。 */
-      async feishuWriteCells({ config, target, values, signal, nodeName, suspend }) {
+      async feishuWriteCells({ config, target, values, signal, nodeName, suspend, entry }) {
         const current = executionConfig('feishu-write-cells', config)
         const destination = snapshot(target)
         const matrix = freezeSnapshot(snapshot(values))
@@ -335,7 +366,7 @@
         const range = Data.createCellRange({ startColumn: current.startColumn, row: destination.row, values: matrix })
         const context = { range, cells: dimensions.cells }
         const confirmation = freezeSnapshot({ wikiUrl: destination.wikiUrl, range, values: matrix, ...(text(nodeName, 120) ? { nodeName } : {}) })
-        return perform('feishuWriteCells', { signal, suspend }, async (runtime, step) => {
+        return perform('feishuWriteCells', { signal, suspend, entry }, async (runtime, step) => {
           if (typeof options.confirmWrite !== 'function') throw new CapabilityError('未提供本次写入确认，已拒绝写入。')
           const accepted = await step.untimed(() => {
             if (step.signal.aborted) throw new CapabilityError('运行已停止。')
@@ -451,6 +482,31 @@
       },
     },
     {
+      type: 'json-merge', version: 2, label: 'JSON 合并', category: '内容处理',
+      inputs: [TRIGGER, { id: 'items', label: '输入', dataType: 'json', required: true, multiple: true }],
+      outputs: [{ id: 'data', label: '合并结果', dataType: 'json' }], defaults: { mode: 'object' },
+      fields: [{ key: 'mode', label: '合并方式', type: 'select', options: [{ value: 'object', label: '以上游节点名称为键组合为对象' }, { value: 'concat', label: '依次拼接数组' }], help: '输入可连接任意多个上游节点。对象方式以上游节点名称为键，模板用 {{context.节点名称}} 引用，名称须唯一且不含空格和英文句点；拼接方式要求每个输入都是数组，按上游节点在画布上从上到下、从左到右的顺序合并。' }],
+      check: (config) => ['object', 'concat'].includes(config.mode),
+      /** v1 的 a/b/c/d 连线统一改接多来源输入；对象键随之变为上游节点名称，下游模板引用需相应调整。 */
+      migrate: (config) => ({ mode: config.mode }),
+      renameInputs: Object.fromEntries(MERGE_PORTS.map((id) => [id, 'items'])),
+      execute: ({ node, inputs }) => {
+        const { items } = inputs
+        if (node.config.mode === 'concat') {
+          if (items.some((item) => !Array.isArray(item.value))) throw new Error('数组拼接方式要求每个输入都是数组。')
+          return { data: items.flatMap((item) => item.value) }
+        }
+        const data = Object.create(null) // 节点名称可能是 __proto__ 等原型键，只作普通数据
+        for (const { name, value } of items) {
+          const key = name.trim()
+          if (!key) throw new Error('对象方式要求每个上游节点都有名称。')
+          if (has(data, key)) throw new Error(`上游节点名称“${key}”重复，对象方式要求名称唯一。`)
+          data[key] = value
+        }
+        return { data }
+      },
+    },
+    {
       type: 'text-template', version: 1, label: '文本模板', category: '内容处理',
       inputs: [TRIGGER, { id: 'data', label: 'JSON 数据', dataType: 'json' }, { id: 'context', label: '上下文', dataType: 'json' }, { id: 'text', label: '文本', dataType: 'text' }],
       outputs: [{ id: 'text', label: '文本', dataType: 'text' }], defaults: { template: '{{data}}' },
@@ -469,7 +525,7 @@
       execute: ({ node, inputs }) => ({ text: Data.renderTemplate(node.config.template, inputs, TEMPLATE_V2_ROOTS) }),
     },
     {
-      type: 'github-commits', version: 1, label: 'GitHub 提交', category: '外部能力', remote: true,
+      type: 'github-commits', version: 1, label: 'GitHub 提交', category: '外部能力', remote: true, credentialGroup: 'github',
       inputs: [TRIGGER, { id: 'range', label: '日期范围', dataType: 'date-range', required: true }],
       outputs: [{ id: 'data', label: '提交数组', dataType: 'commit-list' }], defaults: { repository: '', branch: '', author: '', maxCommits: LIMITS.defaultCommits, credentialRef: CREDENTIAL_REF },
       fields: [
@@ -479,22 +535,22 @@
       ],
       check: (config) => text(config.repository, 2048) && (!config.repository || validRepository(config.repository))
         && text(config.branch, 256) && text(config.author, 256) && integer(config.maxCommits, LIMITS.maxCommits),
-      execute: async ({ node, inputs, services, signal }) => ({ data: await services.githubCommits({ config: node.config, range: inputs.range, signal }) }),
+      execute: async ({ node, entry, inputs, services, signal }) => ({ data: await services.githubCommits({ config: node.config, range: inputs.range, signal, entry }) }),
     },
     {
-      type: 'ai-text', version: 1, label: 'AI 文本', category: '外部能力', remote: true, ...AI_PORTS,
+      type: 'ai-text', version: 1, label: 'AI 文本', category: '外部能力', remote: true, credentialGroup: 'ai', ...AI_PORTS,
       defaults: { systemPrompt: '', contextWindowTokens: LIMITS.aiDefaultContextWindowTokens, credentialRef: CREDENTIAL_REF }, fields: AI_FIELDS,
       /** 旧版允许缺省上下文并原样保留废弃的 maxTokens，迁移后按新版规则校验。 */
       validateConfig: (config) => (!object(config) || Object.keys(config).some((key) => !['systemPrompt', 'contextWindowTokens', 'credentialRef', 'maxTokens'].includes(key))
-        ? '节点配置包含缺失或未允许的字段；凭据只能在 Token 配置中提供。'
+        ? '节点配置包含缺失或未允许的字段；凭据只能在开始节点或 Token 配置中提供。'
         : checkConfig(LATEST.get('ai-text'), upgradeAiConfig(config))),
-      execute: async ({ node, inputs, services, signal }) => ({ text: await services.aiText({ config: upgradeAiConfig(node.config), prompt: inputs.prompt, signal }) }),
+      execute: async ({ node, entry, inputs, services, signal }) => ({ text: await services.aiText({ config: upgradeAiConfig(node.config), prompt: inputs.prompt, signal, entry }) }),
     },
     {
-      type: 'ai-text', version: 2, label: 'AI 文本', category: '外部能力', remote: true, ...AI_PORTS,
+      type: 'ai-text', version: 2, label: 'AI 文本', category: '外部能力', remote: true, credentialGroup: 'ai', ...AI_PORTS,
       defaults: { systemPrompt: '', contextWindowTokens: LIMITS.aiDefaultContextWindowTokens, credentialRef: CREDENTIAL_REF }, fields: AI_FIELDS,
       check: checkAi, migrate: upgradeAiConfig,
-      execute: async ({ node, inputs, services, signal }) => ({ text: await services.aiText({ config: node.config, prompt: inputs.prompt, signal }) }),
+      execute: async ({ node, entry, inputs, services, signal }) => ({ text: await services.aiText({ config: node.config, prompt: inputs.prompt, signal, entry }) }),
     },
     {
       type: 'text-result', version: 1, label: '文本结果', category: '结果展示',
@@ -512,7 +568,7 @@
       },
     },
     {
-      type: 'feishu-find-row', version: 1, label: '飞书查找行', category: '外部能力', remote: true,
+      type: 'feishu-find-row', version: 1, label: '飞书查找行', category: '外部能力', remote: true, credentialGroup: 'feishu',
       inputs: [TRIGGER, { id: 'matches', label: '匹配条件', dataType: 'match-list', required: true }],
       outputs: [{ id: 'target', label: '目标坐标', dataType: 'sheet-target' }], defaults: { wikiUrl: '', range: 'A1:B200', credentialRef: CREDENTIAL_REF },
       fields: [{ key: 'wikiUrl', label: 'Wiki 地址', type: 'text' }, { key: 'range', label: '查找范围', type: 'text', help: 'A1:B200；匹配列使用 A、B、AA 等绝对列名。' }],
@@ -524,15 +580,15 @@
         const columns = range.endColumn - range.startColumn + 1
         return rows <= LIMITS.lookupRows && columns <= LIMITS.lookupColumns && rows * columns <= LIMITS.readCells
       },
-      execute: async ({ node, inputs, services, signal }) => ({ target: await services.feishuFindRow({ config: node.config, matches: inputs.matches, signal }) }),
+      execute: async ({ node, entry, inputs, services, signal }) => ({ target: await services.feishuFindRow({ config: node.config, matches: inputs.matches, signal, entry }) }),
     },
     {
-      type: 'feishu-write-cells', version: 1, label: '飞书写入单元格', category: '外部能力', remote: true, ...WRITE_PORTS,
+      type: 'feishu-write-cells', version: 1, label: '飞书写入单元格', category: '外部能力', remote: true, credentialGroup: 'feishu', ...WRITE_PORTS,
       defaults: { startColumn: 'C', credentialRef: CREDENTIAL_REF }, fields: [START_COLUMN], check: checkStartColumn,
-      execute: async ({ node, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: upgradeWriteConfig(node.config), target: inputs.target, values: inputs.values, signal, nodeName: node.name, suspend }) }),
+      execute: async ({ node, entry, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: upgradeWriteConfig(node.config), target: inputs.target, values: inputs.values, signal, nodeName: node.name, suspend, entry }) }),
     },
     {
-      type: 'feishu-write-cells', version: 2, label: '飞书写入单元格', category: '外部能力', remote: true, ...WRITE_PORTS,
+      type: 'feishu-write-cells', version: 2, label: '飞书写入单元格', category: '外部能力', remote: true, credentialGroup: 'feishu', ...WRITE_PORTS,
       defaults: { startColumn: 'C', maxRows: 1, expectedColumns: 0, credentialRef: CREDENTIAL_REF },
       fields: [
         START_COLUMN,
@@ -542,7 +598,7 @@
       check: (config) => checkStartColumn(config) && integer(config.maxRows, LIMITS.rows)
         && Number.isSafeInteger(config.expectedColumns) && config.expectedColumns >= 0 && config.expectedColumns <= LIMITS.columns,
       migrate: upgradeWriteConfig,
-      execute: async ({ node, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: node.config, target: inputs.target, values: inputs.values, signal, nodeName: node.name, suspend }) }),
+      execute: async ({ node, entry, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: node.config, target: inputs.target, values: inputs.values, signal, nodeName: node.name, suspend, entry }) }),
     },
   ]
   DEFINITIONS.forEach(freezeSnapshot)
@@ -562,7 +618,7 @@
     return registry
   }
 
-  const api = Object.freeze({ register, createServices, REQUEST_TIMEOUT_MS, CREDENTIAL_STORAGE_KEY })
+  const api = Object.freeze({ register, createServices, checkCredentialConfig, REQUEST_TIMEOUT_MS, CREDENTIAL_STORAGE_KEY, CREDENTIAL_FIELDS, CREDENTIAL_DEFAULTS })
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.NestCloudWorkflowCapabilities = api
 })(typeof window === 'undefined' ? globalThis : window)

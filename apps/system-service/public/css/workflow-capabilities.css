@@ -64,6 +64,22 @@
   gap: 0.2rem 0.5rem;
 }
 
+/* 选中使用该凭据组的远程节点时，开始节点中对应字段的输入框以琥珀色光晕高亮。 */
+.workflow-view .wf-cap__field--linked .wf-cap__label {
+  color: var(--wf-warning-text);
+}
+
+.workflow-view .wf-cap__field--linked .wf-cap__control {
+  border-color: var(--wf-warning-mark);
+  box-shadow:
+    0 0 0 1px var(--wf-warning-mark),
+    0 0 10px 2px rgb(217 168 47 / 40%);
+}
+
+.workflow-view .wf-cap__field--linked .wf-cap__checkbox {
+  filter: drop-shadow(0 0 4px rgb(217 168 47 / 80%));
+}
+
 /* 占满节点剩余高度的文本域（如文本节点），沿用 .wf-text 编辑器外观。 */
 .workflow-view :is(.wf-cap--fill, .wf-cap--fill .wf-cap__form, .wf-cap__field--fill) {
   min-height: 0;

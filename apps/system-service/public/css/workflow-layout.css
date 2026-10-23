@@ -1,0 +1,361 @@
+/*
+ * 工作流全屏布局：仅在 .main-content[data-route='workflow'] 生效，必须最后加载。
+ * 入口与面板（.wf-sidebar）由脚本移入系统侧栏 #workflow-sidebar-host，仅使用 --wf-* 令牌。
+ */
+
+/* ---------- 1. 全屏壳层：页面不整页滚动，画布占满剩余空间 ---------- */
+
+html:has(.main-content[data-route='workflow']),
+body:has(.main-content[data-route='workflow']) {
+  overflow: hidden;
+}
+
+.app-shell .content-shell:has(> .main-content[data-route='workflow']) {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell .content-shell:has(> .main-content[data-route='workflow']) > .topbar {
+  flex: 0 0 auto;
+}
+
+.app-shell .main-content[data-route='workflow'] {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.app-shell .main-content[data-route='workflow'] > #view-host {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+}
+
+.app-shell .main-content[data-route='workflow'] [data-view='workflow']:not([hidden]) {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  max-width: none;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  animation: none;
+}
+
+/* 提示与工具栏：固定在顶部，工具栏单行，窄屏横向滚动。 */
+.workflow-view[data-view='workflow'] :is(.wf-alert, .wf-hint) {
+  flex: 0 0 auto;
+  margin: 0;
+  border-radius: 0;
+}
+
+.workflow-view[data-view='workflow'] .wf-alert {
+  border-width: 0 0 1px;
+}
+
+.workflow-view[data-view='workflow'] .wf-hint {
+  position: absolute;
+  z-index: 100;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  width: fit-content;
+  max-width: calc(100% - 1.5rem);
+  min-height: 0;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--wf-border);
+  border-radius: var(--radius-sm);
+  background: var(--wf-surface);
+  box-shadow: var(--wf-shadow);
+  pointer-events: none;
+}
+
+.workflow-view[data-view='workflow'] .wf-hint:empty {
+  display: none;
+}
+
+.workflow-view[data-view='workflow'] .wf-toolbar {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.workflow-view[data-view='workflow'] .wf-group {
+  width: auto;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.workflow-view[data-view='workflow'] .wf-group + .wf-group {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--wf-border-soft);
+}
+
+.workflow-view[data-view='workflow'] .wf-field,
+.workflow-view[data-view='workflow'] .wf-run-status {
+  flex: 0 0 auto;
+}
+
+.workflow-view[data-view='workflow'] .wf-run-status {
+  max-width: 24rem;
+}
+
+.workflow-view[data-view='workflow'] :is(.wf-control--select, .wf-control--name) {
+  width: 11rem;
+}
+
+.workflow-view[data-view='workflow'] :is(.wf-button, .wf-zoom, .wf-run-status) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 工作区：侧栏已移出，画布依次 flex 填满，贴合右边与底边。 */
+.workflow-view[data-view='workflow'] :is(.wf-workbench, .wf-workbench--expanded) {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 0;
+  align-items: stretch;
+  gap: 0;
+}
+
+.workflow-view[data-view='workflow'] .wf-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+}
+
+.workflow-view[data-view='workflow'] .wf-stage {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 画布操作说明仅对辅助技术可见，仍被 aria-describedby 引用。 */
+.workflow-view[data-view='workflow'] .wf-stage-help {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- 2. 系统侧栏顶部：入口横排，只显示一个面板 ---------- */
+
+.workflow-sidebar-host {
+  display: flex;
+  min-height: 0;
+  max-height: 60%;
+  flex: 0 1 auto;
+  flex-direction: column;
+  margin: 0 0 var(--space-2);
+}
+
+.workflow-sidebar-host[hidden] {
+  display: none;
+}
+
+.sidebar:has(.workflow-sidebar-host:not([hidden])) .primary-nav {
+  min-height: 6rem;
+  flex: 1 1 0;
+}
+
+.workflow-sidebar-host .wf-sidebar {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-navigation {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  gap: 0.375rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-navigation__item {
+  min-width: 0;
+  min-height: 2.5rem;
+  flex: 1 1 0;
+  flex-direction: row;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-navigation__item svg {
+  flex: 0 0 auto;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-navigation__item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-palette {
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+  padding: var(--space-1) 0 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  border: 0;
+  border-top: 1px solid var(--wf-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-palette[hidden] {
+  display: none;
+}
+
+/* ---------- 3. 面板内容：搜索框 + 文件夹树，叶子视觉一致 ---------- */
+
+.workflow-sidebar-host .wf-sidebar .wf-palette__search {
+  margin: 0 0 var(--space-1);
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-palette__search-input {
+  width: 100%;
+}
+
+/* 目录树的单一滚动区是面板本身，列表不再各自限高滚动。 */
+.workflow-sidebar-host .wf-sidebar :is(.wf-palette__list, .wf-directory__list) {
+  min-height: 0;
+  flex: 0 0 auto;
+  gap: 0;
+  margin-top: 0;
+  padding-right: 0;
+  overflow: visible;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-folder__content {
+  margin-left: 0.625rem;
+  padding: 0 0 0 0.375rem;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-palette > .wf-folder > .wf-folder__summary .wf-folder__name {
+  font-weight: 700;
+}
+
+.workflow-sidebar-host .wf-sidebar :is(.wf-palette__item, .wf-directory__entry) {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  min-width: 0;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0.375rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--wf-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--wf-text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-palette__item {
+  cursor: grab;
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-directory__entry {
+  cursor: pointer;
+}
+
+.workflow-sidebar-host .wf-sidebar :is(.wf-palette__name, .wf-directory__entry span) {
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.workflow-sidebar-host .wf-sidebar :is(.wf-palette__item, .wf-directory__entry):hover:not(:disabled) {
+  border-color: var(--wf-border-soft);
+  background: var(--wf-hover);
+}
+
+.workflow-sidebar-host .wf-sidebar .wf-palette__item:disabled {
+  border-color: var(--wf-border-soft);
+  background: transparent;
+  color: var(--wf-text-disabled);
+  cursor: not-allowed;
+}
+
+.workflow-sidebar-host .wf-sidebar :is(.wf-palette__item, .wf-directory__entry):focus-visible {
+  outline: 2px solid var(--wf-accent);
+  outline-offset: -2px;
+}
+
+/* ---------- 4. 桌面折叠侧栏（72px）：入口仅图标，面板为右侧固定浮层 ---------- */
+
+@media (min-width: 768px) {
+  .app-shell--sidebar-collapsed .workflow-sidebar-host {
+    max-height: none;
+    margin: 0 0 var(--space-1);
+  }
+
+  .app-shell--sidebar-collapsed .workflow-sidebar-host .wf-sidebar .wf-navigation {
+    flex-direction: column;
+  }
+
+  .app-shell--sidebar-collapsed .workflow-sidebar-host .wf-sidebar .wf-navigation__item {
+    min-height: 2.75rem;
+    flex: 0 0 auto;
+    padding: 0;
+  }
+
+  .app-shell--sidebar-collapsed .workflow-sidebar-host .wf-sidebar .wf-navigation__item span {
+    display: none;
+  }
+
+  .app-shell--sidebar-collapsed .workflow-sidebar-host .wf-sidebar .wf-palette:not([hidden]) {
+    position: fixed;
+    z-index: 31;
+    top: 0;
+    bottom: 0;
+    left: 72px;
+    width: 17rem;
+    padding: var(--space-2) var(--space-1);
+    border-top: 0;
+    border-right: 1px solid var(--wf-border);
+    background: var(--wf-surface);
+    box-shadow: var(--wf-shadow);
+  }
+}
+
+/* 5. 窄屏无需媒体查询：上述选择器特异性均高于 workflow.css 的 1023/767 规则，面板自然留在抽屉内，工具栏保持横滚。 */

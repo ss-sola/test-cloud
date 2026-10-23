@@ -5,6 +5,15 @@
   const REQUEST_TIMEOUT_MS = 30_000
   const STATUSES = new Set(['added', 'removed', 'modified', 'unchanged'])
   const MAX_TREE_NODES = 50_000
+  // 区域调色板：色相彼此拉开，画布上以约 10% 透明度铺底
+  const REGION_COLORS = Object.freeze(['#5b8def', '#3fb68b', '#e5a43a', '#c86bd6', '#e0645c', '#3bb7c4', '#d98b4f', '#7cc35b', '#d66b9a', '#8c9bb0'])
+
+  /** 选出流程中尚未被区域使用的第一个颜色；全部占用时取使用次数最少者，尽量不与已有区域重复。 */
+  function nextRegionColor(document) {
+    const counts = new Map(REGION_COLORS.map((color) => [color, 0]))
+    for (const node of document.nodes) if (node.type === 'region' && counts.has(node.config.color)) counts.set(node.config.color, counts.get(node.config.color) + 1)
+    return [...counts].reduce((best, entry) => (entry[1] < best[1] ? entry : best))[0]
+  }
 
   /** 校验结构化结果，避免将错误响应作为成功数据分发。 */
   function isDiffResult(value) {
@@ -92,10 +101,13 @@
     const registry = new Core.NodeRegistry()
     registry.registerDataType('trigger', (value) => value === true)
     registry.registerDataType('diff', isDiffResult)
+    // 开始节点可填写本流程专用凭据（优先于 Token 配置）；localConfig 使其只留在本浏览器，不随导入导出
     registry.register({
-      type: 'start', version: 1, label: '开始', category: '流程控制', execution: Core.NODE_EXECUTION.entry,
+      type: 'start', version: 1, label: '开始', category: '流程控制', execution: Core.NODE_EXECUTION.entry, localConfig: true,
       inputs: [], outputs: [{ id: 'trigger', label: '开始', dataType: 'trigger', kind: Core.PORT_KIND.control }],
-      defaults: {}, size: { width: 220, height: 180 }, render: renderers.start,
+      defaults: Capabilities.CREDENTIAL_DEFAULTS, size: { width: 320, height: 520 }, render: renderers.capability, preview: false,
+      fields: Capabilities.CREDENTIAL_FIELDS,
+      validateConfig: Capabilities.checkCredentialConfig,
       execute: () => ({ trigger: true }),
     })
     registry.register({
@@ -123,10 +135,17 @@
       execute: ({ inputs }) => ({ diff: inputs.diff }),
     })
     Capabilities.register(registry, renderers)
+    // 区域只有名称（节点名）和颜色，没有内容区控件
+    registry.register({
+      type: 'region', version: 1, label: '区域', execution: Core.NODE_EXECUTION.annotation,
+      defaults: { color: REGION_COLORS[0] }, size: { width: 480, height: 320 },
+      validateConfig: (config) => Object.keys(config).some((key) => key !== 'color') || !REGION_COLORS.includes(config.color) ? '区域只能配置调色板内的颜色。' : null,
+      initConfig: (config, document) => ({ ...config, color: nextRegionColor(document) }),
+    })
     return registry
   }
 
-  const api = Object.freeze({ createRegistry, createServices, isDiffResult, REQUEST_TIMEOUT_MS })
+  const api = Object.freeze({ createRegistry, createServices, isDiffResult, REQUEST_TIMEOUT_MS, REGION_COLORS })
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.NestCloudWorkflowNodes = api
 })(typeof window === 'undefined' ? globalThis : window)
