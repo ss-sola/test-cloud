@@ -11,6 +11,9 @@
     edge: '--wf-graph-edge',
   })
   const EDGE_EFFECT = Object.freeze({ duration: 2.8, particles: 3, hitWidth: 16 })
+  // 运行中节点流星：节点边框是盒外 1px 的 box-shadow 环，轨道铺在其中线（-0.5px）上；tailRatio 为尾迹占所在边长的比例。
+  const NODE_METEOR = Object.freeze({ inset: -0.5, edges: 4, tailRatio: 0.4 })
+  const SVG_NS = 'http://www.w3.org/2000/svg'
   const COORDINATE_LIMIT = 100_000
   const VIEWPORT_SAVE_MS = 300
   const HINT_MS = 6000
@@ -57,15 +60,45 @@
   }
 
   function createPaletteIcon(name) {
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const icon = document.createElementNS(SVG_NS, 'svg')
     icon.setAttribute('viewBox', '0 0 24 24')
     icon.setAttribute('aria-hidden', 'true')
     icon.setAttribute('focusable', 'false')
     icon.classList.add(name === 'folder' ? 'wf-folder__icon' : 'wf-folder__chevron')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    const path = document.createElementNS(SVG_NS, 'path')
     path.setAttribute('d', PALETTE_ICON_PATHS[name])
     icon.append(path)
     return icon
+  }
+
+  /** 创建运行中节点的流星层：四条边各一条轨道，轨道内一颗流星，形态由样式绘制，轨道在运行时按节点尺寸布局。 */
+  function createNodeMeteor() {
+    const meteor = createElement('div', 'wf-node__meteor')
+    meteor.setAttribute('aria-hidden', 'true')
+    for (let edge = 0; edge < NODE_METEOR.edges; edge += 1) {
+      const track = createElement('span', 'wf-node__meteor-track')
+      track.append(createElement('span', 'wf-node__meteor-star'))
+      meteor.append(track)
+    }
+    return meteor
+  }
+
+  /** 按节点尺寸把四条轨道铺在边框中线上（左上→右上→右下→左下→左上，顺时针），轨道两端止于角点，宽度方向允许光晕溢出边框。 */
+  function layoutNodeMeteor(meteor, size) {
+    const { inset, tailRatio } = NODE_METEOR
+    const right = size.width - inset
+    const bottom = size.height - inset
+    const corners = [[inset, inset], [right, inset], [right, bottom], [inset, bottom]]
+    for (const [index, track] of [...meteor.children].entries()) {
+      const [x1, y1] = corners[index]
+      const [x2, y2] = corners[(index + 1) % corners.length]
+      const length = Math.hypot(x2 - x1, y2 - y1)
+      track.style.left = `${x1}px`
+      track.style.top = `${y1}px`
+      track.style.setProperty('--wf-meteor-angle', `${Math.atan2(y2 - y1, x2 - x1)}rad`)
+      track.style.setProperty('--wf-meteor-length', `${length}px`)
+      track.style.setProperty('--wf-meteor-tail', `${length * tailRatio}px`) // 尾迹与边长等比，四颗同步出发、同步抵达
+    }
   }
 
   function messageOf(error, fallback = '操作失败，请重试。') {
@@ -578,6 +611,8 @@
         notice.append(createElement('span', '', `旧版本 v${node.version}，配置按原规则继续可用。`), upgrade)
         host.append(head, portsElement, notice, message, body)
       } else host.append(head, portsElement, message, body)
+      const meteor = createNodeMeteor()
+      host.append(meteor)
 
       let controller = null
       if (!definition) body.append(createElement('p', 'wf-node__notice', `节点类型 ${node.type}（版本 ${node.version}）尚未安装，配置已原样保留，此流程不能运行。`))
@@ -641,6 +676,7 @@
           }
           if (upgrade) upgrade.disabled = locked
           host.dataset.status = state.status
+          if (state.status === 'running') layoutNodeMeteor(meteor, nextNode.size)
           status.textContent = NODE_STATUS_LABELS[state.status] ?? state.status
           message.textContent = state.message
           message.hidden = !state.message

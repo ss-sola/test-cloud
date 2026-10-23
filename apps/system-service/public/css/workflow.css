@@ -842,6 +842,7 @@ body:has(.main-content[data-route='workflow']) {
 .workflow-view .wf-node {
   --wf-ring: var(--wf-border);
 
+  position: relative;
   display: flex;
   width: 100%;
   height: 100%;
@@ -860,6 +861,91 @@ body:has(.main-content[data-route='workflow']) {
 
 .workflow-view .wf-node[data-status='running'] {
   --wf-ring: var(--wf-accent);
+}
+
+/*
+ * 运行中节点流星：四个角各发出一颗，顺时针沿所在边飞向下一个角（左上→右上→右下→左下→左上），四颗同步出发、同步抵达。
+ * 每条边一条轨道：长度止于两端角点并裁剪流星，使其“从角飞出、没入下一个角”；宽度 32px 居中于边框，光晕可溢出边框。
+ * 运行中节点改用 overflow: clip 并放宽 16px 绘制范围，容纳边框外的一半流星与光晕；顶栏自带上圆角，保持原有外形。
+ * 流星本体：尾部为由透明渐变到青白的连续楔形，头部为带光晕的亮点。每轮前 80% 时间运动，其余为间隔。
+ */
+.workflow-view .wf-node[data-status='running'] {
+  overflow: clip;
+  overflow-clip-margin: 16px;
+}
+
+.workflow-view .wf-node__meteor {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.workflow-view .wf-node[data-status='running'] .wf-node__meteor {
+  display: block;
+}
+
+.workflow-view .wf-node__meteor-track {
+  position: absolute;
+  width: var(--wf-meteor-length);
+  height: 32px;
+  margin-top: -16px;
+  overflow: hidden;
+  transform: rotate(var(--wf-meteor-angle));
+  transform-origin: 0 50%;
+}
+
+.workflow-view .wf-node__meteor-star {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: var(--wf-meteor-tail);
+  height: 4px;
+  margin-top: -2px;
+  filter: drop-shadow(0 0 3px rgb(79 209 232 / 90%));
+  animation: wf-node-meteor 1.8s linear infinite;
+}
+
+.workflow-view .wf-node__meteor-star::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    rgb(255 122 182 / 0%),
+    rgb(255 122 182 / 35%) 30%,
+    rgb(169 139 255 / 75%) 62%,
+    #4fd1e8 86%,
+    #ffffff
+  );
+  clip-path: polygon(0 50%, 100% 0, 100% 100%);
+  content: '';
+}
+
+.workflow-view .wf-node__meteor-star::after {
+  position: absolute;
+  top: 50%;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow:
+    0 0 6px 2px rgb(255 255 255 / 85%),
+    0 0 12px 4px rgb(79 209 232 / 70%);
+  content: '';
+  transform: translateY(-50%);
+}
+
+@keyframes wf-node-meteor {
+  0% {
+    transform: translateX(calc(var(--wf-meteor-tail) * -1));
+  }
+
+  80%,
+  100% {
+    transform: translateX(var(--wf-meteor-length));
+  }
 }
 
 .workflow-view .wf-node[data-status='succeeded'] {
@@ -890,6 +976,7 @@ body:has(.main-content[data-route='workflow']) {
   gap: 0.375rem;
   padding: 0 0.5rem;
   border-bottom: 1px solid var(--wf-border-soft);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: var(--wf-surface-raised);
 }
 
@@ -1627,6 +1714,10 @@ body:has(.main-content[data-route='workflow']) {
   animation-play-state: paused;
 }
 
+.workflow-view.wf-edge-motion-paused .wf-node__meteor-star {
+  animation-play-state: paused;
+}
+
 .workflow-view .x6-node [magnet='true'] {
   cursor: crosshair;
 }
@@ -1712,6 +1803,10 @@ body:has(.main-content[data-route='workflow']) {
   .workflow-view .wf-edge-flow {
     visibility: hidden;
     animation-play-state: paused;
+  }
+
+  .workflow-view .wf-node[data-status='running'] .wf-node__meteor {
+    display: none;
   }
 
   .workflow-view * {
