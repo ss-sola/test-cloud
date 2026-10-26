@@ -7,6 +7,8 @@ window.__workflowBrowserCheck = (async () => {
   const created = []
   const initialId = workspace.activeId
   const originalCompare = workspace.services.compare
+  const originalRunner = workspace.runner
+  workspace.runner = null // services mock 明确使用本地执行，不意外提交后台或外网任务
   const requests = []
   const entryStatuses = []
   const addedDefinitions = []
@@ -1335,6 +1337,7 @@ window.__workflowBrowserCheck = (async () => {
     report.push(`减少动效 MediaQueryList 变化、文档隐藏（root 暂停类 + 光点 hidden/paused、不再依赖 SVG 时间轴）、destroy 取消旧 CSSAnimation、同一 root 重新挂载与旧监听移除通过；${lifecycleMoved ? '恢复后光点位移已验证' : '原生减少动效或页面隐藏，未要求恢复后位移'}`)
     return JSON.stringify({ passed: report.length, checks: report, requests })
   } finally {
+    workspace.runner = originalRunner
     release?.()
     workspace.services.compare = originalCompare
     for (const id of created.reverse()) {

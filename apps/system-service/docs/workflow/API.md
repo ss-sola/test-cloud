@@ -2,7 +2,7 @@
 
 ## 范围
 
-接口仅访问 `apps/system-service/public/workflow/` 当前层级的工作流 JSON。目录固定于服务项目根目录，不接受任意路径，不依赖启动 `cwd`，不提供删除、移动、子目录浏览或执行接口。此目录是已确认的后端文件存储限定例外；其他业务数据及执行状态不允许落盘。
+接口仅访问 `apps/system-service/public/workflow/` 当前层级的工作流 JSON。目录固定于服务项目根目录，不接受任意路径，不依赖启动 `cwd`，不提供删除、移动、子目录浏览；执行另见[工作流执行 API](./执行API.md)，不通过本目录接口启动。此目录是已确认的后端文件存储限定例外；其他业务数据及执行状态不允许落盘。
 
 基础路径为 `/api/workflow-directory`；部署配置全局前缀时与其他后端接口一致。当前管理台沿用固定同源 `/api` 路径。响应 `Cache-Control: no-store`，统一使用 `{code,message,data}`；成功 `code: 200`。保存仅接受 `application/json`，跨来源浏览器请求被拒绝。请求正文不会进入公共访问日志。
 

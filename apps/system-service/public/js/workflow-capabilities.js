@@ -291,7 +291,7 @@
       arm()
       try {
         if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
-        if (typeof request !== 'function' || typeof readCredentials !== 'function') throw new CapabilityError('当前环境无法访问能力服务或 Token 配置。')
+        if ((typeof options.invoke !== 'function' && typeof request !== 'function') || typeof readCredentials !== 'function') throw new CapabilityError('当前环境无法访问能力服务或 Token 配置。')
         const execution = Promise.resolve().then(async () => {
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
           const credentials = startCredentials(kind, entry) ?? await Core.withAbort(Promise.resolve().then(readCredentials), controller.signal) // 开始节点优先，整组留空才读 Token 配置
@@ -300,14 +300,19 @@
           const { body, context } = await Core.withAbort(prepare(runtime, { signal: controller.signal, untimed }), controller.signal)
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
           submittedWrite = kind === 'feishuWriteCells'
-          const response = await Core.withAbort(request(ENDPOINTS[kind], {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-            cache: 'no-store', redirect: 'error', body: JSON.stringify(body), signal: controller.signal,
-          }), controller.signal)
+          let payload
+          if (typeof options.invoke === 'function') {
+            payload = await Core.withAbort(options.invoke({ kind, body, signal: controller.signal, nodeId: lifecycle.nodeId }), controller.signal)
+          } else {
+            const response = await Core.withAbort(request(ENDPOINTS[kind], {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+              cache: 'no-store', redirect: 'error', body: JSON.stringify(body), signal: controller.signal,
+            }), controller.signal)
+            payload = await Core.withAbort(readPayload(response, controller.signal), controller.signal)
+            if (!response.ok) throw new CapabilityError(failureMessage(payload, runtime))
+          }
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
-          const payload = await Core.withAbort(readPayload(response, controller.signal), controller.signal)
-          if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
-          if (!response.ok || payload?.code !== 200) throw new CapabilityError(failureMessage(payload, runtime))
+          if (payload?.code !== 200) throw new CapabilityError(failureMessage(payload, runtime))
           const result = resultData(kind, payload.data, context)
           rejectReflectedSecrets(result, runtime)
           return result
@@ -353,7 +358,7 @@
         }))
       },
       /** 校验行列约束后，以不可变真实矩阵逐次确认才发送一次写入；确认仅存在本次调用内存。 */
-      async feishuWriteCells({ config, target, values, signal, nodeName, suspend, entry }) {
+      async feishuWriteCells({ config, target, values, signal, nodeName, nodeId, suspend, entry }) {
         const current = executionConfig('feishu-write-cells', config)
         const destination = snapshot(target)
         const matrix = freezeSnapshot(snapshot(values))
@@ -365,8 +370,8 @@
         if (current.expectedColumns && dimensions.columns !== current.expectedColumns) throw new CapabilityError(`写入矩阵有 ${dimensions.columns} 列，与节点要求的 ${current.expectedColumns} 列不一致，已拒绝写入。`)
         const range = Data.createCellRange({ startColumn: current.startColumn, row: destination.row, values: matrix })
         const context = { range, cells: dimensions.cells }
-        const confirmation = freezeSnapshot({ wikiUrl: destination.wikiUrl, range, values: matrix, ...(text(nodeName, 120) ? { nodeName } : {}) })
-        return perform('feishuWriteCells', { signal, suspend, entry }, async (runtime, step) => {
+        const confirmation = freezeSnapshot({ wikiUrl: destination.wikiUrl, range, values: matrix, ...(text(nodeName, 120) ? { nodeName } : {}), ...(typeof nodeId === 'string' ? { nodeId } : {}) })
+        return perform('feishuWriteCells', { signal, suspend, entry, nodeId }, async (runtime, step) => {
           if (typeof options.confirmWrite !== 'function') throw new CapabilityError('未提供本次写入确认，已拒绝写入。')
           const accepted = await step.untimed(() => {
             if (step.signal.aborted) throw new CapabilityError('运行已停止。')
@@ -430,7 +435,7 @@
         { key: 'until', label: '结束时间', type: 'date', placeholder: 'YYYY-MM-DD', help: '日期形式包含当日；本周/上周按执行时本地周一计算，不使用这两项。' },
       ],
       check: (config) => ['last-week', 'this-week', 'custom'].includes(config.period) && text(config.since, 80) && text(config.until, 80),
-      execute: ({ node }) => ({ range: Data.createDateRange(node.config) }),
+      execute: ({ node, services }) => ({ range: services.dateRange ? services.dateRange(node.config) : Data.createDateRange(node.config) }),
     },
     {
       type: 'json-input', version: 1, label: 'JSON 输入', category: '数据输入', execution: Core.NODE_EXECUTION.data,
@@ -585,7 +590,7 @@
     {
       type: 'feishu-write-cells', version: 1, label: '飞书写入单元格', category: '外部能力', remote: true, credentialGroup: 'feishu', ...WRITE_PORTS,
       defaults: { startColumn: 'C', credentialRef: CREDENTIAL_REF }, fields: [START_COLUMN], check: checkStartColumn,
-      execute: async ({ node, entry, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: upgradeWriteConfig(node.config), target: inputs.target, values: inputs.values, signal, nodeName: node.name, suspend, entry }) }),
+      execute: async ({ node, entry, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: upgradeWriteConfig(node.config), target: inputs.target, values: inputs.values, signal, nodeName: node.name, nodeId: node.id, suspend, entry }) }),
     },
     {
       type: 'feishu-write-cells', version: 2, label: '飞书写入单元格', category: '外部能力', remote: true, credentialGroup: 'feishu', ...WRITE_PORTS,
@@ -598,7 +603,7 @@
       check: (config) => checkStartColumn(config) && integer(config.maxRows, LIMITS.rows)
         && Number.isSafeInteger(config.expectedColumns) && config.expectedColumns >= 0 && config.expectedColumns <= LIMITS.columns,
       migrate: upgradeWriteConfig,
-      execute: async ({ node, entry, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: node.config, target: inputs.target, values: inputs.values, signal, nodeName: node.name, suspend, entry }) }),
+      execute: async ({ node, entry, inputs, services, signal, suspend }) => ({ result: await services.feishuWriteCells({ config: node.config, target: inputs.target, values: inputs.values, signal, nodeName: node.name, nodeId: node.id, suspend, entry }) }),
     },
   ]
   DEFINITIONS.forEach(freezeSnapshot)

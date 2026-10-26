@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigKeys, ResponseUtil, getConfig } from '@nest-cloud/common';
-import { plainToInstance } from 'class-transformer';
-import { validateSync } from 'class-validator';
 import { json } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import {
@@ -12,6 +10,7 @@ import {
 import { AiTextDto } from './dto/ai-text.dto';
 import { FeishuFindRowDto, FeishuWriteCellsDto } from './dto/feishu-sheet.dto';
 import { GithubCommitsDto } from './dto/github-commits.dto';
+import { parseCapabilityDto } from './dto/workflow-capability-dto.util';
 
 const ROUTE_PATTERN = /^\/([a-z-]+)\/?$/i;
 
@@ -148,16 +147,7 @@ export class WorkflowCapabilityHttpService {
    */
   private readonly validateBody = (req: Request, res: Response, next: NextFunction): void => {
     const route = ROUTE_PATTERN.exec(req.path)?.[1]?.toLowerCase() ?? '';
-    const instance = plainToInstance(ROUTE_DTOS[route], req.body as object, {
-      enableImplicitConversion: false,
-    });
-    const errors = validateSync(instance, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      forbidUnknownValues: true,
-      validationError: { target: false, value: false },
-    });
-    if (errors.length > 0) {
+    if (!parseCapabilityDto(ROUTE_DTOS[route], req.body as object)) {
       this.reject(res, 400, '请求参数不合法');
       return;
     }

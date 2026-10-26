@@ -1,5 +1,5 @@
 import { applyDecorators } from '@nestjs/common';
-import { Transform } from 'class-transformer';
+import { plainToInstance, Transform } from 'class-transformer';
 import {
   IsOptional,
   IsString,
@@ -8,9 +8,22 @@ import {
   MinLength,
   Validate,
   ValidatorConstraint,
+  validateSync,
 } from 'class-validator';
 import type { ValidatorConstraintInterface } from 'class-validator';
 import { WORKFLOW_CAPABILITY_LIMITS } from '../../../constants/workflow-capability.constants';
+
+/** HTTP 与进程内能力调用使用同一严格 DTO 校验，不隐式转换或丢弃未知字段。 */
+export function parseCapabilityDto<T extends object>(dto: new () => T, body: object): T | null {
+  const instance = plainToInstance(dto, body, { enableImplicitConversion: false });
+  const errors = validateSync(instance, {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    forbidUnknownValues: true,
+    validationError: { target: false, value: false },
+  });
+  return errors.length ? null : instance;
+}
 
 /** 原样读取请求体字段，避免全局隐式转换把数字、数组等值转成字符串后绕过 IsString。 */
 export const rawValue = ({ obj, key }: { obj: Record<string, unknown>; key: string }) => obj[key];

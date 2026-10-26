@@ -4,6 +4,7 @@ import { BullmqDashboardService } from './modules/bullmq-dashboard/bullmq-dashbo
 import { ContentCompareHttpService } from './modules/content-compare/content-compare-http.service';
 import { WorkflowCapabilityHttpService } from './modules/workflow-capabilities/workflow-capability-http.service';
 import { WorkflowDirectoryHttpService } from './modules/workflow-directory/workflow-directory-http.service';
+import { WorkflowExecutionHttpService } from './modules/workflow-execution/workflow-execution-http.service';
 import { SystemServiceConfig } from './validate.config';
 
 void bootstrap({
@@ -14,5 +15,6 @@ void bootstrap({
     app.get(ContentCompareHttpService).mount(app);
     app.get(WorkflowCapabilityHttpService).mount(app);
     app.get(WorkflowDirectoryHttpService).mount(app);
+    app.get(WorkflowExecutionHttpService).mount(app);
   },
 });

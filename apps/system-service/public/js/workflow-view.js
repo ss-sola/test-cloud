@@ -23,7 +23,7 @@
   const TREE_ROW_BUDGET = 400
   const TREE_EXPAND_LIMIT = 5000
   const NODE_STATUS_LABELS = Object.freeze({ idle: '待运行', queued: '排队中', running: '运行中', succeeded: '成功', failed: '失败', skipped: '已跳过', cancelled: '已取消' })
-  const RUN_STATUS_LABELS = Object.freeze({ idle: '尚未运行', running: '运行中', succeeded: '全部成功', partial: '部分成功', failed: '运行失败', cancelled: '已停止', stale: '结果部分过期' })
+  const RUN_STATUS_LABELS = Object.freeze({ idle: '尚未运行', running: '运行中', succeeded: '全部成功', partial: '部分成功', failed: '运行失败', cancelled: '已停止', stale: '结果部分过期', unknown: '运行结果未知' })
   const DIFF_LABELS = Object.freeze({ added: '新增', removed: '删除', modified: '修改', unchanged: '未变化' })
   const IDLE_STATE =Object.freeze({ status: 'idle', message: '', outputs: null })
   const COMPARE_COPY = Object.freeze({
@@ -448,7 +448,8 @@
     const registry = Nodes.createRegistry({ ...renderers, capability: capabilityView.capability, textResult: capabilityView.textResult })
     let storage = null
     try { storage = window.localStorage } catch { storage = null }
-    const workspace = new Core.Workspace({ registry, storage, services: Nodes.createServices({ confirmWrite: capabilityView.confirmWrite }), onStorageError: (message) => storageListener(message) })
+    const runner = window.NestCloudWorkflowExecution.createRunner({ confirmWrite: capabilityView.confirmWrite })
+    const workspace = new Core.Workspace({ registry, storage, runner, services: Nodes.createServices({ confirmWrite: capabilityView.confirmWrite }), onStorageError: (message) => storageListener(message) })
     engine = { Core, registry, workspace, storage }
     return engine
   }
@@ -467,7 +468,7 @@
       || !window.NestCloudWorkflowFiles?.WorkflowFileService
       || !window.NestCloudWorkflowCapabilities?.register
       || !window.NestCloudWorkflowCapabilityView?.capability || !window.NestCloudWorkflowCapabilityView?.textResult
-      || !window.NestCloudWorkflowCapabilityView?.confirmWrite
+      || !window.NestCloudWorkflowCapabilityView?.confirmWrite || !window.NestCloudWorkflowExecution?.createRunner
       || !X6?.Graph || !X6.Shape?.HTML || !X6.Selection || !X6.Transform) {
       refs.error.textContent = '工作流依赖脚本未能加载，请刷新页面重试。'
       refs.error.hidden = false
@@ -492,6 +493,7 @@
     storageListener = showStorage
     const { Core, registry, workspace, storage } = getEngine()
     showStorage(workspace.storageError)
+    workspace.reconnectExecution()
 
     const ui = { docId: null, locked: false, syncing: false, committingLayout: false, sized: false }
     const hosts = new Map()
@@ -1446,7 +1448,10 @@
         showError(messageOf(error, '运行失败，请重试。'))
       }
     })
-    listen(refs.stop, 'click', () => command(() => workspace.stop(ui.docId)))
+    listen(refs.stop, 'click', async () => {
+      showError('')
+      try { await workspace.stop(ui.docId) } catch (error) { if (!destroyed) showError(messageOf(error, '停止失败，后台可能仍在运行，请重试。')) }
+    })
     listen(refs['template-json'], 'click', () => loadTemplate('json'))
     listen(refs['template-env'], 'click', () => loadTemplate('env'))
     listen(refs['template-weekly'], 'click', loadWeeklyTemplate)
@@ -1508,7 +1513,10 @@
 
     const unsubscribe = workspace.subscribe((documentId, event) => {
       if (event.kind === 'viewport') return
-      if (event.message) setHint(event.message)
+      if (event.message) {
+        if (event.error && documentId === ui.docId) showError(event.message)
+        else setHint(event.message)
+      }
       if (workspace.activeId !== ui.docId) showDocument(workspace.activeId) // 切换、新建、导入或删除后的当前流程
       else if (documentId === ui.docId) {
         if (event.kind === 'structure' || (event.kind === 'layout' && !ui.committingLayout)) syncGraph()
@@ -1530,6 +1538,7 @@
       graph,
       destroy() {
         destroyed = true
+        workspace.disconnectExecution()
         files.destroy()
         finishCtrlPan()
         window.clearTimeout(panClickTimer)

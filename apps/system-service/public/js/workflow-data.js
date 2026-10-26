@@ -158,9 +158,10 @@
     return date
   }
 
-  /** 按本地周一生成执行时范围；自定义范围显式转换为完整 ISO。 */
-  function createDateRange(config, now = new Date()) {
+  /** 按本地或本次显式时区的周一生成范围；自定义范围转换为完整 ISO。 */
+  function createDateRange(config, now = new Date(), timeZone) {
     if (!['last-week', 'this-week', 'custom'].includes(config?.period)) throw new Error('日期范围周期无效。')
+    if (timeZone !== undefined) return createZonedDateRange(config, now, timeZone)
     let since
     let until
     if (config.period === 'custom') {
@@ -181,6 +182,75 @@
     // 年月日数字供模板自由拼接表格中的周标签，如 {{context.start.month}}.{{context.start.day}}
     const parts = (date) => ({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() })
     return { since: since.toISOString(), until: until.toISOString(), startDate: dateText(since), endDate: dateText(until), start: parts(since), end: parts(until) }
+  }
+
+  /** 使用显式 IANA 时区解析民用日期；夏令时按当地日界计算，重叠时间取较早瞬间。 */
+  function createZonedDateRange(config, now, timeZone) {
+    const dayMs = 24 * 60 * 60 * 1000
+    const clock = new Date(now)
+    if (!Number.isFinite(clock.getTime()) || typeof timeZone !== 'string' || !timeZone.trim()) throw new Error('日期参考时间或时区无效。')
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    })
+    const parts = (date) => Object.fromEntries(formatter.formatToParts(date)
+      .filter((part) => ['year', 'month', 'day', 'hour', 'minute', 'second'].includes(part.type))
+      .map((part) => [part.type, Number(part.value)]))
+    const civil = ({ year, month, day, hour = 0, minute = 0, second = 0 }) => {
+      const date = new Date(0)
+      date.setUTCFullYear(year, month - 1, day)
+      date.setUTCHours(hour, minute, second, 0)
+      return date.getTime()
+    }
+    const calendar = (value) => {
+      const [year, month, day] = value.split('-').map(Number)
+      const desired = { year, month, day }
+      const check = new Date(civil(desired))
+      if (year < 1 || check.getUTCFullYear() !== year || check.getUTCMonth() + 1 !== month || check.getUTCDate() !== day) throw new Error('日期不存在。')
+      return desired
+    }
+    const midnight = (day) => {
+      const target = civil(day)
+      const offsets = new Set([-2, -1, 0, 1, 2].map((delta) => {
+        const instant = target + delta * dayMs
+        return civil(parts(new Date(instant))) - instant
+      }))
+      const candidates = [...offsets].map((offset) => {
+        const instant = target - offset
+        return { instant, local: parts(new Date(instant)) }
+      }).filter(({ local }) => local.year === day.year && local.month === day.month && local.day === day.day)
+        .sort((a, b) => civil(a.local) - civil(b.local) || a.instant - b.instant)
+      if (!candidates.length) throw new Error('该日期在指定时区中不存在。')
+      return candidates[0].instant
+    }
+    let since
+    let until
+    if (config.period === 'custom') {
+      since = /^\d{4}-\d{2}-\d{2}$/.test(config.since) ? midnight(calendar(config.since)) : parseDate(config.since).getTime()
+      if (/^\d{4}-\d{2}-\d{2}$/.test(config.until)) {
+        const day = calendar(config.until)
+        midnight(day)
+        const next = new Date(civil(day) + dayMs)
+        until = midnight({ year: next.getUTCFullYear(), month: next.getUTCMonth() + 1, day: next.getUTCDate() }) - 1
+      } else until = parseDate(config.until).getTime()
+    } else {
+      const today = parts(clock)
+      const date = new Date(civil(today))
+      date.setUTCHours(0, 0, 0, 0)
+      date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7 - (config.period === 'last-week' ? 7 : 0))
+      since = midnight({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() })
+      date.setUTCDate(date.getUTCDate() + 7)
+      until = midnight({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }) - 1
+    }
+    if (since >= until) throw new Error('开始时间必须早于结束时间。')
+    const dateParts = (instant) => {
+      const { year, month, day } = parts(new Date(instant))
+      return { year, month, day }
+    }
+    const start = dateParts(since)
+    const end = dateParts(until)
+    const dateText = ({ year, month, day }) => `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    return { since: new Date(since).toISOString(), until: new Date(until).toISOString(), startDate: dateText(start), endDate: dateText(end), start, end }
   }
 
   /** 将绝对列名转换成有预算的 1 基列号。 */

@@ -4,7 +4,7 @@
     documentBytes: 4 * 1024 * 1024, workspaceBytes: 8 * 1024 * 1024,
     historyBytes: 8 * 1024 * 1024, historySteps: 30, configDepth: 16,
     coordinate: 100_000, minSize: 160, maxSize: 2400, annotationMaxSize: 10_000, minZoom: 0, maxZoom: 2,
-    concurrency: 3, resultDocuments: 10, resultBytes: 32 * 1024 * 1024, inputMergeMs: 600,
+    concurrency: 3, resultDocuments: 10, resultBytes: 32 * 1024 * 1024, resultDepth: 160, inputMergeMs: 600,
   })
   const STORAGE_KEY = 'nestcloud:workflows:v1'
   const NODE_EXECUTION = Object.freeze({ entry: 'entry', data: 'data', task: 'task', annotation: 'annotation' })
@@ -20,6 +20,28 @@
   const QUEUED = Object.freeze({ status: 'queued', message: '', outputs: null })
 
   const frozenData = new WeakSet()
+  const frozenByteLengths = new WeakMap()
+  const remoteRuns = new WeakMap()
+  const NODE_STATUSES = Object.freeze(['queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled'])
+
+  /** 验证外部结果为有限深度的纯 JSON，禁止序列化钩子、循环引用和隐式丢失字段。 */
+  function inspectOutput(value, depth = 0, ancestors = new Set()) {
+    if (depth > LIMITS.resultDepth) throw new Error('节点输出嵌套超过 160 层限制。')
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return
+    if (typeof value === 'number' && Number.isFinite(value)) return
+    if (!value || typeof value !== 'object' || ancestors.has(value)
+      || (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value)))) throw new Error('节点输出必须是纯 JSON 数据。')
+    ancestors.add(value)
+    if (Array.isArray(value) && (Object.keys(value).length !== value.length
+      || Object.keys(value).some((key, index) => key !== String(index)))) throw new Error('节点输出数组无效。')
+    for (const key of Reflect.ownKeys(value)) {
+      if (Array.isArray(value) && key === 'length') continue
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (typeof key !== 'string' || !descriptor.enumerable || !has(descriptor, 'value')) throw new Error('节点输出必须是纯 JSON 数据。')
+      inspectOutput(descriptor.value, depth + 1, ancestors)
+    }
+    ancestors.delete(value)
+  }
 
   /** 冻结可分发的 JSON 数据，避免分支间相互修改。 */
   function freeze(value) {
@@ -29,6 +51,13 @@
       Object.freeze(value)
     }
     return value
+  }
+
+  /** 深冻结值按对象缓存序列化体积，多个端口复用时仍逐份计入传输预算。 */
+  function outputBytes(value) {
+    if (!value || typeof value !== 'object' || !frozenData.has(value)) return bytes(value)
+    if (!frozenByteLengths.has(value)) frozenByteLengths.set(value, bytes(value))
+    return frozenByteLengths.get(value)
   }
 
   /** 检查配置是有深度上限的 JSON 数据，不执行或合并未知键。 */
@@ -294,19 +323,28 @@
 
   /** 独立于画布库的文档、历史、保存及数据流执行工作区。 */
   class Workspace {
-    constructor({ registry, storage = null, services = {}, onStorageError = () => {} }) {
+    constructor({ registry, storage = null, services = {}, document, pool, runner = null, runId, validateOutputs = null, sanitizeError = null, onStorageError = () => {} }) {
       this.registry = registry
-      this.storage = storage
+      this.documentMode = document !== undefined
+      this.storage = this.documentMode ? null : storage
       this.services = services
+      this.runner = runner
+      this.executionRunId = runId
+      this.validateOutputs = validateOutputs
+      this.sanitizeError = sanitizeError
       this.onStorageError = onStorageError
       this._documents = []
       this._activeId = null
       this.sessions = new Map()
       this.listeners = new Set()
-      this.pool = new ExecutionPool()
+      this.pool = pool ?? new ExecutionPool()
       this.storageProtected = false
       this.storageError = ''
-      this._restore()
+      if (this.documentMode) {
+        const initial = parseDocument(document, registry)
+        this._documents = [initial]
+        this._activeId = initial.id
+      } else this._restore()
     }
 
     get documents() { return Object.freeze([...this._documents]) }
@@ -322,7 +360,9 @@
     /** 返回隔离的运行状态；输出本身为深冻结数据。 */
     getRuntime(id = this._activeId) {
       const runtime = this._session(id).runtime
-      return Object.freeze({ ...runtime, controller: undefined, states: new Map([...runtime.states].map(([key, state]) => [key, Object.freeze({ ...state })])) })
+      return Object.freeze({ running: runtime.running, status: runtime.status, runId: runtime.runId,
+        startedAt: runtime.startedAt, finishedAt: runtime.finishedAt,
+        states: new Map([...runtime.states].map(([key, state]) => [key, Object.freeze({ ...state })])) })
     }
 
     /** 订阅局部变更，返回解除订阅函数。 */
@@ -362,7 +402,7 @@
 
     /** 保存白名单文档，不包含运行状态、结果或应用认证信息。 */
     _persist() {
-      if (this.storageProtected) return
+      if (this.documentMode || this.storageProtected) return
       try {
         if (!this.storage) throw new Error('storage unavailable')
         const raw = JSON.stringify({ version: 1, activeId: this._activeId, documents: this._documents })
@@ -390,7 +430,9 @@
 
     /** 广播语义事件，视图自行决定局部刷新范围。 */
     _notify(id, event) {
-      for (const listener of this.listeners) listener(id, event)
+      for (const listener of this.listeners) {
+        try { listener(id, event) } catch { /* 视图错误不得中断调度或远程状态接纳。 */ }
+      }
     }
 
     /** 运行时阻止所有业务修改，不依赖界面禁用状态。 */
@@ -689,15 +731,16 @@
 
     /** 限制所有流程累计输出体积，先释放其他已完成流程的旧结果。 */
     _admitOutputs(id, outputs) {
+      const serialized = this.documentMode || this.runner || remoteRuns.has(this._session(id).runtime)
       const measure = () => {
         const seen = new Set()
         let total = 0
         const add = (value) => {
-          if (value && typeof value === 'object') {
+          if (!serialized && value && typeof value === 'object') {
             if (seen.has(value)) return
             seen.add(value)
           }
-          total += bytes(value)
+          total += outputBytes(value)
         }
         Object.values(outputs).forEach(add)
         for (const session of this.sessions.values()) for (const state of session.runtime.states.values()) {
@@ -716,22 +759,87 @@
       throw new Error('工作区运行结果超过 32 MiB 限制，请减少处理节点或输入量后重试。')
     }
 
-    /** 根据数据依赖执行整图；分支失败不会阻塞独立分支。 */
-    async run(id = this._activeId) {
-      this._assertEditable(id)
-      const document = parseDocument(this.getDocument(id), this.registry)
-      const plan = createExecutionPlan(document, this.registry)
-      const unreachable = Object.freeze({ status: 'skipped', message: '未连接开始节点，本次未执行。', outputs: null })
-      const runnable = document.nodes.filter((node) => plan.definitions.get(node.id).execution !== NODE_EXECUTION.annotation)
-      const states = new Map(runnable.map((node) => [node.id, plan.active.has(node.id) ? QUEUED : unreachable]))
-      return this._execute(id, { document, plan, scope: plan.active, states })
+    /** 校验显式外部输出的完整声明端口、JSON 深度和数据类型，并隔离冻结调用方引用。 */
+    _validateOutputs(node, result) {
+      const definition = this.registry.get(node.type, node.version)
+      if (!definition || definition.execution === NODE_EXECUTION.annotation || !isObject(result)) throw new Error('节点输出引用无效。')
+      inspectOutput(result, -1)
+      if (Object.keys(result).length !== definition.outputs.length
+        || definition.outputs.some((port) => !has(result, port.id))) throw new Error('节点输出必须且只能包含已声明的端口。')
+      if (bytes(result) > LIMITS.resultBytes) throw new Error('工作区运行结果超过 32 MiB 限制。')
+      const outputs = clone(result)
+      for (const port of definition.outputs) {
+        if (!this.registry.dataTypes.get(port.dataType)(outputs[port.id])) throw new Error(`节点输出“${port.label}”类型不正确。`)
+      }
+      this.validateOutputs?.(outputs)
+      return freeze(outputs)
     }
 
-    /** 复用上游已成功的结果，只重跑指定节点及其下游；上游任务缺少可复用结果时在执行前拒绝。 */
-    async runFrom(nodeId, id = this._activeId) {
+    /** 在状态和预算均通过后一次安装；失败不清理其他流程，也不接纳一部分结果。 */
+    _acceptStates(id, states) {
+      const serialized = this.documentMode || this.runner || remoteRuns.has(this._session(id).runtime)
+      const evicted = new Set()
+      const measure = () => {
+        const seen = new Set()
+        let total = 0
+        const lists = [states, ...[...this.sessions].filter(([key]) => key !== id && !evicted.has(key)).map(([, session]) => session.runtime.states)]
+        for (const list of lists) for (const state of list.values()) for (const value of Object.values(state.outputs || {})) {
+          if (!serialized && value && typeof value === 'object') {
+            if (seen.has(value)) continue
+            seen.add(value)
+          }
+          total += outputBytes(value)
+        }
+        return total
+      }
+      if (measure() > LIMITS.resultBytes) {
+        const old = [...this.sessions].filter(([key, session]) => key !== id && !session.runtime.running && session.runtime.states.size)
+          .sort((a, b) => (a[1].runtime.finishedAt || 0) - (b[1].runtime.finishedAt || 0))
+        for (const [key] of old) {
+          evicted.add(key)
+          if (measure() <= LIMITS.resultBytes) break
+        }
+        if (measure() > LIMITS.resultBytes) throw new Error('工作区运行结果超过 32 MiB 限制，请减少处理节点或输入量后重试。')
+      }
+      this._session(id).runtime.states = states
+      for (const key of evicted) {
+        this.sessions.get(key).runtime = idleRuntime()
+        this._notify(key, { kind: 'runtime', message: '较早的运行结果已从内存清理，可重新运行。' })
+      }
+    }
+
+    /** 原子恢复本次请求显式提交的成功结果；仅用于可复用上游，不读历史服务端状态。 */
+    restoreOutputs(previousOutputs, id = this._activeId) {
+      this._assertEditable(id)
+      if (!Array.isArray(previousOutputs) || previousOutputs.length > LIMITS.nodes) throw new Error('恢复结果最多包含 100 个节点。')
+      const nodes = new Map(this.getDocument(id).nodes.map((node) => [node.id, node]))
+      const states = new Map(this._session(id).runtime.states)
+      const seen = new Set()
+      let total = 0
+      for (const item of previousOutputs) {
+        if (!isObject(item) || Object.keys(item).some((key) => !['nodeId', 'outputs'].includes(key))
+          || !nodes.has(item.nodeId) || seen.has(item.nodeId)) throw new Error('恢复结果的节点标识无效或重复。')
+        seen.add(item.nodeId)
+        const outputs = this._validateOutputs(nodes.get(item.nodeId), item.outputs)
+        total += bytes(outputs)
+        if (total > LIMITS.resultBytes) throw new Error('恢复结果累计超过 32 MiB 限制。')
+        states.set(item.nodeId, Object.freeze({ status: 'succeeded', message: '', outputs }))
+      }
+      this._acceptStates(id, states)
+      this._notify(id, { kind: 'runtime', nodeIds: [...seen] })
+    }
+
+    /** 只读运行预检，统一整图与局部运行范围、上游复用边界和初始状态，不占运行锁。 */
+    prepareRun(nodeId = undefined, id = this._activeId) {
       this._assertEditable(id)
       const document = parseDocument(this.getDocument(id), this.registry)
       const plan = createExecutionPlan(document, this.registry)
+      if (nodeId === undefined) {
+        const unreachable = Object.freeze({ status: 'skipped', message: '未连接开始节点，本次未执行。', outputs: null })
+        const runnable = document.nodes.filter((node) => plan.definitions.get(node.id).execution !== NODE_EXECUTION.annotation)
+        const states = new Map(runnable.map((node) => [node.id, plan.active.has(node.id) ? QUEUED : unreachable]))
+        return { document, plan, scope: plan.active, states, reusedNodeIds: new Set() }
+      }
       if (!plan.active.has(nodeId)) throw new Error('该节点未连接开始节点，不能从此节点运行。')
       const previous = this._session(id).runtime.states
       const scope = new Set([nodeId])
@@ -741,14 +849,112 @@
       for (const current of scope) {
         for (const edge of plan.incoming.get(current)) {
           const source = edge.source.nodeId
-          if (scope.has(source) || previous.get(source)?.status === 'succeeded') continue
-          if (plan.definitions.get(source).execution !== NODE_EXECUTION.task) scope.add(source) // 开始与被动数据节点直接重新求值
-          else throw new Error(`上游节点“${plan.nodes.get(source).name}”没有可复用的成功结果，请先运行整图。`)
+          if (scope.has(source)) continue
+          const passive = plan.definitions.get(source).execution !== NODE_EXECUTION.task
+          if (passive && (this.runner || this.documentMode || previous.get(source)?.status !== 'succeeded')) scope.add(source)
+          else if (previous.get(source)?.status !== 'succeeded') throw new Error(`上游节点“${plan.nodes.get(source).name}”没有可复用的成功结果，请先运行整图。`)
         }
       }
+      const reusedNodeIds = new Set()
+      for (const current of scope) for (const edge of plan.incoming.get(current)) if (!scope.has(edge.source.nodeId)) reusedNodeIds.add(edge.source.nodeId)
       const states = new Map(previous)
       for (const current of scope) states.set(current, QUEUED)
-      return this._execute(id, { document, plan, scope, states })
+      return { document, plan, scope, states, fromNodeId: nodeId, reusedNodeIds }
+    }
+
+    /** 根据数据依赖执行整图；分支失败不会阻塞独立分支。 */
+    async run(id = this._activeId) {
+      const prepared = this.prepareRun(undefined, id)
+      return this.runner ? this._executeRemote(id, prepared) : this._execute(id, prepared)
+    }
+
+    /** 复用上游已成功的结果，只重跑指定节点及其下游。 */
+    async runFrom(nodeId, id = this._activeId) {
+      const prepared = this.prepareRun(nodeId, id)
+      return this.runner ? this._executeRemote(id, prepared) : this._execute(id, prepared)
+    }
+
+    /** 接纳远程增量，省略 outputs 时保留已验证结果；局部运行不覆盖无关分支。 */
+    _receiveRemote(id, runtime, prepared, snapshot, full = false) {
+      const remote = remoteRuns.get(runtime)
+      if (this.sessions.get(id)?.runtime !== runtime || !runtime.running || !remote) return
+      if (!isObject(snapshot) || !idValid(snapshot.runId) || !Number.isSafeInteger(snapshot.revision)
+        || snapshot.revision < 0 || !Array.isArray(snapshot.states) || snapshot.states.length > LIMITS.nodes) throw new Error('执行服务返回无效状态。')
+      if (remote.serverId && remote.serverId !== snapshot.runId) return
+      if (snapshot.revision < remote.revision || (snapshot.revision === remote.revision && !full)) return
+      const states = new Map(runtime.states)
+      const changed = []
+      const seen = new Set()
+      for (const item of snapshot.states) {
+        if (!isObject(item) || !prepared.plan.nodes.has(item.nodeId) || seen.has(item.nodeId)
+          || !NODE_STATUSES.includes(item.status) || typeof item.message !== 'string' || item.message.length > 2000) throw new Error('执行服务返回无效节点状态。')
+        seen.add(item.nodeId)
+        if (!prepared.scope.has(item.nodeId)) continue
+        const old = states.get(item.nodeId)
+        let outputs = item.status === 'succeeded' ? old?.outputs ?? null : null
+        if (has(item, 'outputs')) {
+          if (item.status !== 'succeeded' && item.outputs !== null) throw new Error('未成功节点不能携带执行结果。')
+          outputs = item.outputs === null ? null : this._validateOutputs(prepared.plan.nodes.get(item.nodeId), item.outputs)
+        }
+        if (full && item.status === 'succeeded' && outputs === null) throw new Error('执行服务未返回完整节点结果。')
+        states.set(item.nodeId, Object.freeze({ status: item.status, message: item.message, outputs }))
+        changed.push(item.nodeId)
+      }
+      if (full && snapshot.running === false && [...prepared.scope].some((nodeId) => !seen.has(nodeId))) throw new Error('执行服务未返回完整终态节点状态。')
+      this._acceptStates(id, states)
+      remote.revision = snapshot.revision
+      remote.serverId = snapshot.runId
+      runtime.runId = snapshot.runId
+      if (Number.isFinite(snapshot.startedAt)) runtime.startedAt = snapshot.startedAt
+      this._notify(id, { kind: 'runtime', nodeIds: changed })
+    }
+
+    /** 远程执行保留工作区锁和旧运行隔离，只有已读取完整终态结果才解锁。 */
+    async _executeRemote(id, prepared) {
+      const session = this._session(id)
+      const runtime = { running: true, status: 'running', runId: makeId(), states: prepared.states, startedAt: Date.now(), finishedAt: null }
+      const remote = { handle: null, revision: -1, serverId: null }
+      const previousOutputs = [...prepared.reusedNodeIds].map((nodeId) => ({ nodeId, outputs: prepared.states.get(nodeId).outputs }))
+      session.runtime = runtime
+      session.merge = null
+      remoteRuns.set(runtime, remote)
+      this._notify(id, { kind: 'runtime' })
+      try {
+        remote.handle = this.runner.start({ document: prepared.document,
+          ...(prepared.fromNodeId === undefined ? {} : { fromNodeId: prepared.fromNodeId, previousOutputs }),
+          onUpdate: (snapshot, options = {}) => this._receiveRemote(id, runtime, prepared, snapshot, options.full === true) })
+        const snapshot = await remote.handle.done
+        if (this.sessions.get(id)?.runtime !== runtime) return Object.freeze({ status: runtime.status, runId: runtime.runId })
+        this._receiveRemote(id, runtime, prepared, snapshot, true)
+        if (snapshot.running !== false || !['succeeded', 'partial', 'failed', 'cancelled'].includes(snapshot.status)) throw new Error('执行服务未返回有效终态。')
+        runtime.status = snapshot.status
+        runtime.running = false
+        runtime.finishedAt = Number.isFinite(snapshot.finishedAt) ? snapshot.finishedAt : Date.now()
+        this._notify(id, { kind: 'runtime' })
+        this._evictResults()
+        return Object.freeze({ status: runtime.status, runId: runtime.runId })
+      } catch (error) {
+        if (this.sessions.get(id)?.runtime === runtime) {
+          runtime.running = false
+          runtime.status = 'unknown'
+          runtime.finishedAt = Date.now()
+          this._notify(id, { kind: 'runtime', error: true, message: error instanceof Error ? error.message : '运行结果未知，请核实后再运行。' })
+        }
+        throw error
+      } finally {
+        remote.handle?.disconnect()
+        remoteRuns.delete(runtime)
+      }
+    }
+
+    /** 视图销毁只断开本地流和确认框，保留后台状态收敛，不发送停止请求。 */
+    disconnectExecution() {
+      for (const session of this.sessions.values()) remoteRuns.get(session.runtime)?.handle?.disconnect()
+    }
+
+    /** 同页重新挂载时恢复当前任务的实时流，不重新提交运行请求。 */
+    reconnectExecution() {
+      for (const session of this.sessions.values()) remoteRuns.get(session.runtime)?.handle?.reconnect?.()
     }
 
     /** 执行范围内的节点并保留范围外的既有状态；类型不同的连线按输入端口类型校验后才分发。 */
@@ -756,7 +962,7 @@
       const { entry, incoming: incomingByNode, nodes, definitions } = plan
       const session = this._session(id)
       const controller = new AbortController()
-      const runtime = { running: true, status: 'running', runId: makeId(), states, startedAt: Date.now(), finishedAt: null, controller }
+      const runtime = { running: true, status: 'running', runId: this.executionRunId ?? makeId(), states, startedAt: Date.now(), finishedAt: null, controller }
       session.runtime = runtime
       session.merge = null
       const current = () => this.sessions.get(id)?.runtime === runtime && runtime.running && !controller.signal.aborted
@@ -834,10 +1040,11 @@
               const value = result[port.id]
               outputs[port.id] = value && typeof value === 'object' && frozenData.has(value) ? value : freeze(clone(value))
             }
+            this.validateOutputs?.(outputs)
             this._admitOutputs(id, outputs)
             setState(node.id, { status: 'succeeded', message: '', outputs: Object.freeze(outputs) })
           } catch (error) {
-            if (current()) setState(node.id, { status: 'failed', message: error instanceof Error ? error.message : '节点执行失败，请重试。', outputs: null })
+            if (current()) setState(node.id, { status: 'failed', message: this.sanitizeError?.(error) ?? (error instanceof Error ? error.message : '节点执行失败，请重试。'), outputs: null })
           } finally { release?.() }
         })()
         tasks.set(node.id, task)
@@ -867,6 +1074,8 @@
     stop(id = this._activeId) {
       const runtime = this._session(id).runtime
       if (!runtime.running) return
+      const remote = remoteRuns.get(runtime)
+      if (remote) return Promise.resolve().then(() => remote.handle?.stop())
       runtime.running = false
       runtime.status = 'cancelled'
       runtime.finishedAt = Date.now()
@@ -877,7 +1086,7 @@
     }
   }
 
-  const api = Object.freeze({ LIMITS, STORAGE_KEY, NODE_EXECUTION, PORT_KIND, NodeRegistry, Workspace, parseDocument, validateConnection, withAbort, maxSizeOf })
+  const api = Object.freeze({ LIMITS, STORAGE_KEY, NODE_EXECUTION, PORT_KIND, NodeRegistry, Workspace, ExecutionPool, createExecutionPlan, parseDocument, validateConnection, withAbort, maxSizeOf })
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   else root.NestCloudWorkflowCore = api
 })(typeof window === 'undefined' ? globalThis : window)

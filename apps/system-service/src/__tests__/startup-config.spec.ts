@@ -118,6 +118,13 @@ describe('workflow capability startup registration', () => {
     }
   });
 
+  it('mounts the workflow execution boundary before the public access log from main.ts', () => {
+    const main = read('src/main.ts');
+    const configureApp = main.slice(main.indexOf('configureApp'));
+    expect(main).toContain('modules/workflow-execution/workflow-execution-http.service');
+    expect(configureApp).toContain('app.get(WorkflowExecutionHttpService).mount(app);');
+  });
+
   it('adds no business Module class', () => {
     const directory = resolve(process.cwd(), 'src/modules/workflow-capabilities');
     for (const entry of readdirSync(directory, { recursive: true, encoding: 'utf8' })) {

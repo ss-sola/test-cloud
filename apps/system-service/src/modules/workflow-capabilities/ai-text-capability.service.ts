@@ -8,13 +8,22 @@ import { AiTextBatchUtil, type AiTextBatchPlan } from './ai-text-batch.util';
 import type { AiTextDto } from './dto/ai-text.dto';
 import { WorkflowCapabilityException } from './workflow-capability.exception';
 
+export type AiTextCallTracker = (
+  call: () => Promise<string>,
+  signal: AbortSignal,
+) => Promise<string>;
+
 /** 通用文本生成：小输入原样调用，长输入有界并行整理后按原任务合并，无本地降级。 */
 @Injectable()
 export class AiTextCapabilityService {
   constructor(private readonly client: AiTextClientService) {}
 
   /** 按本次模型上下文规划调用，只有全部成功后的最终文本可成为节点输出。 */
-  async generate(input: AiTextDto, signal: AbortSignal): Promise<{ text: string }> {
+  async generate(
+    input: AiTextDto,
+    signal: AbortSignal,
+    trackCall?: AiTextCallTracker,
+  ): Promise<{ text: string }> {
     signal.throwIfAborted();
     if (!input.prompt.trim()) {
       throw new WorkflowCapabilityException('prompt 不能为空。', 400);
@@ -22,12 +31,14 @@ export class AiTextCapabilityService {
     const initial = AiTextBatchUtil.initialPlan(input);
     const { ai } = input.runtime;
     if (initial.stage === 'direct') {
-      const text = await this.client.generate({
-        ...ai,
-        prompt: input.prompt,
-        systemPrompt: initial.systemPrompt,
-        signal,
-      });
+      const call = () =>
+        this.client.generate({
+          ...ai,
+          prompt: input.prompt,
+          systemPrompt: initial.systemPrompt,
+          signal,
+        });
+      const text = await (trackCall ? trackCall(call, signal) : call());
       signal.throwIfAborted();
       return { text };
     }
@@ -37,7 +48,7 @@ export class AiTextCapabilityService {
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) abort();
     try {
-      const mapped = await this.runBatches({ plan: initial, input }, controller);
+      const mapped = await this.runBatches({ plan: initial, input, trackCall }, controller);
       const instructions = [...new Set(mapped.instructions.filter((value) => value.trim()))];
       let materials = mapped.materials;
       let calls = initial.batches.length;
@@ -56,7 +67,7 @@ export class AiTextCapabilityService {
         if (calls > AI_TEXT_BATCHING.maxCalls) {
           throw new WorkflowCapabilityException('AI 分批调用次数超过执行预算，已停止调用。', 422);
         }
-        const results = await this.runBatches({ plan, input, materials }, controller);
+        const results = await this.runBatches({ plan, input, materials, trackCall }, controller);
         if (plan.stage === 'final') return { text: results.materials[0] };
         materials = results.materials;
       }
@@ -98,10 +109,15 @@ export class AiTextCapabilityService {
 
   /** 有界领取批次并保留原序；失败取消兄弟调用，取消不等待忽略信号的外部依赖。 */
   private async runBatches(
-    execution: { plan: AiTextBatchPlan; input: AiTextDto; materials?: string[] },
+    execution: {
+      plan: AiTextBatchPlan;
+      input: AiTextDto;
+      materials?: string[];
+      trackCall?: AiTextCallTracker;
+    },
     controller: AbortController,
   ): Promise<{ materials: string[]; instructions: string[] }> {
-    const { plan, input, materials } = execution;
+    const { plan, input, materials, trackCall } = execution;
     const signal = controller.signal;
     signal.throwIfAborted();
     const outputs = plan.batches.map(() => '');
@@ -120,15 +136,17 @@ export class AiTextCapabilityService {
           signal.throwIfAborted();
           const index = next++;
           const batch = plan.batches[index];
+          const call = () =>
+            this.client.generate({
+              ...input.runtime.ai,
+              prompt: batch.prompt,
+              systemPrompt: plan.systemPrompt,
+              signal,
+            });
           const text =
             plan.stage === 'reduce' && batch.sourceIndexes.length === 1
               ? materials![batch.sourceIndexes[0]]
-              : await this.client.generate({
-                  ...input.runtime.ai,
-                  prompt: batch.prompt,
-                  systemPrompt: plan.systemPrompt,
-                  signal,
-                });
+              : await (trackCall ? trackCall(call, signal) : call());
           signal.throwIfAborted();
           totalCharacters += text.length;
           if (totalCharacters > WORKFLOW_CAPABILITY_LIMITS.aiMaxTextChars) {

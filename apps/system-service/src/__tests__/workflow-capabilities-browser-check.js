@@ -4,6 +4,8 @@ window.__workflowCapabilitiesBrowserCheck = (async () => {
   const { workspace } = window.NestCloudWorkflow.mount(root)
   const originalId = workspace.activeId
   const originalServices = { ...workspace.services }
+  const originalRunner = workspace.runner
+  workspace.runner = null // 可控 services mock 仅在无 runner 本地模式运行
   const sidebarHost = document.querySelector('#workflow-sidebar-host')
   const originalQuery = sidebarHost.querySelector('[data-wf="palette-search"]').value
   const created = []
@@ -313,6 +315,7 @@ window.__workflowCapabilitiesBrowserCheck = (async () => {
     assert(!calls.some((call) => call.path.includes('/weekly-commit-reports/')), '原子能力意外使用旧周报作业')
     return { passed: checks.length, checks, requests: calls.map((call) => call.path) }
   } finally {
+    workspace.runner = originalRunner
     releaseAi?.()
     for (const id of created.reverse()) {
       if (workspace.getRuntime(id).running) workspace.stop(id)

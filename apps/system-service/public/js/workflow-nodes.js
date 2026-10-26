@@ -64,6 +64,13 @@
       async compare({ format, left, right, signal }) {
         if (!Object.hasOwn(ENDPOINTS, format)) throw new CompareRequestError('不支持的对比格式。')
         if (typeof left !== 'string' || typeof right !== 'string' || left.length > Core.LIMITS.textLength || right.length > Core.LIMITS.textLength) throw new CompareRequestError('每侧文本最多 500000 字符。')
+        if (typeof options.compare === 'function') {
+          signal?.throwIfAborted()
+          const result = { ...await options.compare({ format, left, right, signal }), format }
+          signal?.throwIfAborted()
+          if (!isDiffResult(result)) throw new CompareRequestError('对比服务返回了无效结果，请重试。')
+          return result
+        }
         if (typeof request !== 'function') throw new CompareRequestError('当前环境无法访问对比服务。')
         const controller = new AbortController()
         const abort = () => controller.abort()

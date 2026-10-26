@@ -50,7 +50,11 @@ export class FeishuSheetCapabilityService {
   }
 
   /** 在已确认的明确范围内写入矩阵：内容已相同则跳过，否则只发送一次写请求。 */
-  async writeCells(input: FeishuWriteCellsDto, signal: AbortSignal): Promise<FeishuWriteResult> {
+  async writeCells(
+    input: FeishuWriteCellsDto,
+    signal: AbortSignal,
+    beforeWrite?: () => void,
+  ): Promise<FeishuWriteResult> {
     const range = parseA1Range(input.range, {
       maxRows: WORKFLOW_CAPABILITY_LIMITS.feishuMaxWriteRows,
       maxColumns: WORKFLOW_CAPABILITY_LIMITS.feishuMaxWriteColumns,
@@ -74,6 +78,7 @@ export class FeishuSheetCapabilityService {
     if (deadline.aborted) throw new WorkflowCapabilityException('请求已取消，未发送写入。', 499);
 
     try {
+      beforeWrite?.();
       await this.gateway.writeValues({
         target,
         range: input.range,
