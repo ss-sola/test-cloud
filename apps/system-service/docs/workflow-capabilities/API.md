@@ -2,11 +2,27 @@
 
 ## 公共契约
 
-本页仅描述**直接调用**的四个原子能力接口；工作流画布运行改用[统一执行 API](../workflow/执行API.md)，后端在独立 Workspace 中直接调用能力 Service（仍按能力 DTO 校验），不会再从画布或服务端回环请求本页 HTTP 接口。以下端点仍保持独立请求的既有语义，包括断开取消与飞书写入的 `confirmed: true`，不可将其视为统一任务的确认凭据或生命周期。
+本页仅描述**直接调用**的五个原子能力接口；工作流画布运行改用[统一执行 API](../workflow/执行API.md)，后端在独立 Workspace 中直接调用能力 Service（仍按能力 DTO 校验），不会再从画布或服务端回环请求本页 HTTP 接口。以下端点仍保持独立请求的既有语义，包括断开取消与飞书写入的 `confirmed: true`，不可将其视为统一任务的确认凭据或生命周期。
 
-四个接口均为同源 `POST /api/workflow-capabilities/<能力>`，仅接收 `application/json`，成功使用 `ResponseUtil.success` 包裹 `{code:200,data:…}`，响应 `Cache-Control: no-store`。参数全部由本次请求携带，不读取历史作业、浏览器以外的配置或服务端默认业务范围，不持久化业务数据。
+五个接口均为同源 `POST /api/workflow-capabilities/<能力>`，仅接收 `application/json`，成功使用 `ResponseUtil.success` 包裹 `{code:200,data:…}`，响应 `Cache-Control: no-store`。参数全部由本次请求携带，不读取历史作业、浏览器以外的配置或服务端默认业务范围，不持久化业务数据。
 
 字符串、日期、有限数值、嵌套 runtime、未知字段和矩阵大小均在受约束 DTO/能力边界校验。凭据只放 body，不放 URL/query。示例中的凭据均为占位值，不能写入工作流节点配置或文档。
+
+## 联网工作日日历
+
+`POST /api/workflow-capabilities/workday-calendar`
+
+```json
+{"region":"CN","startDate":"2026-10-10","endDate":"2026-10-11"}
+```
+
+只支持中国大陆。日期必须为真实 `YYYY-MM-DD`，首尾包含，允许单日，最多 366 天，结束不能早于开始；必要年度限 2007～2100，最多三个文件。参数由本次调用显式提供，**不接收 runtime、凭据或任意 URL**。日期节点开关关闭时不调用该接口，开启时同一节点 `range` 输出附加 `workdayCalendar`，不新增节点类型或连线。
+
+成功 data 为 `{region,timeZone,startDate,endDate,workdays,days,sources}`：`workdays` 是升序实际工作日字符串数组；`days` 完整连续覆盖本次日期区间，每项为 `{date,isWorkday,reason,name}`，reason 为 weekday/weekend/holiday/makeup-workday；`sources` 为 `{year,url,papers}` 数组。完整示例及日期节点升级规则见[联网工作日](./联网工作日.md)。
+
+每次串行读取固定 `raw.githubusercontent.com/NateScarlet/holiday-cn/master/{year}.json`，不缓存、不重试。结束日期在 12 月时补读下一年度，以处理相邻年度调休；未发布的必要年度不能跳过。数据源是根据国务院通知整理的第三方项目，来源链接仅作为元数据返回；结构校验不能独立证明没有漏录节假日。
+
+单年度 15 秒、全部年度 45 秒（还受调用方截止/取消约束），每响应最多 256 KiB。未发布或 404 为 503，网络/上游/结构错误为 502，超时 504、取消 499；非法参数 400 或超预算 422。不返回缺少某年的部分日历，不退回固定周一至周五。统一工作流直接调用同一能力 Service 和 IO 治理，不 HTTP 回环；日期失败使其依赖分支停止。
 
 ## 查询 GitHub 提交
 
@@ -67,7 +83,7 @@ repository 也可填写标准 `https://github.com/owner/repository`。since 必�
 
 成功 data 为 `{ "text": "生成的文本" }`。`contextWindowTokens` 是模型上下文窗口大小，须为 4096～1000000 的整数，默认 100000。新前端每次显式提交；仅为兼容旧直接请求允许缺省，由无状态技术默认值补齐，不读取历史参数。字符串、null、小数和超范围值均不合法。旧版 maxTokens 仅作为可选的废弃兼容字段接收，值完全忽略，不设默认值或数值上限，不替代上下文，也不转发给提供方。
 
-AI 请求（本页四个独立端点）不设置应用层主动时限：前端不因等待时长自动中断，独立后端请求和传输层只跟随手动停止/该请求客户端断开信号。统一任务内的 AI 原子调用也不主动设时限，但**整个任务活动期有创建起绝对 2 小时上限**；SSE 断开不取消任务。上游服务、浏览器、代理和操作系统仍可能自行报错或断开，不能保证物理连接永久存在。模型与目标地址必须完整提供；不从周报模块补提示词，不做中文检查或本地规则降级。本地不设置最大输出 Token，不向提供方发送 max_tokens、max_completion_tokens 或 max_output_tokens，由模型和提供方采用自身默认行为；它们仍可能有固有上限。prompt 最多 200000 字符，systemPrompt 最多 20000；响应字节/字符预算与完整性检查仍保留。
+AI 请求（本页五个独立端点）不设置应用层主动时限：前端不因等待时长自动中断，独立后端请求和传输层只跟随手动停止/该请求客户端断开信号。统一任务内的 AI 原子调用也不主动设时限，但**整个任务活动期有创建起绝对 2 小时上限**；SSE 断开不取消任务。上游服务、浏览器、代理和操作系统仍可能自行报错或断开，不能保证物理连接永久存在。模型与目标地址必须完整提供；不从周报模块补提示词，不做中文检查或本地规则降级。本地不设置最大输出 Token，不向提供方发送 max_tokens、max_completion_tokens 或 max_output_tokens，由模型和提供方采用自身默认行为；它们仍可能有固有上限。prompt 最多 200000 字符，systemPrompt 最多 20000；响应字节/字符预算与完整性检查仍保留。
 
 ### 长输入自动分批与归并
 
@@ -153,6 +169,6 @@ values 是矩形二维 string/number/boolean/null，形状必须与 range 一致
 
 ## OpenAPI 与 Apifox
 
-[openapi.json](./openapi.json) 是四个独立接口的本地 OpenAPI 3.0 导入文件，不包含真实凭据或运行数据。
+[openapi.json](./openapi.json) 是五个独立接口的本地 OpenAPI 3.0 导入文件，不包含真实凭据或运行数据。
 
 导入时先确认当前 Apifox 项目属于 NestCloud/system-service，再选择 OpenAPI 文件导入该项目。本次不在未核实外部项目与发布授权时调用远程写入工具；本地规范和本文是可审查的同步交付物，不声称已经发布到 Apifox。

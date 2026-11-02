@@ -4,6 +4,7 @@ import { AI_MODEL_LIMITS } from './ai-model.constants';
 export const WORKFLOW_CAPABILITY_API_PATH = '/api/workflow-capabilities';
 
 export const WORKFLOW_CAPABILITY_ROUTES = Object.freeze({
+  workdayCalendar: 'workday-calendar',
   githubCommits: 'github-commits',
   aiText: 'ai-text',
   feishuFindRow: 'feishu-find-row',

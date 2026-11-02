@@ -3,11 +3,25 @@
   "info": {
     "title": "NestCloud 工作流原子能力",
     "version": "1.0.0",
-    "description": "独立的 GitHub 提交查询、AI 文本生成、飞书行查找与单元格写入。全部业务参数和凭据随本次请求提交，不复用周报队列，不持久化业务状态。此文件只用于本地审查和经确认的 Apifox 导入。"
+    "description": "独立的联网工作日日历、GitHub 提交查询、AI 文本生成、飞书行查找与单元格写入。全部业务参数和凭据随本次请求提交，不复用周报队列，不持久化业务状态。此文件只用于本地审查和经确认的 Apifox 导入。"
   },
   "servers": [{"url": "/"}],
   "tags": [{"name": "工作流原子能力"}],
   "paths": {
+    "/api/workflow-capabilities/workday-calendar": {
+      "post": {
+        "tags": ["工作流原子能力"],
+        "summary": "读取中国大陆节假日与调休工作日历",
+        "operationId": "workflowWorkdayCalendar",
+        "description": "供原日期范围节点 includeWorkdays 开关使用，不新增节点类型。地区与民用日期必须显式提供，不接受 runtime、凭据或 URL。首尾包含最多366天；必要年度2007～2100，最多3个文件，结束月份为12月时补查次年。固定第三方holiday-cn数据，根据政府通知整理但非官方API，结构校验不能证明语义完整。串行读取，单次15秒、总计45秒、每响应256KiB，不缓存、不重试、不返回部分年度、不降级到固定周一至周五。",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkdayCalendarInput"}}}},
+        "responses": {
+          "200": {"description": "完整逐日状态、实际工作日清单和来源", "headers": {"Cache-Control": {"schema": {"type": "string", "example": "no-store"}}}, "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/Success"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/WorkdayCalendar"}}}]}}}},
+          "503": {"description": "必要年度尚未发布或404；不猜测工作日", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "default": {"$ref": "#/components/responses/SafeError"}
+        }
+      }
+    },
     "/api/workflow-capabilities/github-commits": {
       "post": {
         "tags": ["工作流原子能力"],
@@ -71,6 +85,11 @@
       "Error": {"type": "object", "properties": {"code": {"type": "integer"}, "message": {"type": "string"}}},
       "CellRange": {"type": "string", "pattern": "^[A-Z]{1,2}[1-9][0-9]{0,6}:[A-Z]{1,2}[1-9][0-9]{0,6}$", "description": "明确单 sheet 坐标，不含 sheetId 或 !，服务端进一步校验起止顺序、行列与矩阵预算。", "example": "D9:E9"},
       "WikiUrl": {"type": "string", "format": "uri", "maxLength": 2048, "description": "受支持租户的 HTTPS feishu.cn/larksuite.com Wiki 或 Sheets 地址，必须显式包含 sheet 参数。此 URL 只解析资源，真实请求固定 open.feishu.cn。"},
+      "CivilDate": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "minLength": 10, "maxLength": 10},
+      "WorkdayCalendarInput": {"type": "object", "additionalProperties": false, "required": ["region", "startDate", "endDate"], "properties": {"region": {"type": "string", "enum": ["CN"]}, "startDate": {"$ref": "#/components/schemas/CivilDate"}, "endDate": {"$ref": "#/components/schemas/CivilDate"}}},
+      "CalendarDay": {"type": "object", "additionalProperties": false, "required": ["date", "isWorkday", "reason", "name"], "properties": {"date": {"$ref": "#/components/schemas/CivilDate"}, "isWorkday": {"type": "boolean"}, "reason": {"type": "string", "enum": ["weekday", "weekend", "holiday", "makeup-workday"]}, "name": {"type": "string", "maxLength": 64}}},
+      "CalendarSource": {"type": "object", "additionalProperties": false, "required": ["year", "url", "papers"], "properties": {"year": {"type": "integer", "minimum": 2007, "maximum": 2100}, "url": {"type": "string", "format": "uri", "pattern": "^https://raw[.]githubusercontent[.]com/NateScarlet/holiday-cn/master/[0-9]{4}[.]json$"}, "papers": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "format": "uri", "maxLength": 512, "pattern": "^https://www[.]gov[.]cn([/?]|$)"}}}},
+      "WorkdayCalendar": {"type": "object", "additionalProperties": false, "required": ["region", "timeZone", "startDate", "endDate", "workdays", "days", "sources"], "properties": {"region": {"type": "string", "enum": ["CN"]}, "timeZone": {"type": "string", "enum": ["Asia/Shanghai"]}, "startDate": {"$ref": "#/components/schemas/CivilDate"}, "endDate": {"$ref": "#/components/schemas/CivilDate"}, "workdays": {"type": "array", "maxItems": 366, "uniqueItems": true, "items": {"$ref": "#/components/schemas/CivilDate"}}, "days": {"type": "array", "minItems": 1, "maxItems": 366, "items": {"$ref": "#/components/schemas/CalendarDay"}}, "sources": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"$ref": "#/components/schemas/CalendarSource"}}}},
       "GithubRuntime": {"type": "object", "additionalProperties": false, "required": ["githubToken"], "properties": {"githubToken": {"type": "string", "minLength": 1, "writeOnly": true}}},
       "AiConfig": {"type": "object", "additionalProperties": false, "required": ["baseUrl", "apiKey", "model"], "properties": {"baseUrl": {"type": "string", "format": "uri"}, "apiKey": {"type": "string", "minLength": 1, "writeOnly": true}, "model": {"type": "string", "minLength": 1}, "enableThinking": {"type": "boolean", "default": false, "description": "可选的 AI 思考开关，仅接受严格布尔值，不接受 null；缺省 false。模型客户端每次上游调用发送 enable_thinking: input.enableThinking ?? false；不支持参数的提供方可能报错，不自动删参数重试。"}}},
       "AiRuntime": {"type": "object", "additionalProperties": false, "required": ["ai"], "properties": {"ai": {"$ref": "#/components/schemas/AiConfig"}}},

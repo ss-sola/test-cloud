@@ -9,6 +9,8 @@ import { FeishuSheetCapabilityService } from './feishu-sheet-capability.service'
 import { GithubCommitsCapabilityService } from './github-commits-capability.service';
 import { WorkflowCapabilityHttpService } from './workflow-capability-http.service';
 import { WorkflowCapabilityExceptionFilter } from './workflow-capability.filter';
+import { WorkdayCalendarDto } from './dto/workday-calendar.dto';
+import { WorkdayCalendarCapabilityService } from './workday-calendar-capability.service';
 
 @Controller('api/workflow-capabilities')
 @UseFilters(WorkflowCapabilityExceptionFilter)
@@ -18,7 +20,20 @@ export class WorkflowCapabilityController {
     private readonly aiService: AiTextCapabilityService,
     private readonly feishuService: FeishuSheetCapabilityService,
     private readonly httpService: WorkflowCapabilityHttpService,
+    private readonly calendarService: WorkdayCalendarCapabilityService,
   ) {}
+
+  /** 读取本次民用日期范围内的中国大陆工作日及调休安排。 */
+  @Post('workday-calendar')
+  @HttpCode(HttpStatus.OK)
+  async workdayCalendar(
+    @Body() body: WorkdayCalendarDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const signal = this.httpService.createAbortSignal(req, res);
+    return ResponseUtil.success(await this.calendarService.query(body, signal));
+  }
 
   /** 查询单个仓库的原始提交数组。 */
   @Post('github-commits')

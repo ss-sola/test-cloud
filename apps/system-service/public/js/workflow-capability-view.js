@@ -718,7 +718,7 @@
     body.classList.add(fill ? 'wf-node__body--fill' : 'wf-node__body--scroll')
     body.append(view)
 
-    const remote = definition?.remote === true || node.config?.credentialRef !== undefined
+    const remote = (definition?.remote === true && Boolean(definition?.credentialGroup)) || node.config?.credentialRef !== undefined
     if (remote) {
       const notice = createElement('p', 'wf-cap__notice', '此节点优先使用开始节点填写的凭据，开始节点未填写的凭据组使用 Token 配置；凭据不会写入本节点配置、导出文件或运行结果。')
       notice.dataset.wfNotice = 'credentials'

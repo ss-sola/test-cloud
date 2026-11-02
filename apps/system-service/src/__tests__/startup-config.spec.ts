@@ -12,6 +12,8 @@ import { FeishuSheetCapabilityService } from '../modules/workflow-capabilities/f
 import { GithubCommitsCapabilityService } from '../modules/workflow-capabilities/github-commits-capability.service';
 import { WorkflowCapabilityController } from '../modules/workflow-capabilities/workflow-capability.controller';
 import { WorkflowCapabilityHttpService } from '../modules/workflow-capabilities/workflow-capability-http.service';
+import { WorkdayCalendarClientService } from '../client/calendar/workday-calendar-client.service';
+import { WorkdayCalendarCapabilityService } from '../modules/workflow-capabilities/workday-calendar-capability.service';
 
 interface PackageManifest {
   scripts?: Record<string, string>;
@@ -79,13 +81,15 @@ describe('workflow capability startup registration', () => {
     expect(configureApp).toContain('app.get(ContentCompareHttpService).mount(app);');
   });
 
-  it('exposes the four endpoints and their services through the existing auto registration', () => {
+  it('exposes the five endpoints and their services through the existing auto registration', () => {
     expect(Reflect.hasMetadata('__controller__', WorkflowCapabilityController)).toBe(true);
     expect(Reflect.getMetadata('path', WorkflowCapabilityController)).toBe(
       'api/workflow-capabilities',
     );
     for (const provider of [
       ExternalHttpClientService,
+      WorkdayCalendarClientService,
+      WorkdayCalendarCapabilityService,
       GithubCommitsClientService,
       AiTextClientService,
       FeishuSheetGatewayService,
@@ -97,13 +101,25 @@ describe('workflow capability startup registration', () => {
       expect(Reflect.hasMetadata('__injectable__', provider)).toBe(true);
     }
 
-    const paths = ['githubCommits', 'aiText', 'feishuFindRow', 'feishuWriteCells'].map((method) =>
+    const paths = [
+      'githubCommits',
+      'aiText',
+      'feishuFindRow',
+      'feishuWriteCells',
+      'workdayCalendar',
+    ].map((method) =>
       Reflect.getMetadata(
         'path',
         (WorkflowCapabilityController.prototype as unknown as Record<string, () => void>)[method],
       ),
     );
-    expect(paths).toEqual(['github-commits', 'ai-text', 'feishu-find-row', 'feishu-write-cells']);
+    expect(paths).toEqual([
+      'github-commits',
+      'ai-text',
+      'feishu-find-row',
+      'feishu-write-cells',
+      'workday-calendar',
+    ]);
   });
 
   it('registers one dependency-free LangChain AI client that does not use ExternalHttp or fetch', () => {

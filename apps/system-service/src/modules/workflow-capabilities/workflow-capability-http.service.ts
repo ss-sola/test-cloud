@@ -11,10 +11,12 @@ import { AiTextDto } from './dto/ai-text.dto';
 import { FeishuFindRowDto, FeishuWriteCellsDto } from './dto/feishu-sheet.dto';
 import { GithubCommitsDto } from './dto/github-commits.dto';
 import { parseCapabilityDto } from './dto/workflow-capability-dto.util';
+import { WorkdayCalendarDto } from './dto/workday-calendar.dto';
 
 const ROUTE_PATTERN = /^\/([a-z-]+)\/?$/i;
 
 const ROUTE_DTOS: Record<string, new () => object> = {
+  [WORKFLOW_CAPABILITY_ROUTES.workdayCalendar]: WorkdayCalendarDto,
   [WORKFLOW_CAPABILITY_ROUTES.githubCommits]: GithubCommitsDto,
   [WORKFLOW_CAPABILITY_ROUTES.aiText]: AiTextDto,
   [WORKFLOW_CAPABILITY_ROUTES.feishuFindRow]: FeishuFindRowDto,

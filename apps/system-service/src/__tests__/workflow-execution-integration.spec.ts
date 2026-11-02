@@ -137,6 +137,7 @@ class CaptureLogger implements LoggerService {
 /** 外部能力替身：未被调用即证明没有外部访问；任何调用都会让对应断言失败。 */
 const external = () => ({
   github: { query: vi.fn(() => Promise.reject(new Error('unexpected github'))) },
+  calendar: { query: vi.fn(() => Promise.reject(new Error('unexpected calendar'))) },
   ai: { generate: vi.fn(() => Promise.reject(new Error('unexpected ai'))) },
   feishu: {
     findRow: vi.fn(() => Promise.reject(new Error('unexpected feishu find'))),
@@ -182,6 +183,7 @@ async function createApp(): Promise<INestApplication> {
     doubles.feishu as never,
     new ContentCompareService(),
     io,
+    doubles.calendar as never,
   );
   service = new WorkflowExecutionService(new WorkflowExecutionEngineService(capabilities), io);
 

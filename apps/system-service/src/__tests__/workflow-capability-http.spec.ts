@@ -20,11 +20,23 @@ import { GithubCommitsCapabilityService } from '../modules/workflow-capabilities
 import { WorkflowCapabilityController } from '../modules/workflow-capabilities/workflow-capability.controller';
 import { WorkflowCapabilityException } from '../modules/workflow-capabilities/workflow-capability.exception';
 import { WorkflowCapabilityHttpService } from '../modules/workflow-capabilities/workflow-capability-http.service';
+import { WorkdayCalendarDto } from '../modules/workflow-capabilities/dto/workday-calendar.dto';
+import { WorkdayCalendarCapabilityService } from '../modules/workflow-capabilities/workday-calendar-capability.service';
 
 const SECRET = 'SECRET_TOKEN_9f3a7c';
 const CONTENT = 'CONTENT_SECRET_41d2';
 const BASE = '/api/workflow-capabilities';
 
+const CALENDAR_BODY = { region: 'CN', startDate: '2026-10-01', endDate: '2026-10-10' };
+const CALENDAR_RESULT = {
+  region: 'CN',
+  timeZone: 'Asia/Shanghai',
+  startDate: '2026-10-01',
+  endDate: '2026-10-10',
+  workdays: ['2026-10-08', '2026-10-09', '2026-10-10'],
+  days: [],
+  sources: [],
+};
 const GITHUB_BODY = {
   repository: 'octo/repo',
   branch: 'main',
@@ -87,10 +99,12 @@ function emulateDecoratorMetadata() {
       AiTextCapabilityService,
       FeishuSheetCapabilityService,
       WorkflowCapabilityHttpService,
+      WorkdayCalendarCapabilityService,
     ],
     WorkflowCapabilityController,
   );
   const methods: Array<[string, unknown]> = [
+    ['workdayCalendar', WorkdayCalendarDto],
     ['githubCommits', GithubCommitsDto],
     ['aiText', AiTextDto],
     ['feishuFindRow', FeishuFindRowDto],
@@ -107,6 +121,7 @@ function emulateDecoratorMetadata() {
 }
 
 const github = { query: vi.fn() };
+const calendar = { query: vi.fn() };
 const ai = { generate: vi.fn() };
 const feishu = { findRow: vi.fn(), writeCells: vi.fn() };
 let logger: CaptureLogger;
@@ -125,6 +140,7 @@ async function createApp(globalPrefix = ''): Promise<INestApplication> {
       { provide: GithubCommitsCapabilityService, useValue: github },
       { provide: AiTextCapabilityService, useValue: ai },
       { provide: FeishuSheetCapabilityService, useValue: feishu },
+      { provide: WorkdayCalendarCapabilityService, useValue: calendar },
     ],
   }).compile();
   const nestApp = moduleRef.createNestApplication();
@@ -180,8 +196,9 @@ function expectNoLeak(response: { text: string }) {
 }
 
 beforeEach(async () => {
-  for (const mock of [github.query, ai.generate, feishu.findRow, feishu.writeCells])
+  for (const mock of [github.query, calendar.query, ai.generate, feishu.findRow, feishu.writeCells])
     mock.mockReset();
+  calendar.query.mockResolvedValue(CALENDAR_RESULT);
   github.query.mockResolvedValue([{ hash: 'a', isMerge: false }]);
   ai.generate.mockResolvedValue({ text: '结果' });
   feishu.findRow.mockResolvedValue({ wikiUrl: FIND_BODY.wikiUrl, row: 3, sheetId: 'sheet1' });
@@ -195,8 +212,41 @@ afterEach(async () => {
   delete process.env.GlobalPrefix;
 });
 
+describe('workday calendar HTTP boundary', () => {
+  it.each([
+    { ...CALENDAR_BODY, region: 'US' },
+    { ...CALENDAR_BODY, region: 1 },
+    { ...CALENDAR_BODY, startDate: '2026-02-30' },
+    { ...CALENDAR_BODY, startDate: '2026-10-01T00:00:00Z' },
+    { ...CALENDAR_BODY, endDate: null },
+    { ...CALENDAR_BODY, runtime: { githubToken: SECRET } },
+    { ...CALENDAR_BODY, url: 'https://evil.example/calendar' },
+    { ...CALENDAR_BODY, includeWorkdays: true },
+  ])('rejects invalid dates, unknown fields and credentials before the service', async (body) => {
+    const response = await server().post(`${BASE}/workday-calendar`).send(body);
+    expect(response.status).toBe(400);
+    expect(calendar.query).not.toHaveBeenCalled();
+    expectNoLeak(response);
+  });
+
+  it.each([400, 422, 499, 502, 503, 504])(
+    'preserves controlled calendar error %s without leaking the request',
+    async (status) => {
+      calendar.query.mockRejectedValue(
+        new WorkflowCapabilityException('工作日日历暂不可用。', status),
+      );
+      const response = await server().post(`${BASE}/workday-calendar`).send(CALENDAR_BODY);
+      expect(response.status).toBe(status);
+      expect(response.body).toMatchObject({ code: status, message: '工作日日历暂不可用。' });
+      expect(response.headers['cache-control']).toBe('no-store');
+      expectNoLeak(response);
+    },
+  );
+});
+
 describe('workflow capability HTTP success path', () => {
   it.each([
+    ['workday-calendar', CALENDAR_BODY, calendar.query, CALENDAR_RESULT],
     ['github-commits', GITHUB_BODY, github.query, [{ hash: 'a', isMerge: false }]],
     ['ai-text', AI_BODY, ai.generate, { text: '结果' }],
     [

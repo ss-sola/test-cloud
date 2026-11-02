@@ -1344,7 +1344,7 @@
           { id: 'prompt-ai', source: { nodeId: 'prompt', port: 'text' }, target: { nodeId: 'ai', port: 'prompt' } },
           { id: 'ai-output', source: { nodeId: 'ai', port: 'text' }, target: { nodeId: 'output', port: 'text' } },
         ] })
-        setHint('已载入独立能力组成的周报样例。请在“提交记录”节点填写仓库和人员，并在 Token 配置填写 GitHub 与 AI 凭据；运行时提交数据会发给所配置的 AI。样例不发布飞书。')
+        setHint('已载入独立能力组成的周报样例。请在“提交记录”节点填写仓库和人员，并在 Token 配置填写 GitHub 与 AI 凭据；日期范围节点可开启“联网获取中国大陆工作日”。运行时提交数据会发给所配置的 AI。样例不发布飞书。')
         window.requestAnimationFrame(fitView)
       })
     }

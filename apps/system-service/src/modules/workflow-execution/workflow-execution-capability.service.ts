@@ -16,6 +16,8 @@ import { FeishuSheetCapabilityService } from '../workflow-capabilities/feishu-sh
 import { GithubCommitsCapabilityService } from '../workflow-capabilities/github-commits-capability.service';
 import { WorkflowCapabilityException } from '../workflow-capabilities/workflow-capability.exception';
 import { WorkflowExecutionIoService } from './workflow-execution-io.service';
+import { WorkdayCalendarDto } from '../workflow-capabilities/dto/workday-calendar.dto';
+import { WorkdayCalendarCapabilityService } from '../workflow-capabilities/workday-calendar-capability.service';
 
 interface CapabilityCall {
   kind: string;
@@ -33,6 +35,7 @@ export class WorkflowExecutionCapabilityService {
     private readonly feishu: FeishuSheetCapabilityService,
     private readonly contentCompare: ContentCompareService,
     private readonly io: WorkflowExecutionIoService,
+    private readonly calendar: WorkdayCalendarCapabilityService,
   ) {}
 
   /** 从固定能力名分派至已有 Service；写入决定只能由当前任务的确认流程产生。 */
@@ -64,6 +67,11 @@ export class WorkflowExecutionCapabilityService {
           signal,
           call: async () => {
             context.assertActive();
+            if (kind === 'workdayCalendar') {
+              const input = parseCapabilityDto(WorkdayCalendarDto, body);
+              if (!input) throw new WorkflowCapabilityException('本次工作日日历参数不合法。', 400);
+              return this.calendar.query(input, signal);
+            }
             if (kind === 'githubCommits') {
               const input = parseCapabilityDto(GithubCommitsDto, body);
               if (!input) throw new WorkflowCapabilityException('本次 GitHub 参数不合法。', 400);

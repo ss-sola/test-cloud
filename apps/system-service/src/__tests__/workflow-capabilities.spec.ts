@@ -140,7 +140,14 @@ describe('workflow atomic registration and metadata', () => {
       definitions
         .filter((definition: { version: number }) => definition.version > 1)
         .map((definition: { type: string }) => definition.type),
-    ).toEqual(['json-pick', 'json-merge', 'text-template', 'ai-text', 'feishu-write-cells']);
+    ).toEqual([
+      'date-range',
+      'json-pick',
+      'json-merge',
+      'text-template',
+      'ai-text',
+      'feishu-write-cells',
+    ]);
     for (const type of ['date-range', 'json-input']) expect(installed.get(type).inputs).toEqual([]);
     for (const type of TYPES.filter((item) => !['date-range', 'json-input'].includes(item))) {
       expect(latest(type).inputs[0]).toMatchObject({
@@ -1948,7 +1955,7 @@ describe('workflow atomic real entry-to-result data flow', () => {
     const dates = workspace.addNode('date-range', { x: 0, y: 300 });
     workspace.updateNode(dates.id, {
       name: '周报时间范围',
-      config: { period: 'custom', since: '2026-10-12', until: '2026-10-18' },
+      config: { ...dates.config, period: 'custom', since: '2026-10-12', until: '2026-10-18' },
     });
     const github = workspace.addNode('github-commits', { x: 350, y: 0 });
     workspace.updateNode(github.id, {
@@ -2088,7 +2095,7 @@ describe('workflow atomic real entry-to-result data flow', () => {
     const start = workspace.addNode('start', { x: 0, y: 0 });
     const dates = workspace.addNode('date-range', { x: 0, y: 300 });
     workspace.updateNode(dates.id, {
-      config: { period: 'custom', since: '2026-10-12', until: '2026-10-18' },
+      config: { ...dates.config, period: 'custom', since: '2026-10-12', until: '2026-10-18' },
     });
     const output = workspace.addNode('text-result', { x: 350, y: 0 });
     workspace.updateNode(output.id, { config: { format: 'json' } });
@@ -2110,7 +2117,7 @@ describe('workflow atomic real entry-to-result data flow', () => {
     const start = workspace.addNode('start', { x: 0, y: 0 });
     const dates = workspace.addNode('date-range', { x: 0, y: 300 });
     workspace.updateNode(dates.id, {
-      config: { period: 'custom', since: '2026-08-24', until: '2026-08-28' },
+      config: { ...dates.config, period: 'custom', since: '2026-08-24', until: '2026-08-28' },
     });
     const template = workspace.addNode('text-template', { x: 350, y: 0 });
     workspace.updateNode(template.id, {
@@ -2278,7 +2285,8 @@ describe('workflow start-node credentials', () => {
       Capabilities.CREDENTIAL_FIELDS.map((field: { group: string }) => field.group),
     );
     const remote = [...registry.definitions.values()].filter(
-      (definition: { remote?: boolean }) => definition.remote,
+      (definition: { remote?: boolean; credentialGroup?: string }) =>
+        definition.remote && definition.credentialGroup,
     );
     expect(remote.length).toBeGreaterThan(0);
     for (const definition of remote) expect(groups.has(definition.credentialGroup)).toBe(true);

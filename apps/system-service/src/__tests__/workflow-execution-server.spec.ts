@@ -10,6 +10,7 @@ import { ContentCompareService } from '../modules/content-compare/content-compar
 import { AiTextCapabilityService } from '../modules/workflow-capabilities/ai-text-capability.service';
 import type { FeishuSheetCapabilityService } from '../modules/workflow-capabilities/feishu-sheet-capability.service';
 import type { GithubCommitsCapabilityService } from '../modules/workflow-capabilities/github-commits-capability.service';
+import type { WorkdayCalendarCapabilityService } from '../modules/workflow-capabilities/workday-calendar-capability.service';
 import { WorkflowExecutionCapabilityService } from '../modules/workflow-execution/workflow-execution-capability.service';
 import { WorkflowExecutionEngineService } from '../modules/workflow-execution/workflow-execution-engine.service';
 import { WorkflowExecutionIoService } from '../modules/workflow-execution/workflow-execution-io.service';
@@ -272,6 +273,7 @@ function createHarness() {
     },
   );
   const github = { query: vi.fn() };
+  const calendar = { query: vi.fn() };
   const feishu = { findRow: vi.fn(), writeCells };
   const compare = new ContentCompareService();
   const io = new WorkflowExecutionIoService();
@@ -282,6 +284,7 @@ function createHarness() {
     feishu as unknown as FeishuSheetCapabilityService,
     compare,
     io,
+    calendar as unknown as WorkdayCalendarCapabilityService,
   );
   const service = new WorkflowExecutionService(new WorkflowExecutionEngineService(capability), io);
   const internals = service as unknown as {
@@ -311,6 +314,7 @@ function createHarness() {
   return {
     service,
     io,
+    calendar,
     compare,
     generate,
     writeCells,
@@ -414,6 +418,97 @@ describe('纯本地整图与订阅', () => {
     dateContext.now = '2020-01-01T00:00:00Z';
     const final = await h.finished(run);
     expect(h.stateOf(final, 'tpl').outputs).toEqual({ text: '2026-10-12~2026-10-18' });
+  });
+});
+
+describe('日期范围联网开关的统一任务执行', () => {
+  const calendar = {
+    region: 'CN',
+    timeZone: 'Asia/Shanghai',
+    startDate: '2026-10-10',
+    endDate: '2026-10-11',
+    workdays: ['2026-10-10'],
+    days: [
+      { date: '2026-10-10', isWorkday: true, reason: 'makeup-workday', name: '国庆节' },
+      { date: '2026-10-11', isWorkday: false, reason: 'weekend', name: '' },
+    ],
+    sources: [
+      {
+        year: 2026,
+        url: 'https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/2026.json',
+        papers: ['https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm'],
+      },
+    ],
+  };
+
+  /** 仍是原日期节点；联网结果沿既有 range 端口进入模板和 AI。 */
+  function graph(): string {
+    const doc = JSON.parse(
+      flow(
+        [
+          ['start', 'start'],
+          ['d', 'date-range', { period: 'custom', since: '2026-10-10', until: '2026-10-11' }],
+          ['tpl', 'text-template', { template: '工作日：{{context.workdayCalendar.workdays}}' }],
+          ['ai', 'ai-text'],
+          ['out', 'text-result'],
+        ],
+        [
+          ['start.trigger', 'tpl.trigger'],
+          ['d.range', 'tpl.context'],
+          ['tpl.text', 'ai.prompt'],
+          ['ai.text', 'out.text'],
+        ],
+      ),
+    );
+    const date = doc.nodes.find((node: { id: string }) => node.id === 'd');
+    date.version = 2;
+    date.config.includeWorkdays = true;
+    return JSON.stringify(doc);
+  }
+
+  const extra = { dateContext: { now: '2026-10-23T08:00:00Z', timeZone: 'Asia/Shanghai' } };
+
+  it('直接调用日历 Service 且只提交地区和日期，不通过 HTTP 回环或转发凭据', async () => {
+    h.calendar.query.mockResolvedValue(calendar);
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('不允许真实外部调用'));
+    const run = h.start(graph(), extra);
+    await h.aiCalls(1);
+    expect(h.calendar.query).toHaveBeenCalledOnce();
+    expect(h.calendar.query.mock.calls[0][0]).toEqual({
+      region: 'CN',
+      startDate: '2026-10-10',
+      endDate: '2026-10-11',
+    });
+    expect(h.calendar.query.mock.calls[0][1]).toBeInstanceOf(AbortSignal);
+    expect(h.generate.mock.calls[0][0].prompt).toBe('工作日：["2026-10-10"]');
+    expect(fetch).not.toHaveBeenCalled();
+    h.aiGates[0].resolve('仅安排调休工作日的周报');
+    const snapshot = await h.finished(run);
+    expect(h.stateOf(snapshot, 'd').status).toBe('succeeded');
+    expect(h.stateOf(snapshot, 'out').outputs).toEqual({ text: '仅安排调休工作日的周报' });
+  });
+
+  it('日历失败使原日期节点失败，阻止 AI 和其下游运行', async () => {
+    h.calendar.query.mockRejectedValue(new Error('日历不可用'));
+    const run = h.start(graph(), extra);
+    const snapshot = await h.finished(run);
+    expect(h.stateOf(snapshot, 'd').status).toBe('failed');
+    expect(h.stateOf(snapshot, 'd').outputs).toBeNull();
+    expect(h.generate).not.toHaveBeenCalled();
+    expect(h.writeCells).not.toHaveBeenCalled();
+  });
+
+  it('停止后不接收忽略信号的迟到日历，也不启动 AI', async () => {
+    const pending = deferred<typeof calendar>();
+    h.calendar.query.mockImplementation(() => pending.promise);
+    const run = h.start(graph(), extra);
+    await until(() => h.calendar.query.mock.calls.length === 1, '日历请求开始');
+    h.service.stop(run.runId, run.accessToken);
+    pending.resolve(calendar);
+    await tick();
+    const snapshot = await h.finished(run);
+    expect(h.stateOf(snapshot, 'd').outputs).toBeNull();
+    expect(h.generate).not.toHaveBeenCalled();
   });
 });
 

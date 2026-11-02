@@ -5,12 +5,17 @@
   const REQUEST_TIMEOUT_MS = 120_000
   const CREDENTIAL_STORAGE_KEY = 'nestcloud:release-tokens:v1'
   const ENDPOINTS = Object.freeze({
+    workdayCalendar: '/api/workflow-capabilities/workday-calendar',
     githubCommits: '/api/workflow-capabilities/github-commits',
     aiText: '/api/workflow-capabilities/ai-text',
     feishuFindRow: '/api/workflow-capabilities/feishu-find-row',
     feishuWriteCells: '/api/workflow-capabilities/feishu-write-cells',
   })
   const CREDENTIAL_REF = 'token-config'
+  const WORKDAY_CALENDAR = Object.freeze({
+    region: 'CN', timeZone: 'Asia/Shanghai', dayMs: 86_400_000, maxYears: 3, maxPapers: 20, maxNameChars: 64,
+    sourceBaseUrl: 'https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/',
+  })
   // 开始节点可填写的凭据，分组与 Token 配置一致；group 对应远程节点定义的 credentialGroup，limit 为字符上限，复选框无上限
   const CREDENTIAL_FIELDS = Object.freeze([
     { key: 'githubToken', group: 'github', label: 'GitHub Token', type: 'password', limit: 4096, help: '留空时使用 Token 配置中的 GitHub Token。' },
@@ -59,10 +64,11 @@
   /** 按定义校验配置：允许字段即 fields 声明的键，远程节点另需固定凭据引用；字段业务规则由定义的 check 判断。 */
   function checkConfig(definition, config) {
     try {
-      const keys = [...definition.fields.map((field) => field.key), ...(definition.remote ? ['credentialRef'] : [])]
+      const needsCredentials = definition.remote && definition.credentialGroup
+      const keys = [...definition.fields.map((field) => field.key), ...(needsCredentials ? ['credentialRef'] : [])]
       if (!object(config) || keys.some((key) => !has(config, key)) || Object.keys(config).some((key) => !keys.includes(key))) return '节点配置包含缺失或未允许的字段；凭据只能在开始节点或 Token 配置中提供。'
       Data.assertJsonValue(config)
-      if (definition.remote && config.credentialRef !== CREDENTIAL_REF) return '凭据引用只能是 token-config。'
+      if (needsCredentials && config.credentialRef !== CREDENTIAL_REF) return '凭据引用只能是 token-config。'
       return definition.check(config) ? null : '节点配置字段格式或预算无效，请检查配置。'
     } catch { return '节点配置字段格式、字段路径或预算无效，请检查配置。' }
   }
@@ -161,6 +167,67 @@
     return { since: normalized.since, until: normalized.until }
   }
 
+  /** 解析真实民用日期，拒绝引擎自动顺延的无效日期。 */
+  function calendarTimestamp(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN
+    const timestamp = Date.parse(`${value}T00:00:00Z`)
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value ? timestamp : NaN
+  }
+
+  /** 校验日期节点显式范围，并列出读取完整调休安排所需的年度。 */
+  function calendarContext(range) {
+    if (!object(range)) throw new CapabilityError('工作日日历需要明确的 startDate 和 endDate。')
+    const { startDate, endDate } = range
+    const startTime = calendarTimestamp(startDate)
+    const endTime = calendarTimestamp(endDate)
+    const days = (endTime - startTime) / WORKDAY_CALENDAR.dayMs + 1
+    if (!Number.isSafeInteger(days) || days < 1 || days > LIMITS.dateRangeDays) throw new CapabilityError('工作日日历必须提供真实且首尾包含不超过 366 天的日期范围。')
+    const firstYear = Number(startDate.slice(0, 4))
+    const lastYear = Number(endDate.slice(0, 4)) + (endDate.slice(5, 7) === '12' ? 1 : 0)
+    const years = Array.from({ length: lastYear - firstYear + 1 }, (_, index) => firstYear + index)
+    if (years.length > WORKDAY_CALENDAR.maxYears) throw new CapabilityError('工作日日历超出年度读取预算。')
+    return { region: WORKDAY_CALENDAR.region, startDate, endDate, startTime, days, years }
+  }
+
+  /** 日历来源只作元数据展示，不跟随政府通知链接发送请求。 */
+  function validCalendarPaper(value) {
+    if (!nonempty(value, 2048)) return false
+    try {
+      const url = new URL(value)
+      return url.protocol === 'https:' && url.hostname === 'www.gov.cn' && !url.username && !url.password && !url.port && !url.hash
+    } catch { return false }
+  }
+
+  /** 校验逐日覆盖、工作日清单与来源的一致性，并只返回受控字段。 */
+  function calendarResult(value, context) {
+    const fail = () => { throw new CapabilityError('工作日日历服务返回了无效或不完整的日历。') }
+    if (!object(value) || value.region !== context.region || value.timeZone !== WORKDAY_CALENDAR.timeZone
+      || value.startDate !== context.startDate || value.endDate !== context.endDate
+      || !Array.isArray(value.days) || value.days.length !== context.days
+      || !Array.isArray(value.workdays) || value.workdays.length > context.days
+      || !Array.isArray(value.sources) || value.sources.length !== context.years.length) fail()
+    const days = value.days.map((day, index) => {
+      const timestamp = context.startTime + index * WORKDAY_CALENDAR.dayMs
+      const expected = new Date(timestamp).toISOString().slice(0, 10)
+      const weekend = [0, 6].includes(new Date(timestamp).getUTCDay())
+      if (!object(day) || day.date !== expected || typeof day.isWorkday !== 'boolean' || !text(day.name, WORKDAY_CALENDAR.maxNameChars)) fail()
+      const ordinary = day.reason === (weekend ? 'weekend' : 'weekday') && day.isWorkday === !weekend && day.name === ''
+      const exception = ((day.reason === 'holiday' && !day.isWorkday) || (day.reason === 'makeup-workday' && day.isWorkday)) && nonempty(day.name, WORKDAY_CALENDAR.maxNameChars)
+      if (!ordinary && !exception) fail()
+      return { date: day.date, isWorkday: day.isWorkday, reason: day.reason, name: day.name }
+    })
+    const workdays = days.filter((day) => day.isWorkday).map((day) => day.date)
+    if (workdays.length !== value.workdays.length || workdays.some((date, index) => date !== value.workdays[index])) fail()
+    const sources = value.sources.map((source, index) => {
+      const year = context.years[index]
+      if (!object(source) || source.year !== year || source.url !== `${WORKDAY_CALENDAR.sourceBaseUrl}${year}.json`
+        || !Array.isArray(source.papers) || !source.papers.length || source.papers.length > WORKDAY_CALENDAR.maxPapers
+        || !source.papers.every(validCalendarPaper)) fail()
+      return { year, url: source.url, papers: [...source.papers] }
+    })
+    return { region: value.region, timeZone: value.timeZone, startDate: value.startDate, endDate: value.endDate, workdays, days, sources }
+  }
+
   /** 约束飞书匹配条件为明确列、模式和标量，且列必须位于读取范围内。 */
   function validateMatches(matches, range) {
     const copy = snapshot(matches)
@@ -213,7 +280,9 @@
   /** 白名单重建成功数据，错误正文、附加字段和凭据不能成为端口输出。 */
   function resultData(kind, value, context) {
     let result
-    if (kind === 'githubCommits') {
+    if (kind === 'workdayCalendar') {
+      result = calendarResult(value, context)
+    } else if (kind === 'githubCommits') {
       if (!Array.isArray(value) || value.length > context.maxCommits) throw new CapabilityError('GitHub 服务返回了无效提交数组。')
       result = value.map((commit) => {
         if (!object(commit) || !nonempty(commit.hash, 128) || !text(commit.author, 500) || !nonempty(commit.date, 80)
@@ -294,9 +363,12 @@
         if ((typeof options.invoke !== 'function' && typeof request !== 'function') || typeof readCredentials !== 'function') throw new CapabilityError('当前环境无法访问能力服务或 Token 配置。')
         const execution = Promise.resolve().then(async () => {
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
-          const credentials = startCredentials(kind, entry) ?? await Core.withAbort(Promise.resolve().then(readCredentials), controller.signal) // 开始节点优先，整组留空才读 Token 配置
-          if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
-          const runtime = runtimeCredentials(kind, credentials)
+          let runtime = {}
+          if (kind !== 'workdayCalendar') {
+            const credentials = startCredentials(kind, entry) ?? await Core.withAbort(Promise.resolve().then(readCredentials), controller.signal)
+            if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
+            runtime = runtimeCredentials(kind, credentials)
+          }
           const { body, context } = await Core.withAbort(prepare(runtime, { signal: controller.signal, untimed }), controller.signal)
           if (controller.signal.aborted) throw new CapabilityError('运行已停止。')
           submittedWrite = kind === 'feishuWriteCells'
@@ -331,6 +403,13 @@
     }
 
     return {
+      /** 只提交显式民用日期和固定地区，不读取或发送其他能力的凭据。 */
+      async workdayCalendar({ range, signal }) {
+        const context = calendarContext(snapshot(range))
+        return perform('workdayCalendar', { signal }, async () => ({
+          body: { region: context.region, startDate: context.startDate, endDate: context.endDate }, context,
+        }))
+      },
       /** 查询一个仓库的原始提交，不附带周报过滤或去重规则。 */
       async githubCommits({ config, range, signal, entry }) {
         const current = executionConfig('github-commits', config)
@@ -398,6 +477,12 @@
   })
 
   const TRIGGER = Object.freeze({ id: 'trigger', label: '启动', dataType: 'trigger', kind: Core.PORT_KIND.control })
+  const DATE_RANGE_FIELDS = [
+    { key: 'period', label: '周期', type: 'select', options: [{ value: 'last-week', label: '上周' }, { value: 'this-week', label: '本周' }, { value: 'custom', label: '自定义' }] },
+    { key: 'since', label: '开始时间', type: 'date', placeholder: 'YYYY-MM-DD', help: '自定义时使用：点日历按钮选择日期，或手输 YYYY-MM-DD / 含时区的 ISO 时间。' },
+    { key: 'until', label: '结束时间', type: 'date', placeholder: 'YYYY-MM-DD', help: '日期形式包含当日；本周/上周按执行时本地周一计算，不使用这两项。' },
+  ]
+  const checkDateRange = (config) => ['last-week', 'this-week', 'custom'].includes(config.period) && text(config.since, 80) && text(config.until, 80)
   const AI_FIELDS = [
     { key: 'systemPrompt', label: '系统提示词', type: 'textarea', rows: 5 },
     { key: 'contextWindowTokens', label: '模型上下文（Token）', type: 'number', min: LIMITS.aiMinContextWindowTokens, max: LIMITS.aiMaxContextWindowTokens, help: '默认 100000，须填写 4096～1000000 的整数。长输入自动分批与归并；估算余量不保证真实模型上下文，不限制输出 Token。' },
@@ -429,13 +514,23 @@
       type: 'date-range', version: 1, label: '日期范围', category: '数据输入', execution: Core.NODE_EXECUTION.data,
       inputs: [], outputs: [{ id: 'range', label: '日期范围', dataType: 'date-range' }],
       defaults: { period: 'last-week', since: '', until: '' },
-      fields: [
-        { key: 'period', label: '周期', type: 'select', options: [{ value: 'last-week', label: '上周' }, { value: 'this-week', label: '本周' }, { value: 'custom', label: '自定义' }] },
-        { key: 'since', label: '开始时间', type: 'date', placeholder: 'YYYY-MM-DD', help: '自定义时使用：点日历按钮选择日期，或手输 YYYY-MM-DD / 含时区的 ISO 时间。' },
-        { key: 'until', label: '结束时间', type: 'date', placeholder: 'YYYY-MM-DD', help: '日期形式包含当日；本周/上周按执行时本地周一计算，不使用这两项。' },
-      ],
-      check: (config) => ['last-week', 'this-week', 'custom'].includes(config.period) && text(config.since, 80) && text(config.until, 80),
+      fields: DATE_RANGE_FIELDS,
+      check: checkDateRange,
       execute: ({ node, services }) => ({ range: services.dateRange ? services.dateRange(node.config) : Data.createDateRange(node.config) }),
+    },
+    {
+      type: 'date-range', version: 2, label: '日期范围', category: '数据输入', execution: Core.NODE_EXECUTION.data, remote: true,
+      inputs: [], outputs: [{ id: 'range', label: '日期范围', dataType: 'date-range' }],
+      defaults: { period: 'last-week', since: '', until: '', includeWorkdays: false },
+      fields: [...DATE_RANGE_FIELDS, { key: 'includeWorkdays', label: '联网获取中国大陆工作日', type: 'checkbox', help: '开启后附加节假日、调休和实际工作日清单，无需 Token；联网失败或必要年度未发布时节点失败，不按周一至周五降级。' }],
+      check: (config) => checkDateRange(config) && typeof config.includeWorkdays === 'boolean',
+      migrate: (config) => ({ ...config, includeWorkdays: false }),
+      execute: async ({ node, services, signal }) => {
+        const range = services.dateRange ? services.dateRange(node.config) : Data.createDateRange(node.config)
+        if (!node.config.includeWorkdays) return { range }
+        const workdayCalendar = await services.workdayCalendar({ range, signal })
+        return { range: { ...range, workdayCalendar } }
+      },
     },
     {
       type: 'json-input', version: 1, label: 'JSON 输入', category: '数据输入', execution: Core.NODE_EXECUTION.data,
